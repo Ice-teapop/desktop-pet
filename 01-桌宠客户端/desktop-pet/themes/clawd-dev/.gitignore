@@ -1,0 +1,5 @@
+# 这个目录里除 README 和本文件外，其它全部不进 git（AGPL 隔离）
+# 详见 README.md
+*
+!.gitignore
+!README.md

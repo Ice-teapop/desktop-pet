@@ -1,0 +1,75 @@
+/* DeskPet 渲染层样式 — M0
+ *
+ * 关键：html / body / #root 必须 transparent 背景 ——
+ * 否则主进程 transparent:true 会被前端的不透明背景覆盖，看到的就是白色矩形而非桌宠。
+ */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100vw;
+  height: 100vh;
+  background: transparent;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
+
+.stage {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* 整个舞台可拖窗口（验证窗口能跟随鼠标移动）。
+     M1 改为只在角色实体像素可拖。 */
+  -webkit-app-region: drag;
+}
+
+.pet {
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 32% 28%, #6ec1ff 0%, #2563eb 65%, #1e3a8a 100%);
+  box-shadow:
+    0 8px 24px rgba(37, 99, 235, 0.35),
+    inset -8px -10px 20px rgba(0, 0, 0, 0.15),
+    inset 6px 6px 14px rgba(255, 255, 255, 0.25);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif;
+  font-weight: 600;
+  animation: breathe 3.2s ease-in-out infinite;
+}
+
+.pet span {
+  font-size: 18px;
+  letter-spacing: 0.05em;
+}
+
+.pet small {
+  margin-top: 4px;
+  font-size: 11px;
+  opacity: 0.7;
+  letter-spacing: 0.15em;
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.04);
+  }
+}
