@@ -1,0 +1,60 @@
+# DeskPet 非 LLM 视觉服务 —— 配置文件
+# 注意：bearer_token 不要把真实值提交到版本库，部署时用环境变量
+#       DESKPET_VISION_TOKEN 覆盖。
+
+service:
+  pipeline_version: "vision-svc/0.1.0"
+  host: "0.0.0.0"
+  port: 8800
+
+auth:
+  # 客户端与服务端两侧需配置一致的 token
+  bearer_token: "change-me-please"
+
+limits:
+  max_image_bytes: 8388608     # 8 MB（请求体字节上限）
+  max_image_pixels: 50000000   # 5000 万像素上限，防解压炸弹（远超任何屏幕区域）
+  rate_per_min: 120
+  max_blocks: 200
+
+logging:
+  level: "INFO"
+
+# 一期启用的识别器（见《非 LLM 视觉服务 — 框架设计》）
+recognizers:
+  enabled: ["text", "table", "formula", "code"]
+
+# OCR 设置
+ocr:
+  engine: "tesseract"
+  lang: "chi_sim+eng"    # 中英混合识别（服务器需装 tesseract-ocr-chi-sim 包）
+  low_confidence: 0.5    # 置信度低于此值的文本块标记 low_confidence
+
+# 版面分析设置（步骤 3）
+layout:
+  binarize_threshold: 160   # 二值化阈值（0-255），低于此视为内容像素
+  min_gap_rows: 8           # 区域之间的最小空白行间隔
+  min_content_pixels: 3     # 一行被视为「有内容」的最小暗像素数
+  region_padding: 16        # 裁剪区域时四周留白，OCR 引擎需要边距才能正常工作
+  max_regions: 200          # 单帧最多切出的区域数；封顶以防被构造的图打出大量 OCR 子进程
+  block_gap_factor: 1.0     # 行间距 > 行高 * 此系数 才算区域边界，避免按行拆碎段落/代码块
+
+# 表格识别设置（步骤 4b）
+table:
+  line_ratio: 0.7      # 一行/列暗像素占比 > 此值视为网格线
+  max_cells: 200       # 单个表格最多解析的单元格数（封顶，防超大网格）
+  cell_inset: 2        # 网格线已按实际宽度排除，这里再留的小余量像素
+
+# 公式识别设置（步骤 4c）
+# 需在服务器安装 pix2tex（含 PyTorch，较重）；未装则公式区域优雅降级为文本
+formula:
+  engine: "pix2tex"
+  nominal_confidence: 0.6   # pix2tex 不提供置信度，用此名义值
+
+# 各类型的转码目标格式（已确认的决策）
+# 注意：只列一期已启用识别器对应的目标，与 recognizers.enabled 保持一致。
+#       symbol 识别器为二期，届时再把 symbol: "unicode" 加回来。
+targets:
+  formula: "latex"
+  table: "table-json"
+  code: "code"

@@ -1,0 +1,67 @@
+# macOS
+.DS_Store
+._*
+.AppleDouble
+.LSOverride
+
+# Python（vision-service）
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+.coverage
+.mypy_cache/
+.ruff_cache/
+
+# Node / Electron / Vite（即将出现在 01-桌宠客户端/）
+node_modules/
+dist/
+dist-electron/
+out/
+.vite/
+.turbo/
+*.tsbuildinfo
+.parcel-cache/
+.vite-cache/
+electron-builder.env
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 临时 / 本机产物
+.tmp/
+.cache/
+*.bak
+
+# 敏感配置 —— 真实凭证绝不入库
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+secrets/
+
+# AI 助手私有笔记（commit_to_git=false，按 careful-coder 配置）
+.careful-coder/
+
+# 备份文件
+*.backup
+* 2.docx
+* (1).docx
+"* 2.docx"
+
+# pytest 临时输出
+/tmp/deskpet-*

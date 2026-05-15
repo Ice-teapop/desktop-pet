@@ -1,0 +1,17 @@
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pydantic>=2.6
+pyyaml>=6.0
+python-multipart>=0.0.9
+pillow>=10.0
+pytesseract>=0.3.10
+pytest>=8.0
+httpx>=0.27
+
+# 注意：pytesseract 还需系统安装 tesseract-ocr 二进制 + 语言包：
+#   Ubuntu/Debian: apt-get install tesseract-ocr tesseract-ocr-eng tesseract-ocr-chi-sim
+#   读中文必须装 tesseract-ocr-chi-sim，并把 config.yaml 的 ocr.lang 改为 "chi_sim+eng"
+
+# 可选：公式识别（步骤 4c）依赖 pix2tex（含 PyTorch，较重）。
+#   不装则公式区域优雅降级为文本。要启用公式识别，在服务器上执行：
+#     pip install pix2tex

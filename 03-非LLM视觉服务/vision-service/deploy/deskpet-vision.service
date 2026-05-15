@@ -1,0 +1,39 @@
+# DeskPet 非 LLM 视觉服务 —— systemd 服务单元
+#
+# 安装步骤见《部署文档》「用 systemd 托管」一节。要点：
+#   - 代码放 /opt/deskpet/vision-service，虚拟环境在其下的 .venv
+#   - 专用非 root 用户 deskpet 运行
+#   - token 通过 /etc/deskpet-vision.env 注入（不写进本文件、不进 git）
+
+[Unit]
+Description=DeskPet Vision Service (non-LLM)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=deskpet
+Group=deskpet
+WorkingDirectory=/opt/deskpet/vision-service
+
+# 敏感配置（token）从这里注入，不硬编码进单元文件
+EnvironmentFile=/etc/deskpet-vision.env
+
+# 限制 PyTorch / BLAS 线程数 —— 适配 2GB / 1 vCPU 小机器（非敏感，可入库）
+Environment=OMP_NUM_THREADS=1
+Environment=MKL_NUM_THREADS=1
+Environment=OPENBLAS_NUM_THREADS=1
+
+# 单 worker：2GB 内存只够一个；pix2tex 模型每 worker 各占一份
+ExecStart=/opt/deskpet/vision-service/.venv/bin/uvicorn src.main:app --host 0.0.0.0 --port 8800 --workers 1
+
+Restart=on-failure
+RestartSec=5
+
+# 基础加固
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target
