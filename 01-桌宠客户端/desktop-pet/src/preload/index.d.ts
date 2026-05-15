@@ -8,6 +8,10 @@ export interface DeskPetAPI {
   petClick(): void
   onPetState(listener: (state: PetState) => void): () => void
   setIgnoreMouse(ignore: boolean): void
+  submitChat(text: string): void
+  onChatReply(listener: (text: string) => void): () => void
+  setChatOpen(open: boolean): void
+  onChatWindowReady(listener: () => void): () => void
 }
 
 declare global {

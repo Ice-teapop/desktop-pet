@@ -1,22 +1,14 @@
 /**
- * DeskPet 主进程 — M1（含 M1-7 点击穿透 + watchdog 保活全屏跨越）。
+ * DeskPet 主进程 — M1-8（cr 复审三项修复 #1 #2 #3）。
  *
- * 当前职责：
- *   1. 透明无边框置顶窗口 + macOS Space + fullscreen 跨越保活
- *   2. PetStateMachine（按动画引擎设计 5.1 + 5.2 + 10.1）
- *   3. IPC：'window:move-delta'、'pet:event:click'、'pet:state'、'window:ignore-mouse'
- *   4. 系统托盘菜单：显隐桌宠 / 重置位置 / Demo / 退出
- *   5. 点击穿透：默认透明区域穿透 click 到底层 app；渲染层 hit testing 切换
+ * 修复要点：
+ *   - #1 智能扩展方向：检测桌宠中心在屏幕哪一边，决定窗口往左/右展，
+ *     桌宠在左半屏时往右扩（不出屏），右半屏时往左扩（原行为）；x 加边界 clamp
+ *   - #2/#3 配合渲染层的两阶段过渡：开屏 setBounds 完成后 IPC 'chat:window-ready'
+ *     通知渲染层 fade-in conversation；关屏由渲染层 fade-out 完成后才回 setChatOpen(false)
  *
- * macOS visibility 保活策略（对照 clawd-on-desk/src/topmost-runtime.js）：
- * 系统在 Space 切换 / fullscreen enter-exit / display 变化时会主动 reset
- * NSWindow.collectionBehavior，让桌宠从全屏 app 上消失。对策：
- *   - reapplyMacVisibility() 集中重设 level + cross-Space
- *   - watchdog setInterval 1s 周期性 reapply（兜底）
- *   - screen.on(display-*) 事件触发即时 reapply
- *   - IPC 'window:ignore-mouse' 后立即 reapply（setIgnoreMouseEvents 也会 reset）
- *
- * tray / petWindow / visibilityWatchdog 都是模块级引用，避免 GC 后失效。
+ * 其它（M1-7 基础）：透明 NSPanel + focusable:true / Space 跨越 watchdog /
+ * 'screen-saver' level / 点击穿透 IPC / SUCCESS_HOLD_MS=minMs+100 防 transition 拦截。
  */
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, screen, Tray } from 'electron'
 import { join } from 'path'
@@ -24,10 +16,16 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { PET_STATES, type PetState } from '../shared/pet-state'
 import trayIconPath from '../../resources/icon.png?asset'
 
-const PET_WIDTH = 240
-const PET_HEIGHT = 240
+const WIN_WIDTH_COMPACT = 260
+const WIN_WIDTH_FULL = 500 // 像素风字体更紧凑，对话区可以缩到 230px（之前 280）
+const WIN_HEIGHT = 280
 const MARGIN_FROM_EDGE = 24
 const VISIBILITY_WATCHDOG_MS = 1000
+// setBounds animate=true 默认 ~250ms（macOS）；其它平台无动画。固定 320ms 等动画完。
+const WINDOW_RESIZE_ANIM_MS = 320
+
+const ECHO_DELAY_MS = 1500
+const SUCCESS_HOLD_MS = PET_STATES.success.minMs + 100
 
 class PetStateMachine {
   private current: PetState = 'idle'
@@ -40,7 +38,6 @@ class PetStateMachine {
     return this.current
   }
 
-  /** 尝试切换到 target。受优先级 + minMs 保护。返回是否真的切了。 */
   transition(target: PetState): boolean {
     if (target === this.current) return false
     const tPrio = PET_STATES[target].priority
@@ -56,7 +53,6 @@ class PetStateMachine {
     return false
   }
 
-  /** M1 demo：单击 → thinking 2s → success 1.5s → idle。M2 由 Agent 事件驱动。 */
   demoCycle(): void {
     if (this.timer) clearTimeout(this.timer)
     this.transition('thinking')
@@ -65,8 +61,21 @@ class PetStateMachine {
       this.timer = setTimeout(() => {
         this.transition('idle')
         this.timer = null
-      }, 1500)
+      }, SUCCESS_HOLD_MS)
     }, 2000)
+  }
+
+  chatCycle(onReplyReady: () => void): void {
+    if (this.timer) clearTimeout(this.timer)
+    this.transition('thinking')
+    this.timer = setTimeout(() => {
+      onReplyReady()
+      this.transition('success')
+      this.timer = setTimeout(() => {
+        this.transition('idle')
+        this.timer = null
+      }, SUCCESS_HOLD_MS)
+    }, ECHO_DELAY_MS)
   }
 }
 
@@ -77,10 +86,6 @@ const stateMachine = new PetStateMachine((state) => {
   petWindow?.webContents.send('pet:state', state)
 })
 
-/**
- * 集中重设 macOS 窗口可见性（level + cross-Space）。所有可能 reset
- * NSWindow.collectionBehavior 的时机都调一次，外加 1s watchdog 兜底。
- */
 function reapplyMacVisibility(win: BrowserWindow | null): void {
   if (!win || win.isDestroyed()) return
   if (process.platform !== 'darwin') return
@@ -102,14 +107,69 @@ function stopVisibilityWatchdog(): void {
   }
 }
 
+/**
+ * 切换对话 UI 对应的窗口尺寸 —— 关闭 compact，打开 full。
+ *
+ * 智能扩展方向（修 cr #1）：
+ *   - 桌宠中心在屏幕右半 → 对话往左扩（窗口左上角 x 减小）
+ *   - 桌宠中心在屏幕左半 → 对话往右扩（窗口左上角 x 不动，桌宠保持在窗口右侧）
+ *   - 边界 clamp 确保 x 始终在 workArea 内
+ * 关屏方向同样基于当前窗口位置反推，保持桌宠视觉位置不变。
+ *
+ * 开屏完成后 setTimeout 等动画结束发 'chat:window-ready' 通知渲染层 fade-in
+ * conversation（修 cr #2）。
+ */
+function setChatOpen(open: boolean): void {
+  if (!petWindow || petWindow.isDestroyed()) return
+  const newW = open ? WIN_WIDTH_FULL : WIN_WIDTH_COMPACT
+  const [oldW] = petWindow.getSize()
+  if (oldW === newW) return
+
+  const [x, y] = petWindow.getPosition()
+  // 用 getDisplayMatching 拿当前窗口所在的显示器（多屏场景对的）
+  const display = screen.getDisplayMatching({ x, y, width: oldW, height: WIN_HEIGHT })
+  const { workArea } = display
+
+  const centerX = x + oldW / 2
+  const screenCenterX = workArea.x + workArea.width / 2
+  const expandsLeft = centerX > screenCenterX // 右半屏 → 往左扩；左半屏 → 往右扩
+
+  let newX: number
+  if (open) {
+    newX = expandsLeft ? x + (oldW - newW) : x // 往左扩 x 减小；往右扩 x 不动
+  } else {
+    newX = expandsLeft ? x + (oldW - newW) : x // 关屏方向跟开屏一致即保持桌宠原位
+  }
+
+  // 边界 clamp：x ∈ [workArea.x, workArea.x + workArea.width - newW]
+  const minX = workArea.x
+  const maxX = workArea.x + workArea.width - newW
+  newX = Math.max(minX, Math.min(newX, maxX))
+
+  petWindow.setBounds(
+    { x: newX, y, width: newW, height: WIN_HEIGHT },
+    true // animate（macOS 上 setBounds 第二参数启用过渡）
+  )
+  reapplyMacVisibility(petWindow)
+
+  // 开屏：等窗口动画完成（macOS ~250ms）后通知渲染层 fade-in conversation
+  if (open) {
+    setTimeout(() => {
+      if (petWindow && !petWindow.isDestroyed()) {
+        petWindow.webContents.send('chat:window-ready')
+      }
+    }, WINDOW_RESIZE_ANIM_MS)
+  }
+}
+
 function createPetWindow(): void {
   const { workArea } = screen.getPrimaryDisplay()
 
   const win = new BrowserWindow({
-    width: PET_WIDTH,
-    height: PET_HEIGHT,
-    x: workArea.x + workArea.width - PET_WIDTH - MARGIN_FROM_EDGE,
-    y: workArea.y + workArea.height - PET_HEIGHT - MARGIN_FROM_EDGE,
+    width: WIN_WIDTH_COMPACT,
+    height: WIN_HEIGHT,
+    x: workArea.x + workArea.width - WIN_WIDTH_COMPACT - MARGIN_FROM_EDGE,
+    y: workArea.y + workArea.height - WIN_HEIGHT - MARGIN_FROM_EDGE,
     show: false,
     frame: false,
     transparent: true,
@@ -117,13 +177,7 @@ function createPetWindow(): void {
     skipTaskbar: true,
     hasShadow: false,
     resizable: false,
-    // macOS 上创建为 NSPanel —— NSPanel 默认 nonactivating，
-    // 既支持跨 Space + fullscreen 又不抢键盘焦点（最重要的特性组合）
     ...(process.platform === 'darwin' ? { type: 'panel' } : {}),
-    // KEY: focusable 必须 true 才能让 setVisibleOnAllWorkspaces 真正生效。
-    // 之前 false 会让 NSPanel 进入 nonactivating + can't-join-spaces 的状态组合，
-    // setVisibleOnAllWorkspaces silently 失效。Linux 保留 false（按 clawd 注释 Linux
-    // 有 WS_EX_NOACTIVATE 不同的 bug 路径）。
     focusable: process.platform !== 'linux',
     fullscreenable: false,
     webPreferences: {
@@ -143,8 +197,6 @@ function createPetWindow(): void {
 
   win.on('ready-to-show', () => {
     win.show()
-    // 顺序：先设穿透，再设可见性 —— setIgnoreMouseEvents 会 reset collection behavior，
-    // 必须让 visibility 调用排在它后面才能持久生效。
     win.setIgnoreMouseEvents(true, { forward: true })
     reapplyMacVisibility(win)
     startVisibilityWatchdog()
@@ -162,16 +214,17 @@ function togglePetVisibility(): void {
   if (petWindow.isVisible()) petWindow.hide()
   else {
     petWindow.show()
-    reapplyMacVisibility(petWindow) // show 后 collection behavior 可能被重置
+    reapplyMacVisibility(petWindow)
   }
 }
 
 function resetPetPosition(): void {
   if (!petWindow) return
   const { workArea } = screen.getPrimaryDisplay()
+  const [w] = petWindow.getSize()
   petWindow.setPosition(
-    workArea.x + workArea.width - PET_WIDTH - MARGIN_FROM_EDGE,
-    workArea.y + workArea.height - PET_HEIGHT - MARGIN_FROM_EDGE
+    workArea.x + workArea.width - w - MARGIN_FROM_EDGE,
+    workArea.y + workArea.height - WIN_HEIGHT - MARGIN_FROM_EDGE
   )
 }
 
@@ -222,16 +275,24 @@ function registerIpc(): void {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return
     win.setIgnoreMouseEvents(ignore, { forward: true })
-    // 立即兜底，不等下一次 watchdog tick —— 鼠标进/出 hit zone 切换频繁，
-    // 1s watchdog 间隔下用户可能看到桌宠在全屏 app 上闪失
     reapplyMacVisibility(win)
+  })
+
+  ipcMain.on('chat:submit', (event, text: string) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) return
+    const cleaned = String(text).slice(0, 2000).trim()
+    if (!cleaned) return
+    stateMachine.chatCycle(() => {
+      win.webContents.send('chat:reply', `🤖 收到：${cleaned}`)
+    })
+  })
+
+  ipcMain.on('chat:set-open', (_event, open: boolean) => {
+    setChatOpen(Boolean(open))
   })
 }
 
-/**
- * 监听 screen 模块的 display 变化事件 —— 切显示器 / 缩放变更等会 reset
- * collection behavior，主动触发 reapply 而不依赖 watchdog 周期。
- */
 function watchScreenEvents(): void {
   const trigger = (): void => reapplyMacVisibility(petWindow)
   screen.on('display-metrics-changed', trigger)

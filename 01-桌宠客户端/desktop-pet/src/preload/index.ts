@@ -29,6 +29,29 @@ const api = {
    */
   setIgnoreMouse(ignore: boolean): void {
     ipcRenderer.send('window:ignore-mouse', ignore)
+  },
+  /** 用户提交对话消息（M1-8 主进程模拟 echo；M2 替换为真 LLM 流式调用）。 */
+  submitChat(text: string): void {
+    ipcRenderer.send('chat:submit', text)
+  },
+  /** 订阅 AI 回复推送；返回取消订阅函数。 */
+  onChatReply(listener: (text: string) => void): () => void {
+    const handler = (_event: IpcRendererEvent, text: string): void => listener(text)
+    ipcRenderer.on('chat:reply', handler)
+    return () => ipcRenderer.off('chat:reply', handler)
+  },
+  /** 通知主进程对话 UI 开/关：主进程据此切换窗口尺寸（紧凑 260 / 扩展 540）。 */
+  setChatOpen(open: boolean): void {
+    ipcRenderer.send('chat:set-open', open)
+  },
+  /**
+   * 订阅主进程通知"窗口扩展完成"事件 —— 用于渲染层等窗口动画完才 fade-in 对话 UI，
+   * 避免 conversation 在 260px 窗口内右侧被裁的半渲染期。返回取消订阅函数。
+   */
+  onChatWindowReady(listener: () => void): () => void {
+    const handler = (): void => listener()
+    ipcRenderer.on('chat:window-ready', handler)
+    return () => ipcRenderer.off('chat:window-ready', handler)
   }
 }
 

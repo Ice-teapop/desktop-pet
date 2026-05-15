@@ -1,10 +1,53 @@
-/* DeskPet 渲染层样式 — M1（回退双层 crossfade，单层硬切）
+/* DeskPet 渲染层样式 — M1-8（像素风对话框，仿 Pixel Chat 02 - Coral 变体）
  *
- * 关键：
- * - html/body/#root 透明 → 主进程 transparent:true 才生效
- * - .pet 单层显示 inline SVG —— SVG 内嵌的 @keyframes 自由播放，不互相污染
- * - 不用 -webkit-app-region:drag（会吞 click），渲染层 mousedown 状态机自接管拖动
+ * 设计原则：
+ *  - 奶油底（#f7f1e6）+ 珊瑚边（#d97560）+ 暖色调（不用纯黑）
+ *  - 切角 4px clip-path（八角"像素圆角"）+ 偏移硬阴影（不用 blur）
+ *  - 中文 Cubic11 像素字体；英文 Press Start 2P；steps() 动画保像素感
+ *
+ * 字体来源（开源 OFL，可商用）：Cubic11 远程 woff2、Press Start 2P Google Fonts
  */
+
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+@font-face {
+  font-family: 'Cubic11';
+  src: url('https://cdn.jsdelivr.net/gh/ACh-K/Cubic-11/fonts/Cubic_11_1.013_R.woff2')
+    format('woff2');
+  font-display: swap;
+}
+
+:root {
+  --ink: #3a2820; /* 文字（暖深棕，不用纯黑） */
+  --paper: #f7f1e6; /* 奶油底 */
+  --coral: #d97560; /* 主边 */
+  --coral-deep: #b8503a; /* 阴影 / 强调 */
+  --coral-soft: #f5c2b3; /* AI 气泡柔和高亮 */
+  --muted: #a89889;
+
+  --bw: 3px;
+  --notch: 4px;
+  /* clip-path 会裁掉 box-shadow（绘制在元素外，全在裁切区外）—— 必须用
+   * filter: drop-shadow 才能让像素硬阴影显示在切角元素上 */
+  --drop-shadow: drop-shadow(3px 3px 0 var(--coral-deep));
+  --drop-shadow-sm: drop-shadow(2px 2px 0 var(--coral-deep));
+
+  --fnt-cn: 'Cubic11', -apple-system, BlinkMacSystemFont, 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
+  --fnt-en: 'Press Start 2P', ui-monospace, monospace;
+
+  /* 八角切角（像素风"圆角") —— 用于所有像素卡片 */
+  --clip-pixel-card: polygon(
+    var(--notch) 0,
+    calc(100% - var(--notch)) 0,
+    100% var(--notch),
+    100% calc(100% - var(--notch)),
+    calc(100% - var(--notch)) 100%,
+    var(--notch) 100%,
+    0 calc(100% - var(--notch)),
+    0 var(--notch)
+  );
+}
 
 * {
   margin: 0;
@@ -22,19 +65,25 @@ body,
   user-select: none;
   -webkit-user-select: none;
   cursor: default;
+  color: var(--ink);
+  font-family: var(--fnt-cn);
+  -webkit-font-smoothing: antialiased;
 }
 
 .stage {
   width: 100%;
   height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  position: relative;
 }
 
+/* —— 桌宠 —— */
 .pet {
-  width: 220px;
-  height: 220px;
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  width: 240px;
+  height: 240px;
+  padding: 20px;
   cursor: grab;
   display: flex;
   align-items: center;
@@ -45,10 +94,223 @@ body,
   cursor: grabbing;
 }
 
-/* inline 的 SVG 撑满 .pet；保留像素感 */
 .pet svg {
   width: 100%;
   height: 100%;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
+  overflow: visible;
+}
+
+/* —— 对话 UI 容器（左侧） —— */
+.conversation {
+  position: absolute;
+  left: 12px;
+  top: 14px;
+  width: 230px;
+  height: calc(100% - 28px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: conv-fade-in 220ms ease-out forwards;
+}
+
+.conversation.closing {
+  animation: conv-fade-out 200ms ease-in forwards;
+}
+
+@keyframes conv-fade-in {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes conv-fade-out {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+}
+
+/* —— 消息列表（占满 conversation 剩余空间，scrollbar 隐藏） —— */
+.messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 2px;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.messages::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+/* —— 提示气泡（messages 为空时居中显示） —— */
+.hint {
+  align-self: center;
+  margin: auto 0;
+  max-width: 100%;
+  padding: 9px 11px;
+  background: var(--paper);
+  color: var(--ink);
+  border: var(--bw) solid var(--coral);
+  font-family: var(--fnt-cn);
+  font-size: 12px;
+  line-height: 1.55;
+  letter-spacing: 0.3px;
+  text-align: center;
+  clip-path: var(--clip-pixel-card);
+  filter: var(--drop-shadow);
+  animation: hint-bob 3.2s steps(2) infinite 1s;
+}
+
+@keyframes hint-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2px);
+  }
+}
+
+/* —— 键盘按键高亮 —— */
+.kbd {
+  display: inline-block;
+  font-family: var(--fnt-en);
+  font-size: 8px;
+  padding: 1px 4px;
+  background: var(--coral);
+  color: #fff;
+  margin: 0 1px;
+  vertical-align: 1px;
+  letter-spacing: 1px;
+}
+
+/* —— 消息行（user 右对齐，ai 左对齐） —— */
+.msg {
+  display: flex;
+  width: 100%;
+}
+
+.msg-user {
+  justify-content: flex-end;
+}
+
+.msg-ai {
+  justify-content: flex-start;
+}
+
+.msg-bubble {
+  max-width: 86%;
+  padding: 6px 10px;
+  font-family: var(--fnt-cn);
+  font-size: 12px;
+  line-height: 1.45;
+  letter-spacing: 0.2px;
+  border: var(--bw) solid var(--coral);
+  background: var(--paper);
+  color: var(--ink);
+  word-break: break-word;
+  clip-path: var(--clip-pixel-card);
+  filter: var(--drop-shadow-sm);
+  animation: msg-in 0.25s steps(4) both;
+}
+
+.msg-user .msg-bubble {
+  background: var(--coral);
+  color: #fff;
+  border-color: var(--coral-deep);
+}
+
+.msg-ai .msg-bubble {
+  background: var(--coral-soft);
+}
+
+@keyframes msg-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* —— 打字指示器（等 AI 回复时显示） —— */
+.typing {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--coral-soft);
+  border: var(--bw) solid var(--coral);
+  padding: 8px 10px;
+  clip-path: var(--clip-pixel-card);
+  filter: var(--drop-shadow-sm);
+}
+
+.typing-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--coral);
+  animation: typing-jump 0.6s steps(2) infinite;
+}
+
+.typing-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.typing-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes typing-jump {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+/* —— 输入框 —— */
+.chat-input {
+  flex-shrink: 0;
+  width: 100%;
+  font-family: var(--fnt-cn);
+  font-size: 12.5px;
+  color: var(--ink);
+  background: var(--paper);
+  border: var(--bw) solid var(--coral);
+  padding: 8px 12px;
+  outline: none;
+  letter-spacing: 0.3px;
+  clip-path: var(--clip-pixel-card);
+  filter: var(--drop-shadow);
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.chat-input::placeholder {
+  color: var(--muted);
+}
+
+.chat-input:focus {
+  border-color: var(--coral-deep);
 }
