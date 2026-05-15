@@ -1,13 +1,17 @@
 /**
- * DeskPet 主进程 — M0 骨架。
+ * DeskPet 主进程 — M0.5 骨架（透明置顶 + IPC 窗口拖动）。
  *
- * 当前职责：创建一个右下角、透明、置顶、无边框、不抢焦点的桌宠窗口。
- * 还没做：点击穿透 + 像素级 hit testing（M1）、状态机、IPC 业务通道（M1+）。
+ * 当前职责：
+ *   1. 创建右下角透明无边框置顶窗口
+ *   2. 监听 IPC 'window:move-delta'：让渲染层接管的鼠标拖动能真正移动窗口
  *
- * 参考思路（不照搬代码）：clawd-on-desk 的 pet-window-runtime.js 双窗口架构。
- * 我们 M0 先单窗口（hit + pet 合一），M1 再考虑是否拆双窗口。
+ * 还没做：点击穿透 + 像素级 hit testing（M1）、状态机、托盘菜单。
+ *
+ * 参考思路：clawd-on-desk 的 pet-window-runtime.js 双窗口架构 +
+ * Pointer Capture 拖动。我们 M0.5 单窗口 + IPC delta 拖动 ——
+ * 简单但够用，M1 看是否升级为 Pointer Capture / 双窗口。
  */
-import { app, BrowserWindow, screen } from 'electron'
+import { app, BrowserWindow, ipcMain, screen } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 
@@ -24,14 +28,13 @@ function createPetWindow(): void {
     x: workArea.x + workArea.width - PET_WIDTH - MARGIN_FROM_EDGE,
     y: workArea.y + workArea.height - PET_HEIGHT - MARGIN_FROM_EDGE,
     show: false,
-    // —— 桌宠窗口外壳的核心配置 ——
-    frame: false, // 无边框
-    transparent: true, // 透明背景
-    alwaysOnTop: true, // 置顶
-    skipTaskbar: true, // 不进任务栏 / Dock
-    hasShadow: false, // 无窗口阴影，避免角色周围出现矩形阴影
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    hasShadow: false,
     resizable: false,
-    focusable: false, // 不抢焦点，不打断用户当前在做的事
+    focusable: false,
     fullscreenable: false,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -39,8 +42,6 @@ function createPetWindow(): void {
     }
   })
 
-  // macOS：'floating' 比默认 'normal' 更鲁棒，在全屏应用之上也能浮在最上。
-  // M1 还要加 setVisibleOnAllWorkspaces 让桌宠跟随当前 Space。
   win.setAlwaysOnTop(true, 'floating')
 
   win.on('ready-to-show', () => win.show())
@@ -52,6 +53,17 @@ function createPetWindow(): void {
   }
 }
 
+// 渲染层算出的鼠标 dx/dy 增量 → 主进程移动窗口位置。
+// 由 App.tsx 的拖动状态机驱动（距离阈值方案：< 5px 是点击，≥ 5px 进入拖动）。
+function registerIpc(): void {
+  ipcMain.on('window:move-delta', (event, dx: number, dy: number) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) return
+    const [x, y] = win.getPosition()
+    win.setPosition(x + Math.round(dx), y + Math.round(dy))
+  })
+}
+
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.deskpet.desktop-pet')
 
@@ -59,6 +71,7 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
+  registerIpc()
   createPetWindow()
 
   app.on('activate', () => {
@@ -66,8 +79,6 @@ app.whenReady().then(() => {
   })
 })
 
-// macOS 习惯：所有窗口关掉后应用不退出（保留在托盘呼出）。
-// 桌宠 skipTaskbar=true 不进 Dock —— M1 加托盘菜单后由用户主动退出。
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()

@@ -1,7 +1,10 @@
-/* DeskPet 渲染层样式 — M0
+/* DeskPet 渲染层样式 — M0.5
  *
- * 关键：html / body / #root 必须 transparent 背景 ——
- * 否则主进程 transparent:true 会被前端的不透明背景覆盖，看到的就是白色矩形而非桌宠。
+ * 关键：html / body / #root 透明背景 —— 否则前端不透明背景会覆盖主进程的
+ * transparent:true，看到的是白色矩形而非桌宠。
+ *
+ * 注意：不再用 -webkit-app-region: drag。drag region 会吞掉 click 事件
+ * 让单击无响应。改为渲染层用 mousedown 状态机 + IPC 自己接管拖动。
  */
 
 * {
@@ -28,48 +31,35 @@ body,
   display: flex;
   align-items: center;
   justify-content: center;
-  /* 整个舞台可拖窗口（验证窗口能跟随鼠标移动）。
-     M1 改为只在角色实体像素可拖。 */
-  -webkit-app-region: drag;
 }
 
 .pet {
-  width: 180px;
-  height: 180px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 32% 28%, #6ec1ff 0%, #2563eb 65%, #1e3a8a 100%);
-  box-shadow:
-    0 8px 24px rgba(37, 99, 235, 0.35),
-    inset -8px -10px 20px rgba(0, 0, 0, 0.15),
-    inset 6px 6px 14px rgba(255, 255, 255, 0.25);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  color: white;
-  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif;
-  font-weight: 600;
-  animation: breathe 3.2s ease-in-out infinite;
+  width: 200px;
+  height: 200px;
+  object-fit: contain;
+  -webkit-user-drag: none;
+  /* 像素风 SVG 放大时关抗锯齿，保留像素感 */
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  cursor: grab;
+  animation: bump 0.32s ease-out;
 }
 
-.pet span {
-  font-size: 18px;
-  letter-spacing: 0.05em;
+.pet:active {
+  cursor: grabbing;
 }
 
-.pet small {
-  margin-top: 4px;
-  font-size: 11px;
-  opacity: 0.7;
-  letter-spacing: 0.15em;
-}
-
-@keyframes breathe {
-  0%,
-  100% {
+@keyframes bump {
+  0% {
     transform: scale(1);
   }
-  50% {
-    transform: scale(1.04);
+  35% {
+    transform: scale(1.12) rotate(-4deg);
+  }
+  70% {
+    transform: scale(0.96) rotate(2deg);
+  }
+  100% {
+    transform: scale(1) rotate(0);
   }
 }
