@@ -1,8 +1,24 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
 
+/** 已注册的桌宠状态 ID —— 对应 themes/<active>/theme.json 的 states 键 */
+export type PetState =
+  | 'idle'
+  | 'thinking'
+  | 'working'
+  | 'moving'
+  | 'organizing'
+  | 'building'
+  | 'multitask'
+  | 'success'
+  | 'error'
+  | 'awaiting'
+  | 'sleep'
+  | 'drag'
+
 export interface DeskPetAPI {
-  /** 渲染层接管鼠标后，把 dx/dy 增量发给主进程，由主进程移动窗口。 */
   windowMoveDelta(dx: number, dy: number): void
+  petClick(): void
+  onPetState(listener: (state: PetState) => void): () => void
 }
 
 declare global {

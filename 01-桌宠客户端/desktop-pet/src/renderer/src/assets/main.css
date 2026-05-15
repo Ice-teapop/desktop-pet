@@ -1,10 +1,9 @@
-/* DeskPet 渲染层样式 — M0.5
+/* DeskPet 渲染层样式 — M1
  *
- * 关键：html / body / #root 透明背景 —— 否则前端不透明背景会覆盖主进程的
- * transparent:true，看到的是白色矩形而非桌宠。
- *
- * 注意：不再用 -webkit-app-region: drag。drag region 会吞掉 click 事件
- * 让单击无响应。改为渲染层用 mousedown 状态机 + IPC 自己接管拖动。
+ * 关键：
+ * - html / body / #root 透明，让主进程 transparent:true 真生效
+ * - .pet 现在是 inline SVG 的容器（M0.5 的 <img> 改成 dangerouslySetInnerHTML 注入）
+ * - 不用 -webkit-app-region:drag —— 它会吞 click；改用渲染层 mousedown 状态机自接管拖动
  */
 
 * {
@@ -34,32 +33,22 @@ body,
 }
 
 .pet {
-  width: 200px;
-  height: 200px;
-  object-fit: contain;
-  -webkit-user-drag: none;
-  /* 像素风 SVG 放大时关抗锯齿，保留像素感 */
-  image-rendering: pixelated;
-  image-rendering: crisp-edges;
+  width: 220px;
+  height: 220px;
   cursor: grab;
-  animation: bump 0.32s ease-out;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .pet:active {
   cursor: grabbing;
 }
 
-@keyframes bump {
-  0% {
-    transform: scale(1);
-  }
-  35% {
-    transform: scale(1.12) rotate(-4deg);
-  }
-  70% {
-    transform: scale(0.96) rotate(2deg);
-  }
-  100% {
-    transform: scale(1) rotate(0);
-  }
+/* inline 的 SVG 撑满 .pet；保留像素感（关抗锯齿） */
+.pet svg {
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
 }
