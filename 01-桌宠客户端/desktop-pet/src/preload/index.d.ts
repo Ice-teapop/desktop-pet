@@ -1,19 +1,7 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
+import type { PetState } from '../shared/pet-state'
 
-/** 已注册的桌宠状态 ID —— 对应 themes/<active>/theme.json 的 states 键 */
-export type PetState =
-  | 'idle'
-  | 'thinking'
-  | 'working'
-  | 'moving'
-  | 'organizing'
-  | 'building'
-  | 'multitask'
-  | 'success'
-  | 'error'
-  | 'awaiting'
-  | 'sleep'
-  | 'drag'
+export type { PetState }
 
 export interface DeskPetAPI {
   windowMoveDelta(dx: number, dy: number): void

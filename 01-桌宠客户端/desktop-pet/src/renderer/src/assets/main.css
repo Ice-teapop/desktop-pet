@@ -1,9 +1,9 @@
-/* DeskPet 渲染层样式 — M1
+/* DeskPet 渲染层样式 — M1（回退双层 crossfade，单层硬切）
  *
  * 关键：
- * - html / body / #root 透明，让主进程 transparent:true 真生效
- * - .pet 现在是 inline SVG 的容器（M0.5 的 <img> 改成 dangerouslySetInnerHTML 注入）
- * - 不用 -webkit-app-region:drag —— 它会吞 click；改用渲染层 mousedown 状态机自接管拖动
+ * - html/body/#root 透明 → 主进程 transparent:true 才生效
+ * - .pet 单层显示 inline SVG —— SVG 内嵌的 @keyframes 自由播放，不互相污染
+ * - 不用 -webkit-app-region:drag（会吞 click），渲染层 mousedown 状态机自接管拖动
  */
 
 * {
@@ -45,7 +45,7 @@ body,
   cursor: grabbing;
 }
 
-/* inline 的 SVG 撑满 .pet；保留像素感（关抗锯齿） */
+/* inline 的 SVG 撑满 .pet；保留像素感 */
 .pet svg {
   width: 100%;
   height: 100%;

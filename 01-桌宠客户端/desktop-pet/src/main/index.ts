@@ -1,70 +1,44 @@
 /**
- * DeskPet 主进程 — M1 骨架（透明置顶 + 状态机 + IPC + Space 跨越）。
+ * DeskPet 主进程 — M1（修复 #1 #3）。
  *
  * 当前职责：
- *   1. 创建右下角透明无边框置顶 + 全 Space 可见的桌宠窗口
- *   2. 持有 PetStateMachine —— 按动画引擎设计文档 5.x + 10.1 实现
- *      （优先级模型 + minMs 防抖 + 状态切换 IPC 广播）
- *   3. IPC：
- *      - 'window:move-delta' 渲染层接管拖动后移动窗口
- *      - 'pet:event:click' 渲染层判定单击后触发 demo 状态循环
- *      - 'pet:state' 主进程 → 渲染层 推送当前状态 ID
+ *   1. 透明无边框置顶窗口 + macOS Space + fullscreen 跨越
+ *   2. PetStateMachine（按动画引擎设计 5.1 + 5.2 + 10.1）
+ *      —— 状态优先级 + minMs 防抖；状态枚举从 src/shared/pet-state.ts 单一源拿
+ *   3. IPC：'window:move-delta'、'pet:event:click'、'pet:state'
  *
- * 还没做（M1 剩余）：点击穿透 + 像素 hit testing、托盘菜单、
- * 主题加载器从配置选 active 主题、Agent 引擎事件总线（M2+）。
+ * 注意：'screen-saver' 是 macOS 让窗口"高于全屏应用"的关键 level
+ * （对照 clawd-on-desk/src/topmost-runtime.js 的 MAC_TOPMOST_LEVEL）。
+ * setAlwaysOnTop + setVisibleOnAllWorkspaces 都在 ready-to-show 之后调，
+ * 避开窗口尚未就绪时 collection behavior 被 reset 的早期 macOS bug。
  */
 import { app, BrowserWindow, ipcMain, screen } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import { PET_STATES, type PetState } from '../shared/pet-state'
 
 const PET_WIDTH = 240
 const PET_HEIGHT = 240
 const MARGIN_FROM_EDGE = 24
 
-// 优先级越大越高 —— 高优先级状态可以打断当前任何低优先级（不受 minMs 约束）
-// 对照《动画引擎与状态机》5.1 优先级表
-const STATE_PRIORITY: Record<string, number> = {
-  idle: 1,
-  sleep: 1,
-  thinking: 2,
-  drag: 3,
-  success: 4,
-  working: 5,
-  moving: 5,
-  organizing: 5,
-  building: 5,
-  multitask: 5,
-  error: 6,
-  awaiting: 7
-}
-
-// 状态最小显示时长（ms）—— 防抖；防止任务很快时动画「闪一下」就没了
-const STATE_MIN_MS: Record<string, number> = {
-  idle: 0,
-  thinking: 300,
-  working: 400,
-  success: 1500,
-  error: 1200
-}
-
 class PetStateMachine {
-  private current = 'idle'
+  private current: PetState = 'idle'
   private enteredAt = Date.now()
   private timer: NodeJS.Timeout | null = null
 
-  constructor(private notify: (state: string) => void) {}
+  constructor(private notify: (state: PetState) => void) {}
 
-  getState(): string {
+  getState(): PetState {
     return this.current
   }
 
-  /** 尝试切换到 target 状态。受优先级 + minMs 保护。返回是否真的切了。 */
-  transition(target: string): boolean {
+  /** 尝试切换到 target。受优先级 + minMs 保护。返回是否真的切了。 */
+  transition(target: PetState): boolean {
     if (target === this.current) return false
-    const tPrio = STATE_PRIORITY[target] ?? 0
-    const cPrio = STATE_PRIORITY[this.current] ?? 0
+    const tPrio = PET_STATES[target].priority
+    const cPrio = PET_STATES[this.current].priority
     const elapsed = Date.now() - this.enteredAt
-    const cMin = STATE_MIN_MS[this.current] ?? 0
+    const cMin = PET_STATES[this.current].minMs
     if (tPrio > cPrio || elapsed >= cMin) {
       this.current = target
       this.enteredAt = Date.now()
@@ -74,7 +48,7 @@ class PetStateMachine {
     return false
   }
 
-  /** M1 demo: 单击 → thinking 2s → success 1.5s → idle。M2 由 Agent 事件驱动。 */
+  /** M1 demo：单击 → thinking 2s → success 1.5s → idle。M2 由 Agent 事件驱动。 */
   demoCycle(): void {
     if (this.timer) clearTimeout(this.timer)
     this.transition('thinking')
@@ -116,21 +90,22 @@ function createPetWindow(): void {
     }
   })
 
-  win.setAlwaysOnTop(true, 'floating')
-  // M1-5：让桌宠在全屏应用之上、跨 Space 仍可见（macOS 必需）
-  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-
   petWindow = win
   win.on('closed', () => {
     if (petWindow === win) petWindow = null
   })
 
-  // 渲染层挂载后立刻推一次当前状态，让首屏正确显示
   win.webContents.on('did-finish-load', () => {
     win.webContents.send('pet:state', stateMachine.getState())
   })
 
-  win.on('ready-to-show', () => win.show())
+  win.on('ready-to-show', () => {
+    win.show()
+    // 在窗口真正可见后再设 level + collection behavior —— 早期调可能被 reset。
+    // 'screen-saver' 是 macOS 让窗口浮于全屏应用之上的关键 level（修 cr #1）。
+    win.setAlwaysOnTop(true, 'screen-saver')
+    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     win.loadURL(process.env['ELECTRON_RENDERER_URL'])

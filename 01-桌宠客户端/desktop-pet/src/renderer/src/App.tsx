@@ -1,20 +1,18 @@
 /**
- * App — M1 demo：状态机驱动的小螃蟹。
+ * App — M1（修复 #1 #3 #7；回退 #2 双层 crossfade）。
  *
- * 关键改动 vs M0.5：
- *  - SVG 通过 ?raw import 拿到字符串 + dangerouslySetInnerHTML 注入 DOM。
- *    这样 SVG 内嵌的 <style>@keyframes 会进主文档 CSSOM，动画就播了
- *    （而非 <img> 沙箱化加载时被废）。
- *  - useEffect 订阅主进程 'pet:state' → 切换显示的 SVG。
- *  - 单击发 'pet:event:click' → 主进程触发 demo 状态循环
- *    (idle → thinking 2s → success 1.5s → idle)。
- *  - 距离阈值 5px 区分单击 vs 拖动保留不变。
- *
- * 注意：clawd 素材通过 @themes alias 拉，物理文件 .gitignore 不入库（AGPL 隔离）。
- * 同时只挂一个 SVG → SVG 内 id 不冲突，OK。
+ * 关键决策：
+ *  - 维持单层 SVG + key={state} 强制重挂载（回退本次的双层 crossfade）。
+ *  - 双层 crossfade 同时 inline 两份 SVG 会让 SVG 内嵌的全局 class
+ *    （eyes-js / body-js / shadow-js / .left-bubble 等）进入主文档 CSSOM，
+ *    两层互相污染 → happy 跳跃 keyframes 引用错乱，视觉撕裂。
+ *  - 正确做法（M2）：用 iframe srcdoc 或 ShadowDOM 隔离每个 SVG layer，
+ *    或加载前给 ID/class 加 unique prefix。M1 阶段先保证视觉正确。
+ *  - PetState 从 src/shared/pet-state 单一源 import（修 #7）。
+ *  - SVG 通过 ?raw + dangerouslySetInnerHTML 让内嵌 @keyframes 真正播。
  */
 import { useEffect, useRef, useState } from 'react'
-import type { PetState } from '../../preload/index.d'
+import type { PetState } from '../../shared/pet-state'
 import idleRaw from '@themes/clawd-dev/clawd-idle-follow.svg?raw'
 import thinkingRaw from '@themes/clawd-dev/clawd-working-thinking.svg?raw'
 import successRaw from '@themes/clawd-dev/clawd-happy.svg?raw'
@@ -75,7 +73,6 @@ function App(): React.JSX.Element {
       const ref = dragRef.current
       dragRef.current = null
       if (ref && !ref.moved) {
-        // 没拖动 = 点击 → 通知主进程跑 demo cycle
         window.api.petClick()
       }
     }
@@ -92,7 +89,6 @@ function App(): React.JSX.Element {
   return (
     <div className="stage">
       <div
-        // key 跟着 state 变化 —— React 重挂载该 div，SVG 内嵌动画从头开始
         key={state}
         className="pet"
         data-state={state}
