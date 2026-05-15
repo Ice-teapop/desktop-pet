@@ -1,21 +1,24 @@
 /**
- * DeskPet 主进程 — M1（修复 #1 #3）。
+ * DeskPet 主进程 — M1（cr #1 #3 修复 + M1-6 托盘菜单）。
  *
  * 当前职责：
  *   1. 透明无边框置顶窗口 + macOS Space + fullscreen 跨越
  *   2. PetStateMachine（按动画引擎设计 5.1 + 5.2 + 10.1）
- *      —— 状态优先级 + minMs 防抖；状态枚举从 src/shared/pet-state.ts 单一源拿
  *   3. IPC：'window:move-delta'、'pet:event:click'、'pet:state'
+ *   4. 系统托盘菜单：显隐桌宠 / 重置位置 / Demo / 退出
  *
- * 注意：'screen-saver' 是 macOS 让窗口"高于全屏应用"的关键 level
+ * 注意：'screen-saver' 是 macOS 让窗口高于全屏应用的关键 level
  * （对照 clawd-on-desk/src/topmost-runtime.js 的 MAC_TOPMOST_LEVEL）。
  * setAlwaysOnTop + setVisibleOnAllWorkspaces 都在 ready-to-show 之后调，
  * 避开窗口尚未就绪时 collection behavior 被 reset 的早期 macOS bug。
+ *
+ * tray 必须保持模块级引用，否则 GC 后图标会消失。
  */
-import { app, BrowserWindow, ipcMain, screen } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu, nativeImage, screen, Tray } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { PET_STATES, type PetState } from '../shared/pet-state'
+import trayIconPath from '../../resources/icon.png?asset'
 
 const PET_WIDTH = 240
 const PET_HEIGHT = 240
@@ -63,6 +66,7 @@ class PetStateMachine {
 }
 
 let petWindow: BrowserWindow | null = null
+let tray: Tray | null = null
 const stateMachine = new PetStateMachine((state) => {
   petWindow?.webContents.send('pet:state', state)
 })
@@ -101,8 +105,6 @@ function createPetWindow(): void {
 
   win.on('ready-to-show', () => {
     win.show()
-    // 在窗口真正可见后再设 level + collection behavior —— 早期调可能被 reset。
-    // 'screen-saver' 是 macOS 让窗口浮于全屏应用之上的关键 level（修 cr #1）。
     win.setAlwaysOnTop(true, 'screen-saver')
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   })
@@ -112,6 +114,58 @@ function createPetWindow(): void {
   } else {
     win.loadFile(join(__dirname, '../renderer/index.html'))
   }
+}
+
+function togglePetVisibility(): void {
+  if (!petWindow) return
+  if (petWindow.isVisible()) petWindow.hide()
+  else petWindow.show()
+}
+
+function resetPetPosition(): void {
+  if (!petWindow) return
+  const { workArea } = screen.getPrimaryDisplay()
+  petWindow.setPosition(
+    workArea.x + workArea.width - PET_WIDTH - MARGIN_FROM_EDGE,
+    workArea.y + workArea.height - PET_HEIGHT - MARGIN_FROM_EDGE
+  )
+}
+
+function createTray(): void {
+  let image = nativeImage.createFromPath(trayIconPath)
+  // macOS 托盘图标推荐 16–22px。M1 用脚手架自带 electron logo 占位，M2 换原创螃蟹
+  if (process.platform === 'darwin') {
+    image = image.resize({ width: 18, height: 18 })
+  }
+  tray = new Tray(image)
+  tray.setToolTip('DeskPet 桌宠')
+
+  const menu = Menu.buildFromTemplate([
+    {
+      label: '显示 / 隐藏桌宠',
+      accelerator: 'CmdOrCtrl+Shift+P',
+      click: togglePetVisibility
+    },
+    {
+      label: '重置位置（右下角）',
+      click: resetPetPosition
+    },
+    { type: 'separator' },
+    {
+      label: 'Demo: 思考 → 庆祝 → 待机',
+      click: () => stateMachine.demoCycle()
+    },
+    { type: 'separator' },
+    {
+      label: '退出 DeskPet',
+      accelerator: 'CmdOrCtrl+Q',
+      click: () => app.quit()
+    }
+  ])
+  tray.setContextMenu(menu)
+
+  // 单击托盘图标 = 显隐切换（macOS 标准交互）
+  tray.on('click', togglePetVisibility)
 }
 
 function registerIpc(): void {
@@ -136,6 +190,7 @@ app.whenReady().then(() => {
 
   registerIpc()
   createPetWindow()
+  createTray()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createPetWindow()
