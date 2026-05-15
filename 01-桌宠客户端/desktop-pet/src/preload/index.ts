@@ -20,6 +20,15 @@ const api = {
     const handler = (_event: IpcRendererEvent, state: string): void => listener(state)
     ipcRenderer.on('pet:state', handler)
     return () => ipcRenderer.off('pet:state', handler)
+  },
+  /**
+   * 控制窗口是否穿透鼠标事件。
+   * - ignore=true：透明区域 click 穿透到底层 app（默认）
+   * - ignore=false：本窗口接收 click（鼠标移到角色实体上时关穿透）
+   * 主进程始终用 { forward: true }，让 mousemove 仍 forward 到渲染层做 hit testing。
+   */
+  setIgnoreMouse(ignore: boolean): void {
+    ipcRenderer.send('window:ignore-mouse', ignore)
   }
 }
 

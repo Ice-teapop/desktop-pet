@@ -1,15 +1,18 @@
 /**
- * App — M1（修复 #1 #3 #7；回退 #2 双层 crossfade）。
+ * App — M1（含 M1-7 点击穿透 hit testing）。
  *
- * 关键决策：
- *  - 维持单层 SVG + key={state} 强制重挂载（回退本次的双层 crossfade）。
- *  - 双层 crossfade 同时 inline 两份 SVG 会让 SVG 内嵌的全局 class
- *    （eyes-js / body-js / shadow-js / .left-bubble 等）进入主文档 CSSOM，
- *    两层互相污染 → happy 跳跃 keyframes 引用错乱，视觉撕裂。
- *  - 正确做法（M2）：用 iframe srcdoc 或 ShadowDOM 隔离每个 SVG layer，
- *    或加载前给 ID/class 加 unique prefix。M1 阶段先保证视觉正确。
- *  - PetState 从 src/shared/pet-state 单一源 import（修 #7）。
- *  - SVG 通过 ?raw + dangerouslySetInnerHTML 让内嵌 @keyframes 真正播。
+ * 行为：
+ *  - 主进程默认 setIgnoreMouseEvents(true, {forward:true})：透明区域 click
+ *    穿透到底层 app；但 mousemove 仍 forward 到渲染层做 hit testing
+ *  - 鼠标进入 .pet rect → IPC setIgnoreMouse(false)：本窗口接收 click 拖动
+ *  - 鼠标离开 .pet rect → IPC setIgnoreMouse(true)：恢复穿透
+ *  - 拖动期间（dragRef.current 非空）强制不穿透，鼠标快速滑出 rect 也能继续拖
+ *
+ * 当前 hit zone = .pet 的 boundingRect（220×220 矩形）。M2 升级为像素级
+ * hit testing（按 SVG 实体像素精确判定）。
+ *
+ * 注意：clawd 素材通过 @themes alias，文件 .gitignore 不入库（AGPL 隔离）。
+ * 双层 crossfade 留到 M2 用 ShadowDOM 隔离后再做。
  */
 import { useEffect, useRef, useState } from 'react'
 import type { PetState } from '../../shared/pet-state'
@@ -19,8 +22,6 @@ import successRaw from '@themes/clawd-dev/clawd-happy.svg?raw'
 
 const DRAG_THRESHOLD_PX = 5
 
-// 状态 → SVG 文本 映射（M1 demo 三态）。
-// M1-2 完整主题加载器：从 themes/<active>/theme.json 动态构造这张表。
 const SVG_BY_STATE: Partial<Record<PetState, string>> = {
   idle: idleRaw,
   thinking: thinkingRaw,
@@ -29,6 +30,8 @@ const SVG_BY_STATE: Partial<Record<PetState, string>> = {
 
 function App(): React.JSX.Element {
   const [state, setState] = useState<PetState>('idle')
+  const petRef = useRef<HTMLDivElement | null>(null)
+  const inHitRef = useRef(false)
   const dragRef = useRef<{
     startX: number
     startY: number
@@ -44,7 +47,7 @@ function App(): React.JSX.Element {
   }, [])
 
   const handleMouseDown = (e: React.MouseEvent): void => {
-    if (e.button !== 0) return // 左键以外不接管；右键留给 M1 之后弹菜单
+    if (e.button !== 0) return
     dragRef.current = {
       startX: e.screenX,
       startY: e.screenY,
@@ -54,21 +57,47 @@ function App(): React.JSX.Element {
     }
   }
 
+  // 拖动状态机 + hit testing（共用 mousemove/mouseup 监听）
   useEffect(() => {
     const onMove = (ev: MouseEvent): void => {
-      const ref = dragRef.current
-      if (!ref) return
-      const total = Math.hypot(ev.screenX - ref.startX, ev.screenY - ref.startY)
-      if (total < DRAG_THRESHOLD_PX) return
-      ref.moved = true
-      const dx = ev.screenX - ref.lastX
-      const dy = ev.screenY - ref.lastY
-      if (dx !== 0 || dy !== 0) {
-        window.api.windowMoveDelta(dx, dy)
-        ref.lastX = ev.screenX
-        ref.lastY = ev.screenY
+      // —— 拖动期：强制不穿透；快滑出 rect 也能继续拖 ——
+      if (dragRef.current) {
+        if (!inHitRef.current) {
+          inHitRef.current = true
+          window.api.setIgnoreMouse(false)
+        }
+        const ref = dragRef.current
+        const total = Math.hypot(ev.screenX - ref.startX, ev.screenY - ref.startY)
+        if (total < DRAG_THRESHOLD_PX) return
+        ref.moved = true
+        const dx = ev.screenX - ref.lastX
+        const dy = ev.screenY - ref.lastY
+        if (dx !== 0 || dy !== 0) {
+          window.api.windowMoveDelta(dx, dy)
+          ref.lastX = ev.screenX
+          ref.lastY = ev.screenY
+        }
+        return
+      }
+
+      // —— 非拖动：检测鼠标是否在 .pet 实体 rect 内，跨边界时 IPC 切换穿透 ——
+      const el = petRef.current
+      if (!el) return
+      const r = el.getBoundingClientRect()
+      const within =
+        ev.clientX >= r.left &&
+        ev.clientX <= r.right &&
+        ev.clientY >= r.top &&
+        ev.clientY <= r.bottom
+      if (within && !inHitRef.current) {
+        inHitRef.current = true
+        window.api.setIgnoreMouse(false)
+      } else if (!within && inHitRef.current) {
+        inHitRef.current = false
+        window.api.setIgnoreMouse(true)
       }
     }
+
     const onUp = (): void => {
       const ref = dragRef.current
       dragRef.current = null
@@ -76,6 +105,7 @@ function App(): React.JSX.Element {
         window.api.petClick()
       }
     }
+
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
     return () => {
@@ -90,6 +120,7 @@ function App(): React.JSX.Element {
     <div className="stage">
       <div
         key={state}
+        ref={petRef}
         className="pet"
         data-state={state}
         dangerouslySetInnerHTML={{ __html: svgHtml }}
