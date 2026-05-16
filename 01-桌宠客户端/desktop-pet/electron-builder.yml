@@ -34,17 +34,17 @@ mac:
   # 上架前打开签名：identity 改成你的 Developer ID，notarize 设 true。
   identity: null
   notarize: false
+  # M6 Phase 1：临时只出 zip，跳过 dmg。
+  # 原因：electron-builder 25 + dmg-builder v1.2.0 + macOS Sequoia hdiutil 输出 plist
+  # 格式被 dmgbuild 当成 InvalidFile 抛 plistlib.InvalidFileException。已知 upstream
+  # bug，等修复或换 dmg-license fork 再开。zip 用户体验只多一步解压，不阻塞 Phase 1。
   target:
-    - target: dmg
-      arch:
-        - arm64
-        - x64
     - target: zip
       arch:
         - arm64
         - x64
-dmg:
-  artifactName: ${name}-${version}.${ext}
+# dmg:
+#   artifactName: ${name}-${version}.${ext}
 linux:
   target:
     - AppImage
@@ -55,6 +55,19 @@ linux:
 appImage:
   artifactName: ${name}-${version}.${ext}
 npmRebuild: false
+# M6 Phase 1：publish 到 GitHub Releases。
+# - 不签名 / 不公证（identity:null + notarize:false 上面已设）—— user 首次打开
+#   右键-打开 bypass Gatekeeper
+# - 不依赖 electron-updater（Phase 1 不做 auto-update）
+# - 用法（手动 release）：
+#     npm run build:mac
+#     → dist/DeskPet-0.0.1-arm64.dmg 等产物
+#     → 手动上传到 https://github.com/Ice-teapop/desktop-pet/releases
+# - 用法（自动 release）：
+#     env GH_TOKEN=<github personal access token> npm run build:mac -- --publish always
+#     → 自动建 draft release + 上传 dmg
 publish:
-  provider: generic
-  url: https://example.com/auto-updates
+  provider: github
+  owner: Ice-teapop
+  repo: desktop-pet
+  releaseType: draft

@@ -94,6 +94,57 @@ DeskPet 的核心对话引擎依赖 Anthropic API；agentic tools（屏幕感知
 - **剪贴板**：仅在 AI 显式调 `read_clipboard` 时读，且 system prompt 教 AI 看到密码/secret 时不复述
 - **文件操作**：审计日志写本地 `~/Library/Application Support/DeskPet/audit.log`（JSONL，5MB 自动滚动），不上传
 
+## 安装（end user）
+
+### 一行命令安装（macOS，推荐）
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Ice-teapop/desktop-pet/main/scripts/install.sh | bash
+```
+
+脚本自动：
+- 检测你的架构（M1/M2/M3/M4 arm64 或 Intel x64）
+- 从 GitHub Releases 拉最新版 zip
+- 解压到 `/Applications/DeskPet.app`
+- 脱 macOS Gatekeeper quarantine 标记 —— **双击直接打开，不需要右键**
+
+> 当前 repo 是 private 时：`export GH_TOKEN=<your-github-token>` 后再跑脚本。
+> Public 时直接跑即可。
+
+### 手动安装
+
+如果不放心 `curl | bash`，到 [Releases](https://github.com/Ice-teapop/desktop-pet/releases) 自己下载 zip：
+
+- **Apple Silicon**: `DeskPet-<version>-arm64-mac.zip`
+- **Intel Mac**: `DeskPet-<version>-mac.zip`
+
+解压 → 拖 `DeskPet.app` 到 `/Applications` → **右键** `DeskPet.app` → 打开（首次必须右键，因为没 Apple 公证；脱 quarantine 也可以在终端跑：`xattr -dr com.apple.quarantine /Applications/DeskPet.app`，之后双击就好）。
+
+### 首次启动
+
+启动后会引导配置 Anthropic API key（必需）+ 其它可选 keys 跟权限。详见下方「外部依赖」。
+
+> Phase 1 暂时只出 `.zip`，不出 `.dmg`（dmg-builder + macOS Sequoia 兼容 bug，Phase 2 修）。
+> Phase 2 计划补 Apple Developer 签名 + 公证，到时连脚本里的 `xattr` 步都不需要。
+
+## 开发者打包发布
+
+```bash
+npm install
+npm run build:mac
+# 产物在 dist/
+# - DeskPet-0.0.1-arm64-mac.zip   （Apple Silicon）
+# - DeskPet-0.0.1-mac.zip         （Intel）
+```
+
+把 `.dmg` 上传到 GitHub Releases 即可。或自动化（需 `GH_TOKEN`）：
+
+```bash
+env GH_TOKEN=<your-github-personal-access-token> npm run build:mac -- --publish always
+```
+
+会自动建 draft release + 上传 artifacts。
+
 ## 已实现功能
 
 - M0~M3 桌宠 UI / 状态机 / 前台 app 活动识别
