@@ -23,6 +23,18 @@ class RegionSize(BaseModel):
     h: int
 
 
+class PetBbox(BaseModel):
+    """桌宠在截屏中的位置 —— 服务端会把这块涂白避免桌宠形象 echo 进 OCR。
+
+    坐标 / 尺寸基于原始截图像素坐标系。客户端有义务正确提供桌宠像素位置；
+    缺省即不裁剪（向后兼容原始截图直接送 OCR 的行为）。
+    """
+    x: int = Field(ge=0)
+    y: int = Field(ge=0)
+    w: int = Field(gt=0)
+    h: int = Field(gt=0)
+
+
 class ExtractOptions(BaseModel):
     include_reading_text: bool = True
     include_chart_crop: bool = True
@@ -30,12 +42,18 @@ class ExtractOptions(BaseModel):
 
 
 class ExtractMetadata(BaseModel):
-    """POST /v1/extract 请求里 metadata 部分的结构。"""
+    """POST /v1/extract 请求里 metadata 部分的结构。
+
+    注意：metadata 经 base64(JSON) 编码后随 `X-DeskPet-Meta` 头部传输，
+    image 字节直接走 raw body —— 避免 multipart UploadFile 在大请求时
+    spool 到 /tmp 临时文件（违反「不留存」纪律）。
+    """
     region_id: str
     frame_seq: int
     captured_at: str
     region_size: RegionSize
     content_hash: str
+    pet_bbox: Optional[PetBbox] = None
     options: ExtractOptions = Field(default_factory=ExtractOptions)
 
 

@@ -16,12 +16,12 @@ from __future__ import annotations
 
 import io
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from ..api.auth import ServiceError
 from ..config import config
 from ..log import get_logger
-from ..schema.contract import Block, ExtractMetadata
+from ..schema.contract import Block, ExtractMetadata, PetBbox
 from .assembly import assemble
 from .dispatch import dispatch_regions
 from .layout import get_layout_analyzer
@@ -51,6 +51,25 @@ def _placeholder_block(width: int, height: int, note: str) -> Block:
     )
 
 
+def _mask_pet_region(img: Image.Image, bbox: PetBbox) -> None:
+    """把桌宠所在区域涂白 —— 防桌宠形象 echo 进 OCR 文本/公式识别。
+
+    原地修改 img。坐标按原图像素坐标系，超出边界会被 PIL clip。
+    涂白用 (255,255,255) 对 RGB / 255 对 L / (255,255,255,255) 对 RGBA。
+    """
+    fill: object
+    if img.mode in ("L", "1"):
+        fill = 255
+    elif img.mode == "RGBA":
+        fill = (255, 255, 255, 255)
+    else:
+        fill = (255, 255, 255)
+    ImageDraw.Draw(img).rectangle(
+        [bbox.x, bbox.y, bbox.x + bbox.w, bbox.y + bbox.h],
+        fill=fill,
+    )
+
+
 def run_pipeline(image_bytes: bytes, metadata: ExtractMetadata):
     """返回 (blocks, reading_text, recognizers_used)。"""
     # —— 解码 + 像素上限校验 + 预处理 ——
@@ -64,6 +83,10 @@ def run_pipeline(image_bytes: bytes, metadata: ExtractMetadata):
                     f"image {width}x{height} px exceeds pixel limit",
                 )
             img.load()
+            # 桌宠 echo 防御：涂白 pet_bbox 区域后再交给预处理
+            # （preprocess 会转灰度 / 缩放 —— 涂白要在转换前做坐标才对得上原图）
+            if metadata.pet_bbox is not None:
+                _mask_pet_region(img, metadata.pet_bbox)
             pre = preprocess(img)
     except ServiceError:
         raise

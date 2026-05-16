@@ -3,9 +3,14 @@
 
 验证三个接口在骨架阶段就符合《视觉服务接口契约 API v1》的结构。
 运行（在 vision-service/ 目录下）： pytest -q
+
+M4-A-1 之后 /v1/extract 用 raw-bytes 模式：image 走 body，metadata 走
+X-DeskPet-Meta header（base64(JSON)）—— 避免 multipart UploadFile 在大请求
+时 spool 到 /tmp 临时文件，守「截屏字节不落盘」纪律。
 """
 from __future__ import annotations
 
+import base64
 import io
 import json
 
@@ -51,6 +56,32 @@ def _meta(**over) -> str:
     return json.dumps(base)
 
 
+def _b64meta(meta_json: str) -> str:
+    """metadata JSON → base64 ASCII 字符串（X-DeskPet-Meta 头部用）。"""
+    return base64.b64encode(meta_json.encode("utf-8")).decode("ascii")
+
+
+def _post_extract(
+    image_bytes: bytes | None = None,
+    meta: str | None = None,
+    *,
+    headers: dict | None = None,
+):
+    """发 POST /v1/extract raw-bytes 请求。
+
+    默认带 AUTH + 默认 meta；可通过 headers 覆盖任意头或传 None 删除。
+    image_bytes=None 表示空请求体（用于测 INVALID_IMAGE/empty 路径）。
+    """
+    base = {**AUTH, "X-DeskPet-Meta": _b64meta(meta or _meta())}
+    if headers:
+        for k, v in headers.items():
+            if v is None:
+                base.pop(k, None)
+            else:
+                base[k] = v
+    return client.post("/v1/extract", headers=base, content=image_bytes or b"")
+
+
 def test_health():
     r = client.get("/v1/health")
     assert r.status_code == 200
@@ -74,12 +105,7 @@ def test_capabilities_shape():
 
 
 def test_extract_ok():
-    r = client.post(
-        "/v1/extract",
-        headers=AUTH,
-        files={"image": ("frame.png", _png_bytes(), "image/png")},
-        data={"metadata": _meta()},
-    )
+    r = _post_extract(_png_bytes())
     assert r.status_code == 200
     body = r.json()
     assert body["ok"] is True
@@ -93,44 +119,52 @@ def test_extract_ok():
 
 
 def test_extract_rejects_bad_token():
-    r = client.post(
-        "/v1/extract",
-        headers={"Authorization": "Bearer wrong", "X-DeskPet-Client": "t/0.1"},
-        files={"image": ("frame.png", _png_bytes(), "image/png")},
-        data={"metadata": _meta()},
-    )
+    r = _post_extract(_png_bytes(), headers={"Authorization": "Bearer wrong"})
     assert r.status_code == 401
     assert r.json()["error"]["code"] == "UNAUTHORIZED"
 
 
 def test_extract_rejects_missing_client_header():
-    r = client.post(
-        "/v1/extract",
-        headers={"Authorization": f"Bearer {config.bearer_token}"},
-        files={"image": ("frame.png", _png_bytes(), "image/png")},
-        data={"metadata": _meta()},
-    )
+    r = _post_extract(_png_bytes(), headers={"X-DeskPet-Client": None})
     assert r.status_code == 400
     assert r.json()["error"]["code"] == "INVALID_REQUEST"
 
 
 def test_extract_rejects_bad_image():
-    r = client.post(
-        "/v1/extract",
-        headers=AUTH,
-        files={"image": ("frame.bin", b"not-an-image", "image/png")},
-        data={"metadata": _meta()},
-    )
+    r = _post_extract(b"not-an-image")
     assert r.status_code == 400
     assert r.json()["error"]["code"] == "INVALID_IMAGE"
 
 
+def test_extract_rejects_empty_body():
+    """空 body → INVALID_IMAGE/empty image（raw-bytes 模式特有路径）。"""
+    r = _post_extract(b"")
+    assert r.status_code == 400
+    assert r.json()["error"]["code"] == "INVALID_IMAGE"
+
+
+def test_extract_rejects_missing_meta_header():
+    """X-DeskPet-Meta 必填，缺失 → INVALID_REQUEST。"""
+    r = _post_extract(_png_bytes(), headers={"X-DeskPet-Meta": None})
+    assert r.status_code == 400
+    assert r.json()["error"]["code"] == "INVALID_REQUEST"
+
+
+def test_extract_rejects_bad_meta_base64():
+    """X-DeskPet-Meta 不是合法 base64 → INVALID_REQUEST。"""
+    r = _post_extract(
+        _png_bytes(),
+        headers={"X-DeskPet-Meta": "!!! not base64 !!!"},
+    )
+    assert r.status_code == 400
+    assert r.json()["error"]["code"] == "INVALID_REQUEST"
+
+
 def test_extract_rejects_bad_metadata():
-    r = client.post(
-        "/v1/extract",
-        headers=AUTH,
-        files={"image": ("frame.png", _png_bytes(), "image/png")},
-        data={"metadata": "{ not valid json"},
+    """base64 合法但解码后不是合法 JSON → INVALID_REQUEST。"""
+    r = _post_extract(
+        _png_bytes(),
+        headers={"X-DeskPet-Meta": _b64meta("{ not valid json")},
     )
     assert r.status_code == 400
     assert r.json()["error"]["code"] == "INVALID_REQUEST"
@@ -159,12 +193,7 @@ def test_assert_secure_config_rejects_default_token(monkeypatch):
 
 def test_extract_include_reading_text_false():
     """options.include_reading_text=false 时 reading_text 应为空串。"""
-    r = client.post(
-        "/v1/extract",
-        headers=AUTH,
-        files={"image": ("frame.png", _png_bytes(), "image/png")},
-        data={"metadata": _meta(options={"include_reading_text": False})},
-    )
+    r = _post_extract(_png_bytes(), _meta(options={"include_reading_text": False}))
     assert r.status_code == 200
     assert r.json()["reading_text"] == ""
 
@@ -173,12 +202,7 @@ def test_extract_rejects_oversize_pixels(monkeypatch):
     """像素数超过 max_image_pixels 时返回 IMAGE_TOO_LARGE（防解压炸弹）。"""
     # 把像素上限临时调到极小值，64x32=2048 像素即超限
     monkeypatch.setitem(config._d["limits"], "max_image_pixels", 100)
-    r = client.post(
-        "/v1/extract",
-        headers=AUTH,
-        files={"image": ("frame.png", _png_bytes(64, 32), "image/png")},
-        data={"metadata": _meta()},
-    )
+    r = _post_extract(_png_bytes(64, 32))
     assert r.status_code == 413
     assert r.json()["error"]["code"] == "IMAGE_TOO_LARGE"
 
@@ -195,6 +219,44 @@ def test_rate_limiter_unit():
     assert not ok3 and retry >= 1
     ok_other, _ = rl.check("other-key")
     assert ok_other  # 不同 key 不受影响
+
+
+# ---------- M4-A-1：pet_bbox 桌宠 echo 防御 ----------
+
+def test_pet_bbox_masks_pet_region():
+    """pet_bbox：服务端应在 OCR 前把桌宠区域涂白，避免桌宠形象 echo 进文本。
+
+    构造：左半边写文字（OCR 应识别），右半边画"假桌宠"（深色色块）；
+    送 pet_bbox 覆盖右半区域 —— 期待结果不含右半区造成的乱码 OCR。
+    本测试只验证不报错且能跑通 raw-bytes 路径；具体 OCR 内容由
+    test_extract_reads_text 兜底。
+    """
+    from PIL import ImageDraw
+
+    buf = io.BytesIO()
+    img = Image.new("RGB", (420, 90), (255, 255, 255))
+    d = ImageDraw.Draw(img)
+    d.text((14, 32), "Real text here", fill=(0, 0, 0))
+    # 右半边画深色色块模拟桌宠像素
+    d.rectangle([260, 10, 410, 80], fill=(40, 30, 20))
+    img.save(buf, format="PNG")
+
+    meta = _meta(
+        region_size={"w": 420, "h": 90},
+        pet_bbox={"x": 260, "y": 10, "w": 150, "h": 70},
+    )
+    r = _post_extract(buf.getvalue(), meta)
+    assert r.status_code == 200, r.json()
+
+
+def test_pet_bbox_invalid_rejected():
+    """pet_bbox 字段缺尺寸 → metadata 校验失败 → INVALID_REQUEST。"""
+    r = _post_extract(
+        _png_bytes(),
+        _meta(pet_bbox={"x": 0, "y": 0, "w": 0, "h": 10}),  # w=0 违反 gt=0
+    )
+    assert r.status_code == 400
+    assert r.json()["error"]["code"] == "INVALID_REQUEST"
 
 
 # ---------- 步骤 2：预处理 + 文本 OCR + 文本转码 ----------
@@ -230,12 +292,7 @@ def test_extract_reads_text():
     if not get_ocr_engine().available():
         pytest.skip("OCR 引擎不可用，跳过文本识别测试")
 
-    r = client.post(
-        "/v1/extract",
-        headers=AUTH,
-        files={"image": ("frame.png", _png_with_text(), "image/png")},
-        data={"metadata": _meta(region_size={"w": 420, "h": 90})},
-    )
+    r = _post_extract(_png_with_text(), _meta(region_size={"w": 420, "h": 90}))
     assert r.status_code == 200
     body = r.json()
     text_blocks = [b for b in body["blocks"] if b["type"] == "text"]
@@ -407,12 +464,7 @@ def test_extract_code_region():
     ImageDraw.Draw(img).text((12, 12), code, fill=(0, 0, 0))
     img.save(buf, format="PNG")
 
-    r = client.post(
-        "/v1/extract",
-        headers=AUTH,
-        files={"image": ("frame.png", buf.getvalue(), "image/png")},
-        data={"metadata": _meta(region_size={"w": 420, "h": 200})},
-    )
+    r = _post_extract(buf.getvalue(), _meta(region_size={"w": 420, "h": 200}))
     assert r.status_code == 200
     body = r.json()
     code_blocks = [b for b in body["blocks"] if b["type"] == "code"]
@@ -504,12 +556,7 @@ def test_extract_table_region():
     buf = io.BytesIO()
     img.save(buf, format="PNG")
 
-    r = client.post(
-        "/v1/extract",
-        headers=AUTH,
-        files={"image": ("frame.png", buf.getvalue(), "image/png")},
-        data={"metadata": _meta(region_size={"w": 320, "h": 170})},
-    )
+    r = _post_extract(buf.getvalue(), _meta(region_size={"w": 320, "h": 170}))
     assert r.status_code == 200
     body = r.json()
     table_blocks = [b for b in body["blocks"] if b["type"] == "table"]
@@ -610,12 +657,7 @@ def test_extract_formula_degrades_to_text(monkeypatch):
         "src.pipeline.dispatch.classify_region", lambda rb: "formula"
     )
 
-    r = client.post(
-        "/v1/extract",
-        headers=AUTH,
-        files={"image": ("frame.png", _png_with_text(), "image/png")},
-        data={"metadata": _meta(region_size={"w": 420, "h": 90})},
-    )
+    r = _post_extract(_png_with_text(), _meta(region_size={"w": 420, "h": 90}))
     assert r.status_code == 200
     body = r.json()
     # 公式引擎不可用 → 不应产出 formula 块，而是降级为 text
@@ -657,12 +699,7 @@ def test_extract_segments_two_regions():
     draw.text((20, 270), "Second line there", fill=(0, 0, 0))
     img.save(buf, format="PNG")
 
-    r = client.post(
-        "/v1/extract",
-        headers=AUTH,
-        files={"image": ("frame.png", buf.getvalue(), "image/png")},
-        data={"metadata": _meta(region_size={"w": 480, "h": 320})},
-    )
+    r = _post_extract(buf.getvalue(), _meta(region_size={"w": 480, "h": 320}))
     assert r.status_code == 200
     body = r.json()
     text_blocks = [b for b in body["blocks"] if b["type"] == "text"]

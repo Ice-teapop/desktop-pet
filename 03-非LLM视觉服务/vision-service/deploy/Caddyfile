@@ -1,0 +1,64 @@
+# DeskPet 视觉服务 —— Caddy 反向代理配置
+#
+# 安装步骤（在 deskpet-prod 上以 root 执行）：
+#   1. 安装 Caddy（apt 官方仓库）：
+#        sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https
+#        curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
+#          | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+#        curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
+#          | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+#        sudo apt update && sudo apt install -y caddy
+#   2. DNS：vision.iceteamk.com 加 A 记录 → 139.84.199.249
+#   3. 把本文件复制到 /etc/caddy/Caddyfile（覆盖默认占位）：
+#        sudo install -m 644 /opt/deskpet/vision-service/deploy/Caddyfile /etc/caddy/Caddyfile
+#   4. sudo systemctl restart caddy
+#   5. 等 30 秒 LE 自动签发完，验证：
+#        curl -v https://vision.iceteamk.com/v1/health
+#
+# 端口：80 / 443（Caddy 自动管理）；后端 uvicorn 仅监听 127.0.0.1:8800。
+# TLS：由 Caddy 自动从 Let's Encrypt 申请并自动续期（基于域名邮箱 acme.json）。
+
+{
+    # 关全局 access log —— 不留 IP / 路径 / UA 行（与 uvicorn --no-access-log 对齐）
+    # admin off：禁用 Caddy 自身的 admin API（默认 localhost:2019）避免被本机其他进程探测
+    admin off
+    # 用于 LE 注册的邮箱（出错通知和证书续期失败警报会发到这里）
+    email admin@iceteamk.com
+    # 全局禁用 access log —— 没有 sinkhole 也不写盘
+    log {
+        output discard
+    }
+}
+
+vision.iceteamk.com {
+    # 这一段同样关日志（继承全局，但显式声明，防 Caddy 升级后默认变化）
+    log {
+        output discard
+    }
+
+    # 请求体上限 9 MB：略大于 max_image_bytes（8 MB），留 multipart/header 余量
+    # 超大请求直接被 Caddy 401 + close（不会触达后端 uvicorn，省服务器 CPU）
+    request_body {
+        max_size 9MB
+    }
+
+    # 反代到后端 uvicorn（127.0.0.1:8800）
+    # X-Forwarded-* / X-Real-IP 默认由 Caddy 自动加，但因为我们不记日志，
+    # 这些只用于后端 ServiceError 调试，不会落盘。
+    reverse_proxy 127.0.0.1:8800 {
+        # 上游超时：30s 足够最大 8MB 图 + OCR + pix2tex 处理
+        transport http {
+            response_header_timeout 30s
+            read_timeout 30s
+        }
+    }
+
+    # 安全头（极简版 —— 服务只对自己客户端响应 JSON，不渲染 HTML）
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options    "nosniff"
+        Referrer-Policy           "no-referrer"
+        # 删 Server: header 防指纹（Caddy 默认会加）
+        -Server
+    }
+}

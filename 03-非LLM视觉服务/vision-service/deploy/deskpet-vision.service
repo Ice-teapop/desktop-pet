@@ -4,6 +4,8 @@
 #   - 代码放 /opt/deskpet/vision-service，虚拟环境在其下的 .venv
 #   - 专用非 root 用户 deskpet 运行
 #   - token 通过 /etc/deskpet-vision.env 注入（不写进本文件、不进 git）
+#   - 监听 127.0.0.1:8800 —— 仅本机；公网入口由 Caddy 反代 + LE TLS 处理
+#   - 关 uvicorn access_log，不留 IP/UA/路径行（守「不留存」纪律的元信息层）
 
 [Unit]
 Description=DeskPet Vision Service (non-LLM)
@@ -24,16 +26,49 @@ Environment=OMP_NUM_THREADS=1
 Environment=MKL_NUM_THREADS=1
 Environment=OPENBLAS_NUM_THREADS=1
 
+# 关于 pix2tex 模型路径（与 ProtectHome=true 的兼容性说明）：
+# pix2tex 上游 cli.py 的 LatexOCR() 用 @in_model_path() 装饰器把 cwd 切到
+# os.path.dirname(pix2tex.__file__) + '/model'，下载并加载 weights.pth 到
+# site-packages 内（即 /opt/deskpet/vision-service/.venv/.../pix2tex/model/）。
+# 该路径已在下面 ReadWritePaths=/opt/deskpet/vision-service 范围内（systemd
+# 对子目录递归生效），所以 ProtectHome=true 不影响模型下载/加载。
+# 注：pix2tex cli 还会用 user_data_dir('pix2tex') 存交互 history.txt
+# （对应 XDG_DATA_HOME），但视觉服务不走交互 CLI 路径，不存在该写入。
+
 # 单 worker：2GB 内存只够一个；pix2tex 模型每 worker 各占一份
-ExecStart=/opt/deskpet/vision-service/.venv/bin/uvicorn src.main:app --host 0.0.0.0 --port 8800 --workers 1
+# --host 127.0.0.1：拒绝直接公网访问，强制流量过 Caddy（TLS + LE + 限流兜底）
+# --no-access-log：不在 stdout/journal 留访问行（IP、UA、路径都不记）
+ExecStart=/opt/deskpet/vision-service/.venv/bin/uvicorn src.main:app \
+  --host 127.0.0.1 --port 8800 --workers 1 --no-access-log
 
 Restart=on-failure
 RestartSec=5
 
-# 基础加固
+# —— 进程加固 ——
+# NoNewPrivileges       禁止子进程获得新特权（防 setuid 提权）
+# PrivateTmp            /tmp 隔离到 instance-private namespace（即便 spool 也只活在本进程）
+# ProtectSystem=strict  /usr /boot /efi 等只读，进程崩了也写不了系统目录
+# ProtectHome=true      隐藏 /home /root 防意外读到用户文件
+# ProtectKernelTunables 禁止改 /proc/sys 等内核参数
+# ProtectKernelModules  禁止加卸内核模块
+# ProtectControlGroups  禁止改 cgroup（容器逃逸防御）
+# RestrictSUIDSGID      禁止创建 setuid/setgid 文件
+# LockPersonality       禁用 personality(2) 改 ABI（防 mmap 旁路）
+# RestrictRealtime      禁用 realtime 调度（防 DoS）
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectSystem=full
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+
+# 必须可写的路径：工作目录（pip cache 在 .venv 里）、运行时 socket
+# 注意：不放 /tmp（PrivateTmp 已经处理）；不放 /var（不写持久日志，靠 journal）
+ReadWritePaths=/opt/deskpet/vision-service
 
 [Install]
 WantedBy=multi-user.target

@@ -102,4 +102,12 @@ async def root():
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("src.main:app", host=config.host, port=config.port, reload=False)
+    # access_log=False：不打访问行（IP、路径、UA），守「不留存」纪律的元信息层。
+    # systemd ExecStart 也带 --no-access-log，本地裸启走这条路径同样静音。
+    uvicorn.run(
+        "src.main:app",
+        host=config.host,
+        port=config.port,
+        reload=False,
+        access_log=False,
+    )
