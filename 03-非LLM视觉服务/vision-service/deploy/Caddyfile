@@ -21,12 +21,18 @@
 {
     # 关全局 access log —— 不留 IP / 路径 / UA 行（与 uvicorn --no-access-log 对齐）
     # admin off：禁用 Caddy 自身的 admin API（默认 localhost:2019）避免被本机其他进程探测
-    # 注意 trade-off：admin off 会让 `caddy reload` / `systemctl reload caddy` 失效
-    #   （reload 通过 admin API 推新配置进 running 实例）。改配置后必须用
-    #   `systemctl restart caddy`，LE 证书在 /var/lib/caddy 持久化、restart 不重签。
+    # 注意 trade-off：admin off 会让 `caddy reload` 失效（reload 通过 admin API 推
+    # 新配置进 running 实例）。`systemctl reload caddy` 通过 systemd drop-in
+    # （deploy/caddy.service.d/admin-off.conf）映射成 restart，可正常工作；
+    # LE 证书在 /var/lib/caddy 持久化、restart 不重签。
     admin off
     # 用于 LE 注册的邮箱（出错通知和证书续期失败警报会发到这里）
     email admin@iceteamk.com
+    # 显式锁定 LE 作为唯一 ACME CA —— 不走 Caddy 默认的 LE → ZeroSSL fallback。
+    # ZeroSSL fallback 会用本 email 在 zerossl 注册第二个 ACME 账户，把邮箱泄给
+    # 非预期的 CA。锁定后 LE 不可用时不会自动降级 ZeroSSL —— 但 LE 可用性 99.99%，
+    # 可接受；若真碰到 LE rate limit / outage 再手动改成 zerossl 即可。
+    acme_ca https://acme-v02.api.letsencrypt.org/directory
     # 全局禁用 access log —— 没有 sinkhole 也不写盘
     log {
         output discard
