@@ -4,11 +4,14 @@ import type { ActivityState, ChatError, ChatUsage, KeyState } from '../shared/ch
 import type { VisionState } from '../shared/vision-types'
 import type { ApprovalDecision, ApprovalRequest } from '../shared/approval-types'
 import type { TavilyState } from '../shared/tavily-types'
+import type { ModelId } from '../shared/chat-types'
+import type { IpcResult, PrefsState, TrustedDirsState } from '../shared/settings-types'
 
 export type { PetState, ActivityState, ChatError, ChatUsage, KeyState }
 export type { VisionState }
 export type { ApprovalDecision, ApprovalRequest }
 export type { TavilyState }
+export type { ModelId, IpcResult, PrefsState, TrustedDirsState }
 
 export interface DeskPetAPI {
   windowMoveDelta(dx: number, dy: number): void
@@ -39,6 +42,19 @@ export interface DeskPetAPI {
   resetTavilyKey(): void
   requestTavilyState(): void
   onTavilyState(listener: (state: TavilyState) => void): () => void
+  // M5 settings panel
+  openSettings(): void
+  requestPrefsState(): void
+  onPrefsState(listener: (state: PrefsState) => void): () => void
+  setModel(modelId: ModelId): void
+  setFollowFrontApp(value: boolean): void
+  setUseFastPath(value: boolean): void
+  revealAuditLogInFinder(): void
+  clearAuditLog(): Promise<IpcResult>
+  requestTrustedDirsState(): void
+  onTrustedDirsState(listener: (state: TrustedDirsState) => void): () => void
+  revokeTrustedDirPersistent(dir: string): Promise<IpcResult>
+  revokeAllSessionTrustedDirs(): void
 }
 
 declare global {

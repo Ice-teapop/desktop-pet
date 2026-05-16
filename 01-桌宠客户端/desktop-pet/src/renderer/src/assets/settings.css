@@ -1,0 +1,275 @@
+/* M5 设置面板样式 —— 不透明窗口，复用 main.css 的 token 但布局更宽松 */
+
+/* main.css 把 html/body/#root 设了 overflow:hidden（桌宠透明窗口必需），
+   settings 窗口共享同一份 CSS 所以继承不能滚。这里把 .settings-app 设成
+   viewport 高度的可滚容器 —— 容器内部 overflow-y:auto 接管滚动。
+   不能直接 override html/body 的 overflow（会破坏桌宠透明）。 */
+.settings-app {
+  width: 100%;
+  height: 100vh;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--fnt-cn);
+  padding: 28px 36px 56px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: default;
+  line-height: 1.55;
+  font-size: 13px;
+  box-sizing: border-box;
+}
+
+.settings-app h1 {
+  font-size: 24px;
+  color: var(--coral-deep);
+  margin-bottom: 22px;
+  letter-spacing: 0.5px;
+}
+
+.settings-app h2 {
+  font-size: 14.5px;
+  color: var(--coral-deep);
+  margin-bottom: 12px;
+  padding-bottom: 6px;
+  border-bottom: 2px solid var(--coral);
+  letter-spacing: 0.4px;
+}
+
+.settings-app h3 {
+  font-size: 16px;
+  color: var(--coral-deep);
+  margin-bottom: 10px;
+}
+
+.settings-app section {
+  margin-bottom: 28px;
+}
+
+.settings-app p {
+  margin-bottom: 6px;
+}
+
+.settings-app .hint {
+  font-size: 11.5px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.settings-app code {
+  font-family: var(--fnt-en);
+  font-size: 11px;
+  background: var(--coral-soft);
+  padding: 1px 5px;
+  border-radius: 0;
+}
+
+/* —— Row（label + control + button） —— */
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 6px 0;
+}
+.row > label {
+  flex: 1 1 220px;
+  font-size: 12.5px;
+}
+
+/* —— Badge —— */
+.badge {
+  font-size: 10.5px;
+  padding: 2px 8px;
+  border: 2px solid var(--coral);
+  font-family: var(--fnt-cn);
+  letter-spacing: 0.3px;
+}
+.badge-ok {
+  background: var(--coral);
+  color: #fff;
+  border-color: var(--coral-deep);
+}
+.badge-warn {
+  background: #fce4e0;
+  color: #6b2418;
+  border-color: #a94c3a;
+}
+.badge-muted {
+  background: var(--paper);
+  color: var(--muted);
+}
+
+/* —— Buttons —— */
+.settings-app button {
+  font-family: var(--fnt-cn);
+  font-size: 11.5px;
+  padding: 5px 12px;
+  background: var(--paper);
+  color: var(--ink);
+  border: 2px solid var(--coral);
+  cursor: pointer;
+  clip-path: var(--clip-pixel-card);
+  filter: drop-shadow(2px 2px 0 var(--coral-deep));
+  transition: transform 80ms steps(2);
+}
+.settings-app button:hover:not(:disabled) {
+  transform: translate(-1px, -1px);
+}
+.settings-app button:active:not(:disabled) {
+  transform: translate(1px, 1px);
+  filter: drop-shadow(1px 1px 0 var(--coral-deep));
+}
+.settings-app button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.settings-app button.danger {
+  background: #fce4e0;
+  border-color: #a94c3a;
+  color: #6b2418;
+  filter: drop-shadow(2px 2px 0 #8a3a28);
+}
+.settings-app button.primary {
+  background: var(--coral);
+  color: #fff;
+  border-color: var(--coral-deep);
+}
+.settings-app button.small {
+  font-size: 10px;
+  padding: 2px 8px;
+}
+
+/* —— Radio group —— */
+.model-radios {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.radio-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.radio-item input,
+.row label input[type='checkbox'] {
+  cursor: pointer;
+}
+.row label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* —— Directory lists —— */
+.dir-list {
+  list-style: none;
+  margin: 6px 0 10px;
+  padding: 0;
+}
+.dir-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+  font-size: 11.5px;
+}
+.dir-list li code {
+  flex: 1 1 auto;
+  word-break: break-all;
+}
+.dir-list.compact li {
+  padding: 2px 0;
+  font-size: 11px;
+}
+
+/* —— Tools details —— */
+.tool-list-details summary {
+  cursor: pointer;
+  font-size: 12px;
+  padding: 6px 0;
+  color: var(--coral-deep);
+  user-select: none;
+}
+.tool-list {
+  list-style: disc;
+  margin-left: 18px;
+  font-size: 11.5px;
+}
+.tool-list li {
+  margin-bottom: 3px;
+}
+
+/* —— Toast —— */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--coral);
+  color: #fff;
+  padding: 8px 18px;
+  font-size: 12px;
+  font-family: var(--fnt-cn);
+  border: 2px solid var(--coral-deep);
+  clip-path: var(--clip-pixel-card);
+  filter: drop-shadow(2px 2px 0 var(--coral-deep));
+  animation: toast-in 180ms ease-out;
+  z-index: 100;
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+/* —— Settings 内嵌 modal（Tavily key 输入） —— */
+.settings-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(58, 40, 32, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+}
+.settings-modal {
+  background: var(--paper);
+  color: var(--ink);
+  border: 3px solid var(--coral);
+  padding: 24px;
+  width: 460px;
+  max-width: calc(100% - 40px);
+  clip-path: var(--clip-pixel-card);
+  filter: var(--drop-shadow);
+}
+.settings-modal input[type='password'],
+.settings-modal input[type='text'] {
+  width: 100%;
+  padding: 8px 12px;
+  margin: 12px 0;
+  font-family: var(--fnt-cn);
+  font-size: 12px;
+  color: var(--ink);
+  background: #fff;
+  border: 2px solid var(--coral);
+  outline: none;
+  clip-path: var(--clip-pixel-card);
+}
+.settings-modal input:focus {
+  border-color: var(--coral-deep);
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}

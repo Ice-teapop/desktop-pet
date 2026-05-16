@@ -30,7 +30,7 @@
  * 沿用 M1-8 的窗口策略：智能扩展方向 + 开/关屏两阶段过渡 + NSPanel + screen-saver level
  *  + reapplyMacVisibility watchdog。
  */
-import { app, BrowserWindow, ipcMain, Menu, nativeImage, screen, Tray } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu, nativeImage, screen, shell, Tray } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { PET_STATES, type PetState } from '../shared/pet-state'
@@ -38,6 +38,7 @@ import {
   ACTIVITY_INFO,
   AVAILABLE_MODELS,
   DEFAULT_MODEL,
+  isValidModelId,
   type ActivityState,
   type ChatMessage,
   type KeyState,
@@ -61,10 +62,14 @@ import { loadPreferences, savePreferences, type Preferences } from './storage/pr
 import { migrateLegacyUserData } from './storage/migration'
 import { loadTheme } from './storage/theme'
 import { ActiveAppMonitor } from './services/active-app'
+import { createSettingsWindow } from './services/settings-window'
 import { buildToolsForContext, executeTool as runTool, type ToolDef } from './llm/tools'
 import {
+  getTrustedDirsSnapshot,
   loadPersistentTrustedDirs,
   registerApprovalIpc,
+  revokeAllSessionTrust,
+  revokePersistentTrust,
   setApprovalPetWindow
 } from './llm/approval'
 import {
@@ -72,6 +77,7 @@ import {
   resolveTavilyKey,
   saveTavilyKey
 } from './storage/tavily-key'
+import { clearAuditLog, logPath as auditLogPath } from './audit-log'
 import type { VisionState } from '../shared/vision-types'
 import type { TavilyState } from '../shared/tavily-types'
 import trayIconPath from '../../resources/icon.png?asset'
@@ -613,6 +619,11 @@ function buildTrayMenu(): Menu {
       click: (item) => setUseFastPath(!item.checked)
     },
     { type: 'separator' },
+    {
+      label: '设置…',
+      accelerator: 'CmdOrCtrl+,',
+      click: () => createSettingsWindow()
+    },
     { label: '重设 API Key…', click: () => void resetKey() },
     {
       label: '模型',
@@ -792,6 +803,98 @@ function registerIpc(): void {
   ipcMain.on('tavily:request-state', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     win?.webContents.send('tavily:state', tavilyState())
+  })
+
+  // —— M5 settings panel IPC ——
+
+  /** Preferences 完整 state（modelId / followFrontApp / useFastPath / vision*）—— 设置面板 + 主窗口都订阅 */
+  const prefsSnapshot = (): {
+    modelId: ModelId
+    followFrontApp: boolean
+    useFastPath: boolean
+    visionEnabled: boolean
+    visionConsented: boolean
+  } => ({
+    modelId: currentModel,
+    followFrontApp,
+    useFastPath,
+    visionEnabled: visionEnabledPref,
+    visionConsented: visionConsentedPref
+  })
+
+  function broadcastPrefsState(): void {
+    const snapshot = prefsSnapshot()
+    for (const w of BrowserWindow.getAllWindows()) {
+      if (!w.isDestroyed()) w.webContents.send('prefs:state', snapshot)
+    }
+  }
+
+  ipcMain.on('prefs:request-state', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    win?.webContents.send('prefs:state', prefsSnapshot())
+  })
+
+  ipcMain.on('prefs:set-model', (_event, modelId: unknown) => {
+    if (!isValidModelId(modelId)) return
+    setModel(modelId)
+    broadcastPrefsState()
+  })
+
+  ipcMain.on('prefs:set-follow-front-app', (_event, value: unknown) => {
+    if (typeof value !== 'boolean') return
+    setFollowFrontApp(value)
+    broadcastPrefsState()
+  })
+
+  ipcMain.on('prefs:set-use-fast-path', (_event, value: unknown) => {
+    if (typeof value !== 'boolean') return
+    setUseFastPath(value)
+    broadcastPrefsState()
+  })
+
+  // —— Audit log ——
+  ipcMain.on('audit:reveal-in-finder', () => {
+    void shell.showItemInFolder(auditLogPath())
+  })
+
+  ipcMain.handle('audit:clear', async () => {
+    try {
+      await clearAuditLog()
+      return { ok: true }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      return { ok: false, error: msg }
+    }
+  })
+
+  // —— Trusted dirs ——
+  function broadcastTrustedDirsState(): void {
+    const snapshot = getTrustedDirsSnapshot()
+    for (const w of BrowserWindow.getAllWindows()) {
+      if (!w.isDestroyed()) w.webContents.send('trusted-dirs:state', snapshot)
+    }
+  }
+
+  ipcMain.on('trusted-dirs:request-state', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    win?.webContents.send('trusted-dirs:state', getTrustedDirsSnapshot())
+  })
+
+  ipcMain.handle('trusted-dirs:revoke-persistent', async (_event, dir: unknown) => {
+    if (typeof dir !== 'string') return { ok: false, error: 'dir must be string' }
+    await revokePersistentTrust(dir)
+    broadcastTrustedDirsState()
+    return { ok: true }
+  })
+
+  ipcMain.on('trusted-dirs:revoke-all-session', () => {
+    revokeAllSessionTrust()
+    broadcastTrustedDirsState()
+  })
+
+  // —— 设置面板 open（菜单 / 快捷键以外的入口） ——
+  ipcMain.on('settings:open', () => {
+    createSettingsWindow()
   })
 
   // 防御启动竞态：did-finish-load 推 'key:state' 时若 React useEffect 还没装好 listener

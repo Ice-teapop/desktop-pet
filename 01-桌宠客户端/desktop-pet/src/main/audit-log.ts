@@ -22,8 +22,18 @@ import { join } from 'path'
 const FILE_NAME = 'audit.log'
 const MAX_SIZE = 5 * 1024 * 1024 // 5MB
 
-function logPath(): string {
+export function logPath(): string {
   return join(app.getPath('userData'), FILE_NAME)
+}
+
+/** 清空 audit log（保留文件以维持权限），不递归删除滚动备份。 */
+export async function clearAuditLog(): Promise<void> {
+  try {
+    await fs.writeFile(logPath(), '', { mode: 0o600 })
+  } catch (err) {
+    console.warn('[audit] clear failed:', err)
+    throw err
+  }
 }
 
 export type AuditResult = 'ok' | 'error' | 'denied' | 'auto-trusted' | 'whitelist'

@@ -9,6 +9,8 @@ import type { ActivityState, ChatError as ChatErrorMsg, KeyState } from '../shar
 import type { VisionState } from '../shared/vision-types'
 import type { ApprovalDecision, ApprovalRequest } from '../shared/approval-types'
 import type { TavilyState } from '../shared/tavily-types'
+import type { ModelId } from '../shared/chat-types'
+import type { IpcResult, PrefsState, TrustedDirsState } from '../shared/settings-types'
 
 const api = {
   /** 渲染层接管鼠标后，把 dx/dy 增量发给主进程，由主进程移动窗口。 */
@@ -159,6 +161,54 @@ const api = {
     const handler = (_event: IpcRendererEvent, state: TavilyState): void => listener(state)
     ipcRenderer.on('tavily:state', handler)
     return () => ipcRenderer.off('tavily:state', handler)
+  },
+
+  // —— M5 设置面板 ——
+  /** 打开设置窗口（任何 webContents 都能触发） */
+  openSettings(): void {
+    ipcRenderer.send('settings:open')
+  },
+  /** 拉取 Preferences 完整状态 */
+  requestPrefsState(): void {
+    ipcRenderer.send('prefs:request-state')
+  },
+  /** 订阅 Preferences 推送（设置面板 + 主窗口都收） */
+  onPrefsState(listener: (state: PrefsState) => void): () => void {
+    const handler = (_event: IpcRendererEvent, state: PrefsState): void => listener(state)
+    ipcRenderer.on('prefs:state', handler)
+    return () => ipcRenderer.off('prefs:state', handler)
+  },
+  setModel(modelId: ModelId): void {
+    ipcRenderer.send('prefs:set-model', modelId)
+  },
+  setFollowFrontApp(value: boolean): void {
+    ipcRenderer.send('prefs:set-follow-front-app', value)
+  },
+  setUseFastPath(value: boolean): void {
+    ipcRenderer.send('prefs:set-use-fast-path', value)
+  },
+  // —— audit log ——
+  revealAuditLogInFinder(): void {
+    ipcRenderer.send('audit:reveal-in-finder')
+  },
+  clearAuditLog(): Promise<IpcResult> {
+    return ipcRenderer.invoke('audit:clear') as Promise<IpcResult>
+  },
+  // —— trusted dirs ——
+  requestTrustedDirsState(): void {
+    ipcRenderer.send('trusted-dirs:request-state')
+  },
+  onTrustedDirsState(listener: (state: TrustedDirsState) => void): () => void {
+    const handler = (_event: IpcRendererEvent, state: TrustedDirsState): void =>
+      listener(state)
+    ipcRenderer.on('trusted-dirs:state', handler)
+    return () => ipcRenderer.off('trusted-dirs:state', handler)
+  },
+  revokeTrustedDirPersistent(dir: string): Promise<IpcResult> {
+    return ipcRenderer.invoke('trusted-dirs:revoke-persistent', dir) as Promise<IpcResult>
+  },
+  revokeAllSessionTrustedDirs(): void {
+    ipcRenderer.send('trusted-dirs:revoke-all-session')
   }
 }
 
