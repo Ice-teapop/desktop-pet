@@ -560,3 +560,90 @@ body,
   opacity: 0.4;
   cursor: not-allowed;
 }
+
+/* ============================================================
+ * M4-C ApprovalModal —— per-action approval（4 个按钮竖排）
+ * ============================================================ */
+
+.approval-modal {
+  /* 复用 .vision-modal 大部分；扩大背景区分"高风险动作"语义 */
+  border-color: #d97560;
+  background: #fef7ed; /* 比 paper 略偏警告暖黄 */
+}
+
+.approval-summary {
+  font-weight: bold;
+  font-size: 12.5px;
+  margin-bottom: 8px;
+  color: var(--coral-deep);
+}
+
+.approval-detail {
+  margin-bottom: 5px;
+  font-size: 11px;
+  line-height: 1.45;
+  word-break: break-all;
+}
+
+.approval-detail code {
+  font-family: var(--fnt-en);
+  font-size: 10px;
+  background: var(--coral-soft);
+  padding: 1px 4px;
+  display: inline-block;
+  margin-left: 3px;
+}
+
+.approval-content-preview {
+  display: block !important;
+  margin-top: 3px;
+  max-height: 80px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+
+.approval-hint {
+  margin-top: 10px;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.approval-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.approval-actions button {
+  font-family: var(--fnt-cn);
+  font-size: 11.5px;
+  padding: 6px 12px;
+  border: 2px solid var(--coral);
+  cursor: pointer;
+  clip-path: var(--clip-pixel-card);
+  filter: drop-shadow(2px 2px 0 var(--coral-deep));
+  transition: transform 80ms steps(2);
+  width: 100%;
+  text-align: center;
+}
+
+.approval-actions button:hover {
+  transform: translate(-1px, -1px);
+}
+
+.approval-btn-once {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.approval-btn-trust-session {
+  background: #f5c2b3;
+  color: var(--ink);
+}
+
+.approval-btn-trust-permanent {
+  background: var(--coral);
+  color: #fff;
+  border-color: var(--coral-deep);
+}

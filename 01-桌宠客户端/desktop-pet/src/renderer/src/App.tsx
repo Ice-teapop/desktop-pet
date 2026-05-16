@@ -20,6 +20,8 @@ import { useEffect, useRef, useState } from 'react'
 import type { PetState } from '../../shared/pet-state'
 import type { ActivityState, ChatError, KeyState } from '../../shared/chat-types'
 import type { VisionState } from '../../shared/vision-types'
+import type { ApprovalDecision, ApprovalRequest } from '../../shared/approval-types'
+import type { TavilyState } from '../../shared/tavily-types'
 // idle 池 6 种"无聊时的小动作"，闲态随机切
 import idleGif from '@themes/clawd-dev/clawd-idle.gif'
 import idleReadingGif from '@themes/clawd-dev/clawd-idle-reading.gif'
@@ -154,6 +156,12 @@ function App(): React.JSX.Element {
   const [visionState, setVisionState] = useState<VisionState | null>(null)
   // 隐私同意 modal 开关
   const [visionModalOpen, setVisionModalOpen] = useState(false)
+  // —— M4-C 高风险 tool 待审批的请求（null = 当前无 pending） ——
+  const [pendingApproval, setPendingApproval] = useState<ApprovalRequest | null>(null)
+  // —— M4-D-1 Tavily search API key state ——
+  const [tavilyState, setTavilyState] = useState<TavilyState | null>(null)
+  const [tavilyModalOpen, setTavilyModalOpen] = useState(false)
+  const [tavilyKeyDraft, setTavilyKeyDraft] = useState('')
   // 记录"想切到的 url" —— 防止 back img 在我们没期待时（如初始 mount）fire onLoad 误触发 swap
   const pendingBackRef = useRef<string | null>(null)
   const msgIdRef = useRef(1)
@@ -226,6 +234,33 @@ function App(): React.JSX.Element {
     window.api.requestVisionState()
     return off
   }, [])
+
+  // —— 订阅 main 端的 approval 请求 ——
+  // 一次只支持一个 pending —— 后来的覆盖前面的（理论上 main 端 serial 处理 tool calls，
+  // 不会出现并发；这里做 last-wins 防御）
+  useEffect(() => {
+    const off = window.api.onApprovalRequest((req) => setPendingApproval(req))
+    return off
+  }, [])
+
+  // —— Tavily state 订阅 ——
+  useEffect(() => {
+    const off = window.api.onTavilyState((s) => setTavilyState(s))
+    window.api.requestTavilyState()
+    return off
+  }, [])
+
+  const handleApprovalDecision = (decision: ApprovalDecision): void => {
+    if (!pendingApproval) return
+    // trust-dir-* 决策需要目录路径 —— 从 req.path 推出（path 是文件或目录绝对路径）
+    const dirToTrust = pendingApproval.path
+      ? pendingApproval.path.endsWith('/')
+        ? pendingApproval.path
+        : pendingApproval.path.replace(/\/[^/]*$/, '') || '/'
+      : undefined
+    window.api.sendApprovalResponse(pendingApproval.id, decision, dirToTrust)
+    setPendingApproval(null)
+  }
 
   // keyState 转变（非 'missing' → 'missing'）才插迎宾，避免重复推送 missing 时反复插。
   // 进入 missing 时清空 messages：主进程同步清了 chatHistory，UI 保留旧气泡会让用户
@@ -531,6 +566,36 @@ function App(): React.JSX.Element {
     return '🔒 启用屏幕感知'
   })()
 
+  // —— Tavily UI helpers ——
+  const handleTavilyButtonClick = (): void => {
+    setTavilyKeyDraft('')
+    setTavilyModalOpen(true)
+  }
+
+  const handleTavilyKeySubmit = (): void => {
+    const trimmed = tavilyKeyDraft.trim()
+    if (!trimmed) return
+    window.api.submitTavilyKey(trimmed)
+    setTavilyModalOpen(false)
+    setTavilyKeyDraft('')
+  }
+
+  const handleTavilyKeyReset = (): void => {
+    window.api.resetTavilyKey()
+    setTavilyModalOpen(false)
+    setTavilyKeyDraft('')
+  }
+
+  const handleTavilyModalCancel = (): void => {
+    setTavilyModalOpen(false)
+    setTavilyKeyDraft('')
+  }
+
+  const tavilyLabel = ((): string => {
+    if (!tavilyState) return '...'
+    return tavilyState.kind === 'configured' ? '🔍 搜索就绪' : '🔍 设搜索 key'
+  })()
+
   // keyState 还没就位时禁用：避免「user msg / no-api-key 错误 / 迎宾」三连闪
   // 等 AI 回复时禁用：避免连点 submit 让旧 stream 被 token 屏蔽但仍在烧 Anthropic token
   const isInputDisabled = keyState === null || isWaitingForReply
@@ -590,6 +655,15 @@ function App(): React.JSX.Element {
             >
               {visionLabel}
             </button>
+            <button
+              type="button"
+              className="vision-toggle"
+              onClick={handleTavilyButtonClick}
+              disabled={!tavilyState}
+              data-state={tavilyState?.kind}
+            >
+              {tavilyLabel}
+            </button>
           </div>
           <input
             className="chat-input"
@@ -629,6 +703,142 @@ function App(): React.JSX.Element {
               >
                 我已了解，启用
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {tavilyModalOpen && (
+        <div className="vision-modal-overlay" onClick={handleTavilyModalCancel}>
+          <div className="vision-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="vision-modal-title">搜索 API（Tavily）</div>
+            <div className="vision-modal-body">
+              <p>
+                状态：
+                {tavilyState?.kind === 'configured' ? (
+                  <b style={{ color: 'var(--coral-deep)' }}>已配置（加密落盘）</b>
+                ) : (
+                  <b style={{ color: 'var(--muted)' }}>未配置</b>
+                )}
+              </p>
+              <p>
+                Tavily 提供 AI 友好的网页搜索（免费 1000 次/月）。配置后 AI 可以在你
+                问到需要联网信息时自动调用。
+              </p>
+              <p>
+                获取 key：
+                <code className="vision-modal-endpoint">tavily.com</code>{' '}
+                注册账号后从 dashboard 拿。格式 <code>tvly-xxxxxxxxxxxx</code>。
+              </p>
+              <ul>
+                <li>safeStorage AES-256 加密落盘（macOS Keychain backed）</li>
+                <li>query 发送到 api.tavily.com 由 Tavily 处理</li>
+                <li>本地随时清除；env var <code>TAVILY_API_KEY</code> 启动时优先</li>
+              </ul>
+              <input
+                className="vision-modal-input"
+                type="password"
+                placeholder={
+                  tavilyState?.kind === 'configured'
+                    ? '粘贴新 key 覆盖（或留空仅查看）'
+                    : '粘贴 tvly-... key'
+                }
+                value={tavilyKeyDraft}
+                onChange={(e) => setTavilyKeyDraft(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <div className="vision-modal-actions">
+              <button
+                type="button"
+                className="vision-modal-btn-cancel"
+                onClick={handleTavilyModalCancel}
+              >
+                取消
+              </button>
+              {tavilyState?.kind === 'configured' && (
+                <button
+                  type="button"
+                  className="vision-modal-btn-cancel"
+                  onClick={handleTavilyKeyReset}
+                >
+                  清除已存 key
+                </button>
+              )}
+              <button
+                type="button"
+                className="vision-modal-btn-ok"
+                onClick={handleTavilyKeySubmit}
+                disabled={!tavilyKeyDraft.trim()}
+              >
+                保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {pendingApproval && (
+        <div className="vision-modal-overlay">
+          <div className="vision-modal approval-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="vision-modal-title">⚠️ AI 请求授权</div>
+            <div className="vision-modal-body">
+              <p className="approval-summary">{pendingApproval.summary}</p>
+              {pendingApproval.path && (
+                <p className="approval-detail">
+                  <b>路径：</b>
+                  <code>{pendingApproval.path}</code>
+                </p>
+              )}
+              {pendingApproval.command && (
+                <p className="approval-detail">
+                  <b>命令：</b>
+                  <code>{pendingApproval.command}</code>
+                </p>
+              )}
+              {pendingApproval.contentPreview && (
+                <p className="approval-detail">
+                  <b>内容预览：</b>
+                  <code className="approval-content-preview">
+                    {pendingApproval.contentPreview}
+                  </code>
+                </p>
+              )}
+              <p className="approval-hint">
+                tool: <code>{pendingApproval.tool}</code> · 60s 不操作自动拒绝
+              </p>
+            </div>
+            <div className="approval-actions">
+              <button
+                type="button"
+                className="vision-modal-btn-cancel"
+                onClick={() => handleApprovalDecision('deny')}
+              >
+                拒绝
+              </button>
+              <button
+                type="button"
+                className="approval-btn-once"
+                onClick={() => handleApprovalDecision('allow-once')}
+              >
+                允许一次
+              </button>
+              {pendingApproval.path && (
+                <>
+                  <button
+                    type="button"
+                    className="approval-btn-trust-session"
+                    onClick={() => handleApprovalDecision('trust-dir-session')}
+                  >
+                    信任此目录（本会话）
+                  </button>
+                  <button
+                    type="button"
+                    className="approval-btn-trust-permanent"
+                    onClick={() => handleApprovalDecision('trust-dir-permanent')}
+                  >
+                    永久信任此目录
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>

@@ -61,8 +61,19 @@ import { loadPreferences, savePreferences, type Preferences } from './storage/pr
 import { migrateLegacyUserData } from './storage/migration'
 import { loadTheme } from './storage/theme'
 import { ActiveAppMonitor } from './services/active-app'
-import { ALL_TOOLS, executeTool as runTool, type ToolDef } from './llm/tools'
+import { buildToolsForContext, executeTool as runTool, type ToolDef } from './llm/tools'
+import {
+  loadPersistentTrustedDirs,
+  registerApprovalIpc,
+  setApprovalPetWindow
+} from './llm/approval'
+import {
+  clearTavilyKey,
+  resolveTavilyKey,
+  saveTavilyKey
+} from './storage/tavily-key'
 import type { VisionState } from '../shared/vision-types'
+import type { TavilyState } from '../shared/tavily-types'
 import trayIconPath from '../../resources/icon.png?asset'
 
 // userData 路径走 package.json 的 productName='DeskPet' —— Electron 启动早期就读
@@ -149,6 +160,8 @@ let visionConsentedPref = false
 // （activeAppMonitor callback 维护，初始为空）
 let currentAppName = ''
 let currentAppBundleId = ''
+// M4-D：Tavily Search API key —— null = web_search tool 不暴露给 AI
+let currentTavilyApiKey: string | null = null
 
 /**
  * 对话轮次令牌 —— 每次 chat:submit 进入时 snapshot 当前值，stream 回调用 snapshot 比对。
@@ -200,6 +213,15 @@ function visionState(): VisionState {
 
 function notifyVisionState(): void {
   if (isWinAlive()) petWindow!.webContents.send('vision:state', visionState())
+}
+
+/** Tavily key 状态：暴露 "有 / 无" 给 renderer，绝不暴露真实 key 值。 */
+function tavilyState(): TavilyState {
+  return currentTavilyApiKey ? { kind: 'configured' } : { kind: 'no-key' }
+}
+
+function notifyTavilyState(): void {
+  if (isWinAlive()) petWindow!.webContents.send('tavily:state', tavilyState())
 }
 
 function notifyActivity(): void {
@@ -479,6 +501,7 @@ function createPetWindow(): void {
     win.webContents.send('key:state', keyState)
     win.webContents.send('pet:activity', currentActivity)
     win.webContents.send('vision:state', visionState())
+    win.webContents.send('tavily:state', tavilyState())
   })
 
   win.on('ready-to-show', () => {
@@ -740,6 +763,37 @@ function registerIpc(): void {
     win?.webContents.send('vision:state', visionState())
   })
 
+  // —— M4-D-1 Tavily key IPC handlers ——
+  ipcMain.on('tavily:submit-key', async (_event, rawKey: string) => {
+    const key = String(rawKey).slice(0, 512).trim()
+    if (!key) return
+    try {
+      await saveTavilyKey(key)
+      currentTavilyApiKey = key
+      notifyTavilyState()
+    } catch (err) {
+      console.error('[tavily:submit-key] saveTavilyKey failed:', err)
+      // 落盘失败也放内存，本 session 仍可用 —— 重启会丢
+      currentTavilyApiKey = key
+      notifyTavilyState()
+    }
+  })
+
+  ipcMain.on('tavily:reset-key', async () => {
+    try {
+      await clearTavilyKey()
+    } catch (err) {
+      console.warn('[tavily:reset-key] clearTavilyKey failed:', err)
+    }
+    currentTavilyApiKey = null
+    notifyTavilyState()
+  })
+
+  ipcMain.on('tavily:request-state', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    win?.webContents.send('tavily:state', tavilyState())
+  })
+
   // 防御启动竞态：did-finish-load 推 'key:state' 时若 React useEffect 还没装好 listener
   // 会丢掉，桌宠就永远不开口。renderer 收到响应后才知道自己是 missing 还是 ready。
   ipcMain.on('key:request-state', (event) => {
@@ -763,20 +817,22 @@ function registerIpc(): void {
     // 上一个 stream 还在跑就 abort（用户连点 submit 时不烧两份 token）
     currentStreamHandle?.abort()
 
-    // —— M4-B agentic tools —— AI 通过 tool_use 自主决定调用哪些 local tool。
-    // tools 池：vision 类工具（view_screen / read_clipboard）需要 vision consent；
-    // 动作类（open_url / copy_to_clipboard / current_app_info）只需要 consent
-    // 同样的 gate（一次 consent 给所有 agentic 能力，UX 简单）。
+    // —— M4-B/C/D agentic tools —— AI 通过 tool_use 自主决定调用哪些 local tool。
+    // tools 池由 ToolContext 动态构建（如 tavilyApiKey 缺则 web_search 不暴露）。
     const agenticEnabled = visionEnabledPref && visionConsentedPref
-    const tools: ToolDef[] = agenticEnabled ? [...ALL_TOOLS] : []
+    const toolCtx = {
+      petWindow,
+      currentActivity,
+      currentAppName,
+      currentAppBundleId,
+      tavilyApiKey: currentTavilyApiKey
+    }
+    const tools: readonly ToolDef[] = agenticEnabled
+      ? buildToolsForContext(toolCtx)
+      : []
     const executeTool = agenticEnabled
       ? (name: string, input: unknown): ReturnType<typeof runTool> =>
-          runTool(name, input, {
-            petWindow,
-            currentActivity,
-            currentAppName,
-            currentAppBundleId
-          })
+          runTool(name, input, toolCtx)
       : undefined
 
     chatHistory.push({ role: 'user', content: cleaned })
@@ -890,8 +946,22 @@ app.whenReady().then(async () => {
     )
   }
 
+  // M4-C：加载持久化 trusted dirs + 注册 approval IPC
+  await loadPersistentTrustedDirs()
+  registerApprovalIpc()
+
+  // M4-D：加载 Tavily key（env 优先 → 加密文件 → null 则 web_search 不暴露）
+  currentTavilyApiKey = await resolveTavilyKey()
+  if (currentTavilyApiKey) {
+    console.log('[startup] Tavily search key loaded — web_search tool enabled')
+  } else {
+    console.log('[startup] no Tavily key — web_search tool disabled')
+  }
+
   registerIpc()
   createPetWindow()
+  // 让 approval.ts 拿到 petWindow 引用，requestApproval 才能发 IPC
+  setApprovalPetWindow(petWindow)
   createTray()
   watchScreenEvents()
 

@@ -1,0 +1,120 @@
+/**
+ * Shell 命令安全白名单（M4-C）——
+ *
+ * 白名单命令：执行不需要 modal（保守、只读、无副作用）。
+ * 黑名单 patterns：永远拒绝，approval 也不能放行（rm -rf、curl|sh、sudo 等）。
+ * 其它：弹 modal 让用户决定。
+ *
+ * 防 shell injection：白名单 regex 严格匹配整条命令字符串，不允许任意拼接。
+ * 但仍然要在 child_process 那边用 `shell: false` + args 数组（更安全），
+ * 或者承认 shell:true 风险但每条命令显式 approval。
+ */
+
+/**
+ * 安全只读命令 patterns —— 整条命令必须匹配其中一个（开头 + 结尾锚定）。
+ *
+ * 故意保守：不放 `git status -uall`（含 -u 参数后面接路径，可能写入）等；
+ * 不放 `find` （-exec 可执行任意命令）；不放 `xargs`（同样）。
+ * 通配符 `\S+` 仅允许非空白单 token，防止 ` ; rm -rf ~/` 这种 injection。
+ */
+const SAFE_REGEX: RegExp[] = [
+  /^pwd$/,
+  /^whoami$/,
+  /^hostname$/,
+  /^date(\s+\+[%a-zA-Z:/_-]+)?$/,
+  /^uname(\s+-[arsmnp])?$/,
+  /^ls(\s+-[1aAhltrSF]+)?(\s+\S+)?$/,
+  /^cat\s+\S+$/,
+  /^head(\s+-n\s+\d+)?\s+\S+$/,
+  /^tail(\s+-n\s+\d+)?\s+\S+$/,
+  /^wc(\s+-[lwc]+)?\s+\S+$/,
+  /^file\s+\S+$/,
+  /^stat\s+\S+$/,
+  /^which\s+\S+$/,
+  /^type\s+\S+$/,
+  /^echo(\s+\S+){0,5}$/,
+  /^df(\s+-h)?$/,
+  /^du(\s+-[hsd]+)?(\s+\S+)?$/,
+  /^free(\s+-h)?$/, // Linux only but 跨平台无害
+  /^ps(\s+-[aux]+)?$/,
+  /^top\s+-l\s+1$/, // 单 snapshot
+  /^uptime$/,
+  // Git read-only
+  /^git\s+status$/,
+  /^git\s+log(\s+--?\S+)*(\s+-\d+)?$/,
+  /^git\s+diff(\s+--?\S+)*(\s+\S+)?$/,
+  /^git\s+branch(\s+--?\S+)*$/,
+  /^git\s+remote(\s+-v)?$/,
+  /^git\s+show(\s+--?\S+)*(\s+\S+)?$/,
+  /^git\s+config\s+--get\s+\S+$/,
+  /^git\s+rev-parse(\s+--?\S+)*\s+\S+$/,
+  // Package managers read-only
+  /^brew\s+(list|info|search|--version)(\s+\S+)?$/,
+  /^npm\s+(list|view|version|outdated)(\s+--?\S+)*(\s+\S+)?$/,
+  /^pip\s+(list|show|freeze)(\s+\S+)?$/,
+  /^node\s+--version$/,
+  /^python3?\s+--version$/,
+  /^ruby\s+--version$/,
+  /^go\s+version$/
+]
+
+/**
+ * 永久拒绝 patterns —— 即使用户 approval 也拒绝。
+ *
+ * 这些 patterns 表示"非常危险" —— 写入路径未知、网络下载执行、提权、设备 IO 等。
+ * 不允许用户解锁是为了防 social engineering（AI 用花言巧语劝用户允许）。
+ */
+const HARD_DENY_REGEX: RegExp[] = [
+  /\brm\s+-r?f?\s+\/(\s|$)/, // rm -rf /
+  /\brm\s+-r?f?\s+~(\/|\s|$)/, // rm -rf ~
+  /\brm\s+-r?f?\s+\$HOME/,
+  /\bsudo\b/,
+  /\bdoas\b/,
+  /\bsu\s/,
+  /\bcurl\s+[^|]*\|\s*(sh|bash|zsh)/, // curl | sh
+  /\bwget\s+[^|]*\|\s*(sh|bash|zsh)/,
+  /\bdd\b/,
+  /\bmkfs\b/,
+  /\bfdisk\b/,
+  /\bdiskutil\s+(erase|partition)/,
+  />\s*\/dev\/(disk|sd|hd|nvme)/, // 写 raw device
+  /\bchown\s+(-R\s+)?root/,
+  /\bchmod\s+(-R\s+)?(\+s|\d*[0-7]*[1-7][0-7]{2}[1-7])/, // setuid 之类
+  /\b(launchctl|systemctl)\s+(load|enable|start|disable|unload|stop)\s/, // 服务操控
+  /\bpkill\b/,
+  /\bkillall\b/,
+  /\bnetwork\s*setup\b/i,
+  /\b(scp|rsync)\s+[^|]*@/, // 外发数据
+  /\beval\s/, // 任意代码执行
+  /\bexec\s/
+]
+
+export interface CommandCheck {
+  /** 'safe' = 白名单免 modal；'deny' = 硬拒；'needs-approval' = 弹 modal */
+  level: 'safe' | 'deny' | 'needs-approval'
+  reason?: string
+  matched?: string
+}
+
+export function checkCommand(rawCmd: string): CommandCheck {
+  const cmd = rawCmd.trim()
+  if (!cmd) return { level: 'deny', reason: 'empty command' }
+  if (cmd.length > 2000) return { level: 'deny', reason: 'command too long (>2000 chars)' }
+  // 防多行（subshell / heredoc）
+  if (cmd.includes('\n')) return { level: 'deny', reason: 'multiline commands rejected' }
+
+  // 硬拒
+  for (const re of HARD_DENY_REGEX) {
+    if (re.test(cmd)) {
+      return { level: 'deny', reason: '永久拒绝的危险命令', matched: re.source }
+    }
+  }
+  // 白名单
+  for (const re of SAFE_REGEX) {
+    if (re.test(cmd)) {
+      return { level: 'safe' }
+    }
+  }
+  // 其它
+  return { level: 'needs-approval' }
+}

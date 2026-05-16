@@ -7,6 +7,8 @@ import type { IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type { ActivityState, ChatError as ChatErrorMsg, KeyState } from '../shared/chat-types'
 import type { VisionState } from '../shared/vision-types'
+import type { ApprovalDecision, ApprovalRequest } from '../shared/approval-types'
+import type { TavilyState } from '../shared/tavily-types'
 
 const api = {
   /** 渲染层接管鼠标后，把 dx/dy 增量发给主进程，由主进程移动窗口。 */
@@ -122,6 +124,41 @@ const api = {
     const handler = (_event: IpcRendererEvent, state: VisionState): void => listener(state)
     ipcRenderer.on('vision:state', handler)
     return () => ipcRenderer.off('vision:state', handler)
+  },
+
+  // —— M4-C Approval flow（fs/cmd/defaults_write 高风险动作的用户确认）——
+  /** 订阅 main 端的 approval 请求 —— 渲染层据此弹 ApprovalModal */
+  onApprovalRequest(listener: (req: ApprovalRequest) => void): () => void {
+    const handler = (_event: IpcRendererEvent, req: ApprovalRequest): void => listener(req)
+    ipcRenderer.on('approval:request', handler)
+    return () => ipcRenderer.off('approval:request', handler)
+  },
+  /**
+   * 用户在 modal 点了某个按钮，发送决策回 main。
+   * dirToTrust 仅 trust-dir-* 时需要 —— main 据此把目录加进相应 trust set。
+   */
+  sendApprovalResponse(id: string, decision: ApprovalDecision, dirToTrust?: string): void {
+    ipcRenderer.send('approval:response', id, decision, dirToTrust)
+  },
+
+  // —— M4-D-1 Tavily search API key ——
+  /** 提交 Tavily key，主进程 safeStorage 加密落盘 + 推送 tavily:state */
+  submitTavilyKey(key: string): void {
+    ipcRenderer.send('tavily:submit-key', key)
+  },
+  /** 清除 Tavily key，主进程 unlink + 推送 'no-key' */
+  resetTavilyKey(): void {
+    ipcRenderer.send('tavily:reset-key')
+  },
+  /** mount 后主动拉一次 state（防启动 race） */
+  requestTavilyState(): void {
+    ipcRenderer.send('tavily:request-state')
+  },
+  /** 订阅 tavily 配置状态推送（no-key / configured） */
+  onTavilyState(listener: (state: TavilyState) => void): () => void {
+    const handler = (_event: IpcRendererEvent, state: TavilyState): void => listener(state)
+    ipcRenderer.on('tavily:state', handler)
+    return () => ipcRenderer.off('tavily:state', handler)
   }
 }
 

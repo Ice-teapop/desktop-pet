@@ -2,9 +2,13 @@ import { ElectronAPI } from '@electron-toolkit/preload'
 import type { PetState } from '../shared/pet-state'
 import type { ActivityState, ChatError, ChatUsage, KeyState } from '../shared/chat-types'
 import type { VisionState } from '../shared/vision-types'
+import type { ApprovalDecision, ApprovalRequest } from '../shared/approval-types'
+import type { TavilyState } from '../shared/tavily-types'
 
 export type { PetState, ActivityState, ChatError, ChatUsage, KeyState }
 export type { VisionState }
+export type { ApprovalDecision, ApprovalRequest }
+export type { TavilyState }
 
 export interface DeskPetAPI {
   windowMoveDelta(dx: number, dy: number): void
@@ -27,6 +31,14 @@ export interface DeskPetAPI {
   revokeVisionConsent(): void
   requestVisionState(): void
   onVisionState(listener: (state: VisionState) => void): () => void
+  // M4-C Approval flow
+  onApprovalRequest(listener: (req: ApprovalRequest) => void): () => void
+  sendApprovalResponse(id: string, decision: ApprovalDecision, dirToTrust?: string): void
+  // M4-D-1 Tavily search API key
+  submitTavilyKey(key: string): void
+  resetTavilyKey(): void
+  requestTavilyState(): void
+  onTavilyState(listener: (state: TavilyState) => void): () => void
 }
 
 declare global {
