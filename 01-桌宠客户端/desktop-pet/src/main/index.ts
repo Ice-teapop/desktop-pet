@@ -49,9 +49,17 @@ import {
   looksLikeApiKey,
   type StreamHandle
 } from './llm/anthropic'
+import {
+  classifyApp,
+  clearClassifyCache,
+  tryFastPath,
+  warmupClassifier,
+  type AppIdentity
+} from './llm/activity-classifier'
 import { clearApiKey, loadApiKey, saveApiKey } from './storage/credentials'
 import { loadPreferences, savePreferences, type Preferences } from './storage/preferences'
 import { migrateLegacyUserData } from './storage/migration'
+import { loadTheme } from './storage/theme'
 import { ActiveAppMonitor } from './services/active-app'
 import trayIconPath from '../../resources/icon.png?asset'
 
@@ -128,6 +136,8 @@ let llmClient: AnthropicLlmClient | null = null
 // 活动识别（M3-3）：detector 推的状态独立于 PetState，渲染层组合两者决定 SVG
 let currentActivity: ActivityState = 'idle'
 let followFrontApp = true
+// fast-path bundleID regex 白名单是否启用（用户托盘可关 → 走严格 LLM 识别）
+let useFastPath = true
 
 /**
  * 对话轮次令牌 —— 每次 chat:submit 进入时 snapshot 当前值，stream 回调用 snapshot 比对。
@@ -169,12 +179,53 @@ function notifyActivity(): void {
   if (isWinAlive()) petWindow!.webContents.send('pet:activity', currentActivity)
 }
 
-// detector 单例 —— Swift binary 事件驱动，start/stop 切换不重新构造
-const activeAppMonitor = new ActiveAppMonitor((state) => {
-  currentActivity = state
-  notifyActivity()
-  rebuildTrayMenu() // 让托盘「当前活动」readonly 项跟着变
+/**
+ * detector 单例 —— Swift binary 事件驱动 → 拿到 {bundleId, name} → fast-path 或 LLM。
+ *
+ * 优化策略（M3-3-H 三方会谈）：
+ *  1. Swift binary 加固后 emit 真覆盖所有切换场景（didActivate / didLaunch / didHide /
+ *     didUnhide / activeSpaceDidChange / didWake）
+ *  2. active-app.ts leading + trailing 混合 debounce 让新 app 切换立刻 fire
+ *  3. fast-path bundleID 白名单 1ms 命中常见 app（默认开，用户可托盘关）
+ *  4. fast-path miss → LLM classify（in-flight dedup + bundleID cache + warmup 后 ~250ms）
+ *
+ * 无 key 或 classify 失败 → fallback 'idle' 不让桌宠卡在错误状态。
+ */
+const activeAppMonitor = new ActiveAppMonitor((app) => {
+  void (async (): Promise<void> => {
+    const nextActivity = await resolveActivity(app)
+    if (nextActivity === currentActivity) return
+    currentActivity = nextActivity
+    notifyActivity()
+    rebuildTrayMenu()
+  })()
 })
+
+async function resolveActivity(app: AppIdentity | null): Promise<ActivityState> {
+  if (!app) return 'idle'
+  // fast-path：bundleID regex 1ms 命中常见 IDE / Terminal / Slack 等
+  if (useFastPath) {
+    const fast = tryFastPath(app)
+    if (fast !== null) return fast
+  }
+  // 没 key 时 LLM 不可用 → fallback idle
+  if (!currentApiKey) return 'idle'
+  try {
+    return await classifyApp(app, currentApiKey, currentModel)
+  } catch (err) {
+    console.warn('[activity] classify threw, fallback idle:', err)
+    return 'idle'
+  }
+}
+
+function setUseFastPath(on: boolean): void {
+  if (useFastPath === on) return
+  useFastPath = on
+  // 切换 fast-path 时清 classifier cache —— 防止 LLM 错误结果污染新策略
+  clearClassifyCache()
+  rebuildTrayMenu()
+  schedulePrefsSave({ modelId: currentModel, followFrontApp, useFastPath })
+}
 
 function setFollowFrontApp(on: boolean): void {
   if (followFrontApp === on) return
@@ -185,7 +236,7 @@ function setFollowFrontApp(on: boolean): void {
     activeAppMonitor.stop() // stop 内部会推一次 'idle' 回到闲态
   }
   rebuildTrayMenu()
-  schedulePrefsSave({ modelId: currentModel, followFrontApp })
+  schedulePrefsSave({ modelId: currentModel, followFrontApp, useFastPath })
 }
 
 function setKeyInMemory(key: string | null): void {
@@ -256,7 +307,7 @@ function setModel(id: ModelId): void {
   currentStreamHandle = null
   chatTurnToken++
   rebuildTrayMenu()
-  schedulePrefsSave({ modelId: id, followFrontApp })
+  schedulePrefsSave({ modelId: id, followFrontApp, useFastPath })
 }
 
 function trimChatHistory(): void {
@@ -316,6 +367,12 @@ function stopVisibilityWatchdog(): void {
   }
 }
 
+// 之前有 cursorWatcher 用 screen.getCursorScreenPoint 100ms polling 切 ignoreMouseEvents
+// —— 已删除：normal BrowserWindow（非 NSPanel）默认接 click，polling 反而引入 100ms 延迟
+// 让快速 click 失败。trade-off 用 always-接-mouse 换 click 可靠性。
+// 相关的 isDraggingPet / dragInactivityTimer 也都一并删 —— 没人读，只是为 cursorWatcher
+// 在 drag 期间暂停切 ignoreMouse 而设。
+
 function setChatOpen(open: boolean): void {
   if (!petWindow || petWindow.isDestroyed()) return
   const newW = open ? WIN_WIDTH_FULL : WIN_WIDTH_COMPACT
@@ -368,7 +425,10 @@ function createPetWindow(): void {
     skipTaskbar: true,
     hasShadow: false,
     resizable: false,
-    ...(process.platform === 'darwin' ? { type: 'panel' } : {}),
+    // 不用 type:'panel' —— NSPanel non-activating 在别的 app (VS Code) 前台时不接 keyboard
+    // 路由，input 字符进不去。改 normal BrowserWindow 让 click 桌宠时 DeskPet 抢前台
+    // (VS Code 短暂失焦)，trade-off 换 input/keyboard 能用。LSUIElement=true 已保证不进
+    // dock + Cmd-Tab；setVisibleOnAllWorkspaces 单独处理跨 space / fullscreen。
     focusable: process.platform !== 'linux',
     fullscreenable: false,
     webPreferences: {
@@ -392,7 +452,10 @@ function createPetWindow(): void {
 
   win.on('ready-to-show', () => {
     win.show()
-    win.setIgnoreMouseEvents(true, { forward: true })
+    // 不设 setIgnoreMouseEvents(true) —— 默认 false 让 panel 永久接 click。
+    // 之前的 cursor polling 方案有 100ms 延迟：用户快速 click 时 polling 还没 fire，
+    // mousedown 被穿透到底层 app → "点桌宠没对话框"。trade-off：透明区域 click 也被
+    // panel 接管不再穿透到底层 app（少见 use case，远比 click 失败严重轻）。
     reapplyMacVisibility(win)
     startVisibilityWatchdog()
   })
@@ -448,6 +511,9 @@ async function resetKey(): Promise<void> {
   setKeyInMemory(null)
   chatHistory.length = 0
   chatTurnToken++
+  // cr B1: classifier cache 跨 key 身份不该残留 —— 上一个 key 用 LLM 分类出来的结果可能
+  // 是错的（Anthropic 偶发抽风），如果不清，重设 key 后那个错误分类会永久命中缓存
+  clearClassifyCache()
   ensurePetVisible()
   notifyKeyState()
   await queueCredentialOp(async () => {
@@ -484,6 +550,13 @@ function buildTrayMenu(): Menu {
       type: 'checkbox',
       checked: followFrontApp,
       click: (item) => setFollowFrontApp(item.checked)
+    },
+    {
+      label: '严格 LLM 识别（关 fast-path）',
+      type: 'checkbox',
+      checked: !useFastPath,
+      enabled: followFrontApp,
+      click: (item) => setUseFastPath(!item.checked)
     },
     { type: 'separator' },
     { label: '重设 API Key…', click: () => void resetKey() },
@@ -553,7 +626,11 @@ function registerIpc(): void {
   ipcMain.on('key:submit', async (_event, rawKey: string) => {
     const key = String(rawKey ?? '').trim()
     if (!looksLikeApiKey(key)) {
-      // 渲染层应该已经先做过前缀校验，这里兜底；不报错给 renderer，直接忽略
+      // cr W1: main 端比 renderer 严（200 字符上限）—— renderer 通过但 main 拒时
+      // 必须给 renderer 反馈，否则用户看到「🔑 已提交」气泡但 keyState 永不变 ready
+      if (isWinAlive()) {
+        petWindow!.webContents.send('chat:error', { kind: 'key-format-invalid' })
+      }
       return
     }
     // 串行化：避免与任何 in-flight resetKey 的 clearApiKey 撞车
@@ -644,6 +721,22 @@ function registerIpc(): void {
   })
 
   ipcMain.on('chat:set-open', (_event, open: boolean) => {
+    // cr B2: 关闭对话窗 = turn 边界 —— 中止 in-flight stream + ++chatTurnToken 让旧 chunk
+    // 不再 push 到 messages，避免"关了对话框，重开看到 stream 累积的内容"
+    if (!open && currentStreamHandle) {
+      currentStreamHandle.abort()
+      currentStreamHandle = null
+      chatTurnToken++
+      if (chatHistory[chatHistory.length - 1]?.role === 'user') {
+        chatHistory.pop()
+      }
+      if (isWinAlive()) {
+        petWindow!.webContents.send('chat:done', { inputTokens: 0, outputTokens: 0 })
+      }
+      if (!stateMachine.transition('idle')) {
+        stateMachine.scheduleReturnToIdle(PET_STATES.thinking.minMs)
+      }
+    }
     setChatOpen(Boolean(open))
   })
 }
@@ -667,10 +760,20 @@ app.whenReady().then(async () => {
   await migrateLegacyUserData()
 
   await resolveStartupKey()
+  // M1-2：加载当前主题元数据（仅 log + 验证 schema，不做 renderer 注入）
+  const theme = await loadTheme()
+  if (theme) {
+    console.log(
+      `[theme] loaded "${theme.name}" v${theme.version} by ${theme.author} (schema v${theme.schemaVersion})`
+    )
+  } else {
+    console.warn('[theme] no theme metadata loaded — renderer 仍走 hardcoded GIF imports')
+  }
   // load 偏好（找不到 / 损坏 → 用 DEFAULT_PREFS fallback）
   const prefs = await loadPreferences()
   currentModel = prefs.modelId
   followFrontApp = prefs.followFrontApp
+  useFastPath = prefs.useFastPath
 
   registerIpc()
   createPetWindow()
@@ -679,6 +782,10 @@ app.whenReady().then(async () => {
 
   // 启动 detector —— 按用户偏好（默认开）
   if (followFrontApp) activeAppMonitor.start()
+  // 预热 Anthropic TLS pool：让首次真实 classify 从 ~1000ms 降到 ~250ms（A 根因 1）
+  if (currentApiKey) {
+    void warmupClassifier(currentApiKey, currentModel)
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createPetWindow()

@@ -157,6 +157,84 @@ verbose 报告 user 跳读。
 - **维护一个 lessons-learned 文档**（就是这一份），跨 milestone 累积模式
 - **user 反馈"为什么 X"时** —— 第一步不是改代码，是问"我假设了什么没验证的事"
 
+## 增补：M3-3 系列 + 三方会谈 + 点不开 bug 的新局限观察（追加 2026-05-16）
+
+### 三方会谈（多 agent 独立分析 → 仲裁）
+
+**做得好**：
+- 三个 agent 各自不同视角（UX 视觉感知 / 技术实现 / 调度逻辑 / macOS 系统集成 / LLM 调用层）确实能覆盖单 agent 看不到的盲区
+- C agent 揭示 Swift binary 一开始订阅了 `NotificationCenter.default` 而非 `workspace.notificationCenter` —— 这是单 agent 几乎不会主动深挖的 Cocoa 边界
+- B agent 用数字拆解延迟（"P50 ~620ms 主要来自 600ms debounce"），把"感觉慢"翻译成可优化的具体段落
+
+**做得不够的**：
+- **三方有时一起猜错根因**：点不开 bug 那轮，cr 推测是 `.pet` 透明像素 hit-test（加 α=1/255 + pointer-events: auto + z-index + no-drag 四重保险）。这部分确实修了一些边缘 case，但**真正的断点**是 React 18+ functional `setChatPhase((p) => { needOpenChat = true; ... })` 在 window mouseup 这种 native event 路径上，closure 内的 `needOpenChat` 赋值不可靠 —— 这跟 transparent hit-test 完全无关。三方都没第一时间提到这个 React-specific 陷阱
+- **cr 给 fix 前不强制 reproduce**：cr 第一轮 fix 上 ship 后 user 仍报"还是点不开"，cr 第二轮才转入 diagnose 模式加 log。教训：fix unverified 比 no fix 更糟，因为浪费 build+install 周期 + user 信任
+
+### Diagnose-first vs Fix-first 反模式
+
+这一轮**点不开 bug 暴露 cc 严重过度 fix-first**：
+- 试方案 1：cursor polling → 失败
+- 试方案 2：`panel.focus()` → 失败
+- 试方案 3：删 `type:'panel'` 切 normal window → 半成功（input 能用了但仍点不开）
+- 试方案 4：删 `setIgnoreMouseEvents(true)` → 失败
+- 试方案 5：CSS `.pet { background: rgba(0,0,0,0.01) }` → 失败
+- 试方案 6：4 重保险 → 还是失败
+- 试方案 7：终于加 `[diagnose]` log → 看到 `phase=opening needOpenChat=false` → 用 chatPhaseRef 替代 functional setter → 真正修好
+
+**5 轮 build+install** 全凭猜测，根本没数据。早在第一次 fail 之后就应该转 diagnose 模式加 log，不是继续猜。
+
+**教训给 cc**：fix 失败超过 2 轮，**必须**强制转 diagnose：加 console.log + cr trace 链路 + 让 user 提供观测数据，不靠猜。
+
+### Electron + Node 工具链坑
+
+- **`console.log('label', { object })` 在 Electron `console-message` forwarding 下变 `[object Object]`**：必须用 string concat (`'phase=' + phase`) 才能在 main stdout 看到值。这导致 diagnose 第一轮 log "phase: { observedPhase, needOpenChat }" 全是 `[object Object]`，浪费了一轮 build+install。教训：debug log 永远用 string concat
+- **Electron `console-message` event 是把 renderer console 转发到 main 进程的神器**：user 不用开 DevTools，cc 直接 `cat /tmp/deskpet-main.log` 就能看完整 console。这条三方会谈也没第一时间想到，是 fix-first 5 轮后 cc 才主动加的工具
+
+### React 18+ functional setState 在 native event 路径的陷阱
+
+```ts
+let needOpenChat = false
+setChatPhase((p) => {
+  if (p === 'closed') {
+    needOpenChat = true  // ← 不可靠：updater 在 native event 路径下 closure 副作用赋值
+    return 'open'
+  }
+  return p
+})
+if (needOpenChat) window.api.setChatOpen(true)  // ← 永远 false
+```
+
+实测在 window mouseup listener 内 updater 真 invoke 了（`UPDATER INVOKED p=closed` 出现），但 closure 内 `needOpenChat = true` 赋值在外部读取时仍是 `false`。可能跟 React 18+ 的 batching 跟 commit phase 时序有关，但 cc/cr/三方 agent 都没第一时间想到。
+
+**修法 pattern**：用 `useRef` 同步当前 state，native event 内直接读 ref 不用 functional setter：
+```ts
+const chatPhaseRef = useRef<ChatPhase>('closed')
+useEffect(() => { chatPhaseRef.current = chatPhase }, [chatPhase])
+
+// native event:
+if (chatPhaseRef.current === 'closed') {
+  setChatPhase('open')
+  window.api.setChatOpen(true)
+}
+```
+
+**教训给 cc**：functional setState + closure 副作用（赋值给外部变量）是反模式。React 在 native event handler 内不保证 updater 跟 outer code 同步。永远用 ref 拿 latest，state setter 只用来 schedule re-render。
+
+### cc/cr 工具链建议（这轮新增）
+
+**给 cc**：
+- diagnose log **永远** string concat，不用 object 序列化（forward 链路会丢值）
+- fix 失败 2 轮内必须转 diagnose 模式（加 log + 让 user 提供观测数据）
+- 写 React event handler 涉及 closure 副作用前，先想"这是 React event 还是 native event" —— native 事件路径下用 ref，不用 functional setter
+
+**给 cr**：
+- 推 fix 前先评估"reproduce 验证 cost"：高的话要求 diagnose log 一起 ship，让用户测试反馈直接带数据
+- 看到 fix 失败 N 轮后主动 push cc 转 diagnose 模式而不是再猜下一个方案
+
+**给三方会谈**：
+- 适合**视角广**的问题（cross-domain 诊断），不适合**深度技术陷阱**（React/Electron 特定 quirk）。React-specific 陷阱单 agent 长经验比三方都看一遍更靠谱
+- 三方一致推荐的方案要小心：他们可能都基于同一个错误假设。用户实测**仍**失败时，要怀疑这个共识本身，转 diagnose
+
 ## 结论
 
 cc + cr 配对在 DeskPet 这种密集 prototype 项目上是**显著加速器**：1 user + 1 AI 在

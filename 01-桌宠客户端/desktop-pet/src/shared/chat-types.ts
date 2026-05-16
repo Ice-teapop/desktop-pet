@@ -20,6 +20,8 @@ export type ChatError =
   | { kind: 'unknown'; message: string }
   // safeStorage 不可用（Linux 无 keyring）—— 这次内存里能用但下次启动会丢
   | { kind: 'key-not-persisted' }
+  // 提交的 key 不符合 sk-ant-[\w-]{20,200} 格式（renderer 跟 main 校验不一致时 main 兜底）
+  | { kind: 'key-format-invalid' }
 
 export interface ChatUsage {
   inputTokens: number
@@ -85,4 +87,15 @@ export const ACTIVITY_INFO: Readonly<Record<ActivityState, ActivityInfo>> = {
   chatting: { state: 'chatting', emoji: '💬', label: '沟通' },
   terminal: { state: 'terminal', emoji: '🖥️', label: '终端' },
   idle: { state: 'idle', emoji: '☁️', label: '闲着' }
+}
+
+export function isValidActivityState(value: unknown): value is ActivityState {
+  return (
+    typeof value === 'string' &&
+    (value === 'coding' ||
+      value === 'writing' ||
+      value === 'chatting' ||
+      value === 'terminal' ||
+      value === 'idle')
+  )
 }

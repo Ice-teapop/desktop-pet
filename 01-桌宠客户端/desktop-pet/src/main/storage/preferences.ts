@@ -18,11 +18,14 @@ export interface Preferences {
   modelId: ModelId
   /** 跟随前台 App 自动识别活动（写代码 / 写文档...）—— 默认开，用户托盘可关 */
   followFrontApp: boolean
+  /** fast-path bundleID regex 白名单：默认开（常见 app 1ms 命中），关 = 严格 LLM 识别 */
+  useFastPath: boolean
 }
 
 const DEFAULT_PREFS: Preferences = {
   modelId: DEFAULT_MODEL,
-  followFrontApp: true
+  followFrontApp: true,
+  useFastPath: true
 }
 
 function prefsPath(): string {
@@ -34,11 +37,17 @@ export async function loadPreferences(): Promise<Preferences> {
     const raw = await fs.readFile(prefsPath(), 'utf8')
     const parsed = JSON.parse(raw) as unknown
     if (parsed && typeof parsed === 'object') {
-      const obj = parsed as { modelId?: unknown; followFrontApp?: unknown }
+      const obj = parsed as {
+        modelId?: unknown
+        followFrontApp?: unknown
+        useFastPath?: unknown
+      }
       const modelId = isValidModelId(obj.modelId) ? obj.modelId : DEFAULT_PREFS.modelId
       const followFrontApp =
         typeof obj.followFrontApp === 'boolean' ? obj.followFrontApp : DEFAULT_PREFS.followFrontApp
-      return { modelId, followFrontApp }
+      const useFastPath =
+        typeof obj.useFastPath === 'boolean' ? obj.useFastPath : DEFAULT_PREFS.useFastPath
+      return { modelId, followFrontApp, useFastPath }
     }
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code
@@ -56,6 +65,9 @@ export async function savePreferences(prefs: Preferences): Promise<void> {
   }
   if (typeof prefs.followFrontApp !== 'boolean') {
     throw new Error(`[prefs] followFrontApp must be boolean`)
+  }
+  if (typeof prefs.useFastPath !== 'boolean') {
+    throw new Error(`[prefs] useFastPath must be boolean`)
   }
   const data = JSON.stringify(prefs, null, 2)
   await fs.writeFile(prefsPath(), data, { mode: 0o600 })

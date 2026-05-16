@@ -88,6 +88,19 @@ body,
   display: flex;
   align-items: center;
   justify-content: center;
+  /* 关键 hit-test 三件套（修 transparent BrowserWindow click 失败）：
+   *  1. background α=1/255 ≈ 0.004：transparent BrowserWindow 的 Chromium viz hit-test
+   *     需要元素真有 paint region。α=0.01 过小可能被某些 macOS 版本 round 成 0 仍判透明
+   *     —— 改成 1/255（一个像素 channel 的最小可表示值，必非零），同时视觉仍无感
+   *  2. pointer-events: auto 显式：防御任何祖先（body/.stage/#root）误继承 none
+   *  3. z-index 大值：在 .conversation 同级时确保叠在最上，hit-test 优先命中
+   *  4. -webkit-app-region: no-drag：防御 Electron frameless 把整窗当 drag region
+   *     的退化场景（默认应该是 no-drag 但显式更稳）
+   */
+  background: rgba(0, 0, 0, 0.004);
+  pointer-events: auto;
+  z-index: 10;
+  -webkit-app-region: no-drag;
 }
 
 .pet:active {
@@ -102,6 +115,17 @@ body,
   image-rendering: crisp-edges;
   overflow: visible;
   pointer-events: none;
+  /* opacity transition 由 App.tsx inline style 控制（FADE_HALF_MS 单一来源） */
+}
+
+/* 双层 cross-fade：两个 <img> absolute 叠加同位置。
+   will-change + translateZ 强制独立 GPU 合成层常驻 —— 避免 opacity 变化时
+   chromium 在合成路径间切换（pixelated + opacity 互动可能引起的 layer 进出抖动）。 */
+.pet img {
+  position: absolute;
+  inset: 0;
+  will-change: opacity;
+  transform: translateZ(0);
 }
 
 /* —— 对话 UI 容器（左侧） —— */

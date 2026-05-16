@@ -1,15 +1,20 @@
 /**
- * App — M2-2（API key 首启迎宾 + 加密存储入口）。
+ * App — M3-3-E（GIF 真动画 + 活动识别 + idle 随机调度 + cr 健壮性补丁）。
  *
- * 在 M1-8 / M2-1 基础上加：
- *  - keyState 订阅主进程推送（'missing' | 'ready'），是唯一事实来源
- *  - 进入 missing：清对话 + 插一条硬编码迎宾 AI 消息 + 自动 setChatOpen(true)
- *  - missing 状态下 submitChat 分流：text 像 sk-ant- key 走 submitKey；不像就 AI 提示
- *  - missing → ready：追加一条「钥匙存好了」AI 消息（让用户知道状态切换了）
- *  - 主进程在 LLM 401 时会自动 reset key + 推 missing，渲染层自然进入再引导流程
+ * 渲染层职责：
+ *  - 订阅 main 三类状态推送：pet:state (LLM 流) / pet:activity (前台 App) / key:state
+ *  - GIF 选择优先级：state(LLM 流) > activity(前台 App) > idle 池（6 个变体随机切）
+ *  - 闲态 8–15s 随机切 GIF 不重复 current，硬切由 fade-in/out 过渡掩盖（仅 idle/activity
+ *    层级；LLM 流状态切换 bypass fade 立即 swap 避免响应延迟感）
+ *  - keyState='missing' 时输入框分流 key 提交 + 错误 hint 去重防累积
+ *  - 流式消息 sticky-bottom-scrollback：用户主动滚上去看历史时不被 chunk 拉回底
  *
- * 时序状态机 chatPhase 不变（closed/opening/open/closing）；missing 状态下也走同一套
- * 开窗动画 —— 第一次启动用户看到的就是窗口从右下角扩出来 + 迎宾消息淡入。
+ * cr 健壮性补丁：
+ *  - setState updater 内不放 IPC 副作用（React 18 StrictMode dev 会 double-invoke）
+ *  - fade 透明度跟 LLM 流响应感解耦（thinking/success/error bypass fade）
+ *  - NOT_KEY_HINT 末尾去重避免连续错误输入刷屏
+ *  - hits-rect 检测严格用 chatPhase==='open'（不含 fade-out 中的 'closing'）
+ *  - FADE_HALF_MS 单一来源 inline transition style（不跟 main.css 那行重复维护）
  */
 import { useEffect, useRef, useState } from 'react'
 import type { PetState } from '../../shared/pet-state'
@@ -32,11 +37,22 @@ import errorGif from '@themes/clawd-dev/clawd-error.gif'
 
 const DRAG_THRESHOLD_PX = 5
 
-// idle 子调度器：8–15s 随机切下一个变体（不重复上次）
-const IDLE_VARIANT_MIN_MS = 8000
-const IDLE_VARIANT_MAX_MS = 15000
+// idle 节奏：15–30s 比之前 8–15s 慢一倍 —— 桌宠是周边视野，频繁切=多动症，缓节奏 = 陪伴感
+const IDLE_VARIANT_MIN_MS = 15000
+const IDLE_VARIANT_MAX_MS = 30000
+// idle-reading GIF 是一次性表演的姿态（坐姿看书一个 loop ~ 5-7s），不该跟其他 idle 一样
+// 占 15-30s。检测到 reading 时短化 delay 让它播完一遍就切走
+const READING_LOOP_MS = 7000
+// Cross-fade 单边时长：双层 img overlap 跑同一时长，所以总切换感官 ≈ FADE_HALF_MS
+// 280ms 落在人眼 motion-fusion 阈值（~250ms），ease-in-out 让首尾更柔
+const FADE_HALF_MS = 280
+const FADE_EASING = 'cubic-bezier(0.4, 0, 0.2, 1)'
 
-// idle 6 变体池 —— 默认 idx=0 是 idle (主 idle 形象)
+/**
+ * idle 池 —— 6 个变体完全随机切，唯一规则是不重复当前正在播的那个。
+ * 不强制"动作 → 静态"流程，让节奏不可预测；扫地→杂耍这种姿态硬跳由
+ * fade-out / fade-in 的透明度过渡掩盖（FADE_HALF_MS × 2 = 320ms）。
+ */
 const IDLE_POOL: ReadonlyArray<string> = [
   idleGif,
   idleReadingGif,
@@ -45,6 +61,18 @@ const IDLE_POOL: ReadonlyArray<string> = [
   buildingGif,
   conductingGif
 ]
+
+function pickNextIdle(currentIdx: number): number {
+  // 池只剩 0/1 个时无可切，保持当前不动（防御性：future 改主题包后崩）
+  if (IDLE_POOL.length <= 1) return currentIdx
+  // 从 [0, n-1] 排除 currentIdx 后随机选 —— 取 [0, n-2] 然后遇 currentIdx 顺移
+  let next = Math.floor(Math.random() * (IDLE_POOL.length - 1))
+  if (next >= currentIdx) next++
+  return next
+}
+
+// LLM 流相关 GIF —— 用于 fade 路径区分（这些状态切换 bypass fade 立即生效）
+const LLM_FLOW_GIFS = new Set<string>([thinkingGif, happyGif, errorGif])
 
 // activity → GIF：识别到不同活动时桌宠"陪你做同样的事"
 const ACTIVITY_GIF: Readonly<Record<Exclude<ActivityState, 'idle'>, string>> = {
@@ -66,9 +94,10 @@ const KEY_RESET_PROMPT = '🔑 钥匙没了或被拒了 —— 再贴一个 sk-a
 const NOT_KEY_HINT =
   '🤔 这看着不像 Anthropic API key（要 sk-ant- 开头的长字符串）。去 console.anthropic.com 拿到 key 再贴过来～'
 
-/** 渲染层用的同款前缀校验（main 端有更严的；这里只做明显错误的早拦截）。 */
+/** 渲染层校验 —— 跟 main 端 looksLikeApiKey 同样规则（{20,200}），避免 renderer 通过
+ *  但 main 拒导致用户卡在「🔑 已提交」气泡（cr W1 修复）。 */
 function looksLikeApiKey(text: string): boolean {
-  return /^sk-ant-[\w-]{20,}$/.test(text.trim())
+  return /^sk-ant-[\w-]{20,200}$/.test(text.trim())
 }
 
 interface ChatMessage {
@@ -92,6 +121,8 @@ function chatErrorText(err: ChatError): string {
       return '🌐 连不上 Anthropic，检查下网络'
     case 'key-not-persisted':
       return '⚠️ 系统没装加密后端，这次能聊但下次启动 key 会丢（Linux 装个 libsecret / gnome-keyring 就好）'
+    case 'key-format-invalid':
+      return '⚠️ 这个 key 格式不对（要 sk-ant- 开头，长度 20-200 字符），检查下复制有没有带空格 / 多余字符'
     case 'api':
       return `⚠️ ${err.message}`
     default:
@@ -112,12 +143,22 @@ function App(): React.JSX.Element {
   const [activity, setActivity] = useState<ActivityState>('idle')
   // idle 6 变体池索引（仅 stateMachine=idle + activity=idle 时玩）
   const [idleVariantIdx, setIdleVariantIdx] = useState(0)
+  // 双层 <img> cross-fade：两个 absolute 叠加，frontIdx 指当前显示的那层
+  // 切换时把新 url 塞 back 层（opacity 0），等 onLoad（新 GIF 解码完）→ swap frontIdx
+  // → CSS opacity transition 让 back 0→1 + front 1→0 同时 ramp，永远不出现透明窗口
+  const [frontIdx, setFrontIdx] = useState<0 | 1>(0)
+  const [urls, setUrls] = useState<[string, string]>([IDLE_POOL[0], IDLE_POOL[0]])
+  // 记录"想切到的 url" —— 防止 back img 在我们没期待时（如初始 mount）fire onLoad 误触发 swap
+  const pendingBackRef = useRef<string | null>(null)
   const msgIdRef = useRef(1)
   const prevKeyStateRef = useRef<KeyState | null>(null)
   const petRef = useRef<HTMLDivElement | null>(null)
   const convRef = useRef<HTMLDivElement | null>(null)
   const messagesRef = useRef<HTMLDivElement | null>(null)
-  const inHitRef = useRef(false)
+  // chatPhase 当前值的 ref —— window 'mouseup' native listener 闭包内拿最新 phase 用，
+  // 替代 functional setChatPhase((p) => ...)（实测在某些路径 updater 看似 invoke 但
+  // closure 内的 needOpenChat 赋值不可靠 —— React 18+ native event batching 路径）
+  const chatPhaseRef = useRef<ChatPhase>('closed')
   const dragRef = useRef<{
     startX: number
     startY: number
@@ -137,30 +178,33 @@ function App(): React.JSX.Element {
     return off
   }, [])
 
+  // 同步 chatPhase 到 ref —— 让 native event listener / IPC handler 闭包拿最新 phase
+  useEffect(() => {
+    chatPhaseRef.current = chatPhase
+  }, [chatPhase])
+
   useEffect(() => {
     const off = window.api.onActivityState((a) => setActivity(a))
     return off
   }, [])
 
-  // idle 子调度器：state=idle && activity=idle 时随机切 6 个 idle 变体
-  // 之一（不重复上次）。状态切走会 cleanup timer，不留 ghost。
+  // idle 子调度器：state=idle && activity=idle 时按 pickNextIdle 完全随机切（不重复 current）。
+  // 姿态硬跳由 fade 透明度过渡掩盖。reading "喝茶动作" 一次性 7s 后切走（GIF 一个 loop 时长）。
+  // 加 idleVariantIdx 到依赖：每次切了 variant 重 schedule，让 reading 用短 delay。
   useEffect(() => {
     if (state !== 'idle' || activity !== 'idle') return
     const schedule = (): NodeJS.Timeout => {
-      const delay =
-        IDLE_VARIANT_MIN_MS + Math.random() * (IDLE_VARIANT_MAX_MS - IDLE_VARIANT_MIN_MS)
+      const isReading = IDLE_POOL[idleVariantIdx] === idleReadingGif
+      const delay = isReading
+        ? READING_LOOP_MS
+        : IDLE_VARIANT_MIN_MS + Math.random() * (IDLE_VARIANT_MAX_MS - IDLE_VARIANT_MIN_MS)
       return setTimeout(() => {
-        setIdleVariantIdx((cur) => {
-          let next = Math.floor(Math.random() * IDLE_POOL.length)
-          if (next === cur) next = (next + 1) % IDLE_POOL.length
-          return next
-        })
-        timer = schedule()
+        setIdleVariantIdx((cur) => pickNextIdle(cur))
       }, delay)
     }
-    let timer = schedule()
+    const timer = schedule()
     return () => clearTimeout(timer)
-  }, [state, activity])
+  }, [state, activity, idleVariantIdx])
 
   // mount 后立刻 ping 主进程要当前 keyState —— 防御启动 race：
   // 主进程 did-finish-load 推 key:state 时若这个 useEffect 还没 subscribe 会丢
@@ -181,15 +225,13 @@ function App(): React.JSX.Element {
     if (keyState === 'missing' && prev !== 'missing') {
       const isFirstTime = prev === null
       const text = isFirstTime ? GREETING_TEXT : KEY_RESET_PROMPT
-      msgIdRef.current = 1
-      setMessages([{ id: msgIdRef.current++, role: 'ai', text, status: 'done' }])
-      setChatPhase((p) => {
-        if (p === 'closed') {
-          window.api.setChatOpen(true)
-          return 'opening'
-        }
-        return p
-      })
+      setMessages((cur) => [...cur, { id: msgIdRef.current++, role: 'ai', text, status: 'done' }])
+      // 用 ref 拿 latest phase，避免 functional setter 在 React 18+ native event 路径上
+      // closure 副作用赋值不可靠的问题
+      if (chatPhaseRef.current === 'closed') {
+        setChatPhase('open')
+        window.api.setChatOpen(true)
+      }
     } else if (keyState === 'ready' && prev === 'missing') {
       setMessages((cur) => [
         ...cur,
@@ -241,6 +283,8 @@ function App(): React.JSX.Element {
     return off
   }, [])
 
+  // 每次 messages 变化都自动滚到底 —— 桌宠对话短场景下用户始终想看最新。
+  // 想看历史用键盘 / 滚轮自己滚。
   useEffect(() => {
     const el = messagesRef.current
     if (el) el.scrollTop = el.scrollHeight
@@ -267,45 +311,22 @@ function App(): React.JSX.Element {
   }
 
   useEffect(() => {
-    const hitsRect = (el: HTMLElement | null, ev: MouseEvent): boolean => {
-      if (!el) return false
-      const r = el.getBoundingClientRect()
-      return (
-        ev.clientX >= r.left &&
-        ev.clientX <= r.right &&
-        ev.clientY >= r.top &&
-        ev.clientY <= r.bottom
-      )
-    }
-
+    // renderer 不再做 hit-test 切 setIgnoreMouse —— 主进程 cursorWatcher 用 panel
+    // bounds 整体粒度控制。原因：NSPanel non-activating 在别的 app 前台时收不到
+    // mousemove forward，原来的精细 hit-test 失灵，导致"VS Code 前台时点桌宠点不开"。
+    // trade-off：panel 透明区域 click 不再穿透到底层 app，但区域小（< 12% 面积）。
     const onMove = (ev: MouseEvent): void => {
-      if (dragRef.current) {
-        if (!inHitRef.current) {
-          inHitRef.current = true
-          window.api.setIgnoreMouse(false)
-        }
-        const ref = dragRef.current
-        const total = Math.hypot(ev.screenX - ref.startX, ev.screenY - ref.startY)
-        if (total < DRAG_THRESHOLD_PX) return
-        ref.moved = true
-        const dx = ev.screenX - ref.lastX
-        const dy = ev.screenY - ref.lastY
-        if (dx !== 0 || dy !== 0) {
-          window.api.windowMoveDelta(dx, dy)
-          ref.lastX = ev.screenX
-          ref.lastY = ev.screenY
-        }
-        return
-      }
-
-      const within =
-        hitsRect(petRef.current, ev) || (isConvMounted && hitsRect(convRef.current, ev))
-      if (within && !inHitRef.current) {
-        inHitRef.current = true
-        window.api.setIgnoreMouse(false)
-      } else if (!within && inHitRef.current) {
-        inHitRef.current = false
-        window.api.setIgnoreMouse(true)
+      if (!dragRef.current) return
+      const ref = dragRef.current
+      const total = Math.hypot(ev.screenX - ref.startX, ev.screenY - ref.startY)
+      if (total < DRAG_THRESHOLD_PX) return
+      ref.moved = true
+      const dx = ev.screenX - ref.lastX
+      const dy = ev.screenY - ref.lastY
+      if (dx !== 0 || dy !== 0) {
+        window.api.windowMoveDelta(dx, dy)
+        ref.lastX = ev.screenX
+        ref.lastY = ev.screenY
       }
     }
 
@@ -313,14 +334,15 @@ function App(): React.JSX.Element {
       const ref = dragRef.current
       dragRef.current = null
       if (!ref || ref.moved) return
-      setChatPhase((p) => {
-        if (p === 'closed') {
-          window.api.setChatOpen(true)
-          return 'opening'
-        }
-        if (p === 'open') return 'closing'
-        return p
-      })
+      // 用 chatPhaseRef 直读最新 phase，避免 functional setter 路径的 closure 赋值 mystery
+      const current = chatPhaseRef.current
+      if (current === 'closed') {
+        setChatPhase('open')
+        window.api.setChatOpen(true)
+      } else if (current === 'open') {
+        setChatPhase('closing')
+        // closing 动画完成后 handleConvAnimEnd 会调 setChatOpen(false) 缩窗口
+      }
     }
 
     window.addEventListener('mousemove', onMove)
@@ -329,7 +351,7 @@ function App(): React.JSX.Element {
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
     }
-  }, [isConvMounted])
+  }, [])
 
   const handleConvAnimEnd = (e: React.AnimationEvent): void => {
     if (e.animationName !== 'conv-fade-out') return
@@ -359,24 +381,29 @@ function App(): React.JSX.Element {
           }
         ])
         window.api.submitKey(text)
-      } else if (text.includes('sk-ant-')) {
-        // 像 key 但不完整（前缀对但长度 / 字符不对）—— 也遮罩，避免半截 key 暴露在对话历史里
-        setMessages((prev) => [
-          ...prev,
-          {
+      } else {
+        // 不是有效 key —— user 消息照常 push（含遮罩 / 明文），但 NOT_KEY_HINT 末尾去重
+        // 避免用户连输几条非 key 文本时同一句 hint 刷屏
+        const isPartialKey = text.includes('sk-ant-')
+        const userText = isPartialKey ? '🔑 (输入像 API key 但格式不完整)' : text
+        setMessages((prev) => {
+          const last = prev[prev.length - 1]
+          const hintAlreadyShown = last?.role === 'ai' && last.text === NOT_KEY_HINT
+          const userMsg: ChatMessage = {
             id: msgIdRef.current++,
             role: 'user',
-            text: '🔑 (输入像 API key 但格式不完整)',
+            text: userText,
             status: 'done'
-          },
-          { id: msgIdRef.current++, role: 'ai', text: NOT_KEY_HINT, status: 'done' }
-        ])
-      } else {
-        setMessages((prev) => [
-          ...prev,
-          { id: msgIdRef.current++, role: 'user', text, status: 'done' },
-          { id: msgIdRef.current++, role: 'ai', text: NOT_KEY_HINT, status: 'done' }
-        ])
+          }
+          if (hintAlreadyShown) return [...prev, userMsg]
+          const hintMsg: ChatMessage = {
+            id: msgIdRef.current++,
+            role: 'ai',
+            text: NOT_KEY_HINT,
+            status: 'done'
+          }
+          return [...prev, userMsg, hintMsg]
+        })
       }
       setDraft('')
       return
@@ -408,6 +435,56 @@ function App(): React.JSX.Element {
     gifUrl = ACTIVITY_GIF[activity]
   } else {
     gifUrl = IDLE_POOL[idleVariantIdx] ?? IDLE_POOL[0]
+  }
+
+  // 启动时预加载所有 GIF —— 让后续 onLoad 几乎同步触发（cache 命中），避免第一次切换
+  // 时还要等 ~50ms 网络/磁盘解码
+  useEffect(() => {
+    const all = [...IDLE_POOL, ...Object.values(ACTIVITY_GIF), thinkingGif, happyGif, errorGif]
+    all.forEach((url) => {
+      const img = new Image()
+      img.src = url
+    })
+  }, [])
+
+  // GIF 切换调度：计算 gifUrl 跟 front 比较，不同就触发 cross-fade。
+  // LLM 流状态（thinking/happy/error）bypass fade 立即换 front url，保响应感。
+  // 普通切换：把新 url 塞 back 层 → onLoad 触发 swap frontIdx → CSS opacity ramp 自动跑。
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useEffect(() => {
+    const front = urls[frontIdx]
+    if (gifUrl === front) return
+    if (LLM_FLOW_GIFS.has(gifUrl)) {
+      pendingBackRef.current = null
+      setUrls((cur) => {
+        const next = [...cur] as [string, string]
+        next[frontIdx] = gifUrl
+        return next
+      })
+      return
+    }
+    const backIdx = (1 - frontIdx) as 0 | 1
+    if (urls[backIdx] === gifUrl) return // 已经塞过 back，等 onLoad
+    pendingBackRef.current = gifUrl
+    setUrls((cur) => {
+      const next = [...cur] as [string, string]
+      next[backIdx] = gifUrl
+      return next
+    })
+  }, [gifUrl, frontIdx, urls])
+  /* eslint-enable react-hooks/set-state-in-effect */
+
+  /**
+   * back layer 的 onLoad 处理：只在「这次切换是我们刚请求的」时 swap frontIdx。
+   * - idx === frontIdx 时是 front 层 onLoad 不触发
+   * - urls[idx] !== pendingBackRef 时是别的 url 残留 onLoad（如 mount 初始），不触发
+   * - requestAnimationFrame 让 swap 跟 paint cycle 对齐，避免 setSrc → opacity 同帧 race
+   */
+  const handleImgLoad = (idx: 0 | 1) => (): void => {
+    if (idx === frontIdx) return
+    if (urls[idx] !== pendingBackRef.current) return
+    pendingBackRef.current = null
+    requestAnimationFrame(() => setFrontIdx(idx))
   }
   // keyState 还没就位时禁用：避免「user msg / no-api-key 错误 / 迎宾」三连闪
   // 等 AI 回复时禁用：避免连点 submit 让旧 stream 被 token 屏蔽但仍在烧 Anthropic token
@@ -470,10 +547,30 @@ function App(): React.JSX.Element {
         </div>
       )}
       <div ref={petRef} className="pet" data-state={state} onMouseDown={handleMouseDown}>
-        {/* 不加 key —— 让 React 复用同一 <img> DOM 节点，切 src 由 Chromium 直接换帧。
-            带 key={gifUrl} 会 unmount/remount 出现 1 帧透明闪烁；Chromium 设新 src
-            本来就重新解码 + 从第一帧播，不需要 React 重 mount。 */}
-        <img src={gifUrl} alt="" draggable={false} />
+        {/* 双层 cross-fade：两个 absolute 叠加，opacity 互补 ramp。
+            会同时跑 0→1 和 1→0，旧 GIF 在 fade-out 期间继续 paint 旧帧（不会突然透明）。
+            onLoad 驱动 swap：新 GIF decode 完才 ramp，消除 Chromium <img src> 重置的 1-2 帧透明窗口。
+            两层都常驻 mount，避免 unmount/remount 抖动；通过 frontIdx 切角色。 */}
+        <img
+          src={urls[0]}
+          alt=""
+          draggable={false}
+          onLoad={handleImgLoad(0)}
+          style={{
+            opacity: frontIdx === 0 ? 1 : 0,
+            transition: `opacity ${FADE_HALF_MS}ms ${FADE_EASING}`
+          }}
+        />
+        <img
+          src={urls[1]}
+          alt=""
+          draggable={false}
+          onLoad={handleImgLoad(1)}
+          style={{
+            opacity: frontIdx === 1 ? 1 : 0,
+            transition: `opacity ${FADE_HALF_MS}ms ${FADE_EASING}`
+          }}
+        />
       </div>
     </div>
   )
