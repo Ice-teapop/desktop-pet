@@ -61,7 +61,7 @@ import { loadPreferences, savePreferences, type Preferences } from './storage/pr
 import { migrateLegacyUserData } from './storage/migration'
 import { loadTheme } from './storage/theme'
 import { ActiveAppMonitor } from './services/active-app'
-import { captureForTool } from './services/vision-pipeline'
+import { ALL_TOOLS, executeTool as runTool, type ToolDef } from './llm/tools'
 import type { VisionState } from '../shared/vision-types'
 import trayIconPath from '../../resources/icon.png?asset'
 
@@ -145,6 +145,10 @@ let useFastPath = true
 let visionEnabledPref = false
 // preferences.visionConsented 的内存副本 —— 用户没 consent 则不允许 enable
 let visionConsentedPref = false
+// M4-B：当前前台 app 信息 —— current_app_info tool 用
+// （activeAppMonitor callback 维护，初始为空）
+let currentAppName = ''
+let currentAppBundleId = ''
 
 /**
  * 对话轮次令牌 —— 每次 chat:submit 进入时 snapshot 当前值，stream 回调用 snapshot 比对。
@@ -215,6 +219,9 @@ function notifyActivity(): void {
  * 无 key 或 classify 失败 → fallback 'idle' 不让桌宠卡在错误状态。
  */
 const activeAppMonitor = new ActiveAppMonitor((app) => {
+  // M4-B: 同步存当前 app —— current_app_info tool 直接读这两个变量
+  currentAppName = app?.name ?? ''
+  currentAppBundleId = app?.bundleId ?? ''
   void (async (): Promise<void> => {
     const nextActivity = await resolveActivity(app)
     if (nextActivity === currentActivity) return
@@ -756,11 +763,20 @@ function registerIpc(): void {
     // 上一个 stream 还在跑就 abort（用户连点 submit 时不烧两份 token）
     currentStreamHandle?.abort()
 
-    // —— M4-A-4 agentic vision —— AI 通过 view_screen tool 自行决定是否截屏。
-    // 主进程仅提供 captureScreen callback；不再 always-on 截图，也不再推 progress。
-    const enableVisionTool = visionEnabledPref && visionConsentedPref
-    const captureScreen = enableVisionTool
-      ? (): ReturnType<typeof captureForTool> => captureForTool(petWindow)
+    // —— M4-B agentic tools —— AI 通过 tool_use 自主决定调用哪些 local tool。
+    // tools 池：vision 类工具（view_screen / read_clipboard）需要 vision consent；
+    // 动作类（open_url / copy_to_clipboard / current_app_info）只需要 consent
+    // 同样的 gate（一次 consent 给所有 agentic 能力，UX 简单）。
+    const agenticEnabled = visionEnabledPref && visionConsentedPref
+    const tools: ToolDef[] = agenticEnabled ? [...ALL_TOOLS] : []
+    const executeTool = agenticEnabled
+      ? (name: string, input: unknown): ReturnType<typeof runTool> =>
+          runTool(name, input, {
+            petWindow,
+            currentActivity,
+            currentAppName,
+            currentAppBundleId
+          })
       : undefined
 
     chatHistory.push({ role: 'user', content: cleaned })
@@ -804,7 +820,7 @@ function registerIpc(): void {
           }
         }
       },
-      { enableVisionTool, captureScreen }
+      { tools, executeTool }
     )
   })
 

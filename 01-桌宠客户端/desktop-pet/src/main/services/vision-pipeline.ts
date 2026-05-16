@@ -11,8 +11,16 @@
  * Anthropic SDK request body 里短暂活到 HTTPS send 完）。
  */
 import type { BrowserWindow } from 'electron'
-import type { ScreenCaptureResult } from '../llm/anthropic'
 import { captureCursorScreen } from './screen-capture'
+
+/** 截屏结果 —— 给 tool 路由用的简化形状（不含 width/height，AI 不需要）。 */
+export type ScreenCaptureResult =
+  | {
+      ok: true
+      data: string // base64
+      mediaType: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp'
+    }
+  | { ok: false; error: string }
 
 /**
  * 给 LLM tool loop 用的截屏入口：返回 ScreenCaptureResult 直接喂回
