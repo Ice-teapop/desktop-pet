@@ -1,10 +1,10 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
 import type { PetState } from '../shared/pet-state'
 import type { ActivityState, ChatError, ChatUsage, KeyState } from '../shared/chat-types'
-import type { VisionProgress, VisionState } from '../shared/vision-types'
+import type { VisionState } from '../shared/vision-types'
 
 export type { PetState, ActivityState, ChatError, ChatUsage, KeyState }
-export type { VisionProgress, VisionState }
+export type { VisionState }
 
 export interface DeskPetAPI {
   windowMoveDelta(dx: number, dy: number): void
@@ -21,13 +21,12 @@ export interface DeskPetAPI {
   resetKey(): void
   requestKeyState(): void
   onActivityState(listener: (state: ActivityState) => void): () => void
-  // M4-A-2 视觉感知
-  submitVisionToken(token: string): void
+  // M4-A-4 视觉感知（agentic tool use）
+  acceptVisionConsentAndEnable(): void
   setVisionEnabled(enabled: boolean): void
-  clearVisionToken(): void
+  revokeVisionConsent(): void
   requestVisionState(): void
   onVisionState(listener: (state: VisionState) => void): () => void
-  onVisionProgress(listener: (p: VisionProgress) => void): () => void
 }
 
 declare global {

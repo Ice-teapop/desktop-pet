@@ -60,14 +60,9 @@ import { clearApiKey, loadApiKey, saveApiKey } from './storage/credentials'
 import { loadPreferences, savePreferences, type Preferences } from './storage/preferences'
 import { migrateLegacyUserData } from './storage/migration'
 import { loadTheme } from './storage/theme'
-import {
-  clearVisionToken,
-  loadVisionToken,
-  saveVisionToken
-} from './storage/vision-token'
 import { ActiveAppMonitor } from './services/active-app'
-import { runVisionPipeline } from './services/vision-pipeline'
-import type { VisionProgress, VisionState } from '../shared/vision-types'
+import { captureForTool } from './services/vision-pipeline'
+import type { VisionState } from '../shared/vision-types'
 import trayIconPath from '../../resources/icon.png?asset'
 
 // userData 路径走 package.json 的 productName='DeskPet' —— Electron 启动早期就读
@@ -145,11 +140,11 @@ let currentActivity: ActivityState = 'idle'
 let followFrontApp = true
 // fast-path bundleID regex 白名单是否启用（用户托盘可关 → 走严格 LLM 识别）
 let useFastPath = true
-// —— M4-A-2 视觉感知 ——
-// vision-service Bearer token（safeStorage 解密后内存常驻；启动 load，submit 时 reset）
-let currentVisionToken: string | null = null
+// —— M4-A-3 视觉感知（Claude vision pivot） ——
 // preferences.visionEnabled 的内存副本 —— 写到 prefs 时同步更新这里
 let visionEnabledPref = false
+// preferences.visionConsented 的内存副本 —— 用户没 consent 则不允许 enable
+let visionConsentedPref = false
 
 /**
  * 对话轮次令牌 —— 每次 chat:submit 进入时 snapshot 当前值，stream 回调用 snapshot 比对。
@@ -189,22 +184,18 @@ function notifyKeyState(): void {
 
 /**
  * 推 vision 配置状态给渲染层 —— 单一事实来源住在主进程。
- * 三态：
- *  - disabled-no-token：用户没存过 token，UI 显示"请先输入 token"
- *  - disabled：token 已存但 toggle 关 —— UI 显示 toggle off
- *  - enabled：toggle 开，每次发消息会截屏
+ * 三态（M4-A-3 pivot 后）：
+ *  - disabled-no-consent：用户没勾过隐私 modal，UI 显示"请先同意截图发 Anthropic"
+ *  - disabled：consent 给了但 toggle 关 —— UI 显示 toggle off
+ *  - enabled：toggle 开，每次发消息会截屏附给 Claude vision
  */
 function visionState(): VisionState {
-  if (!currentVisionToken) return { kind: 'disabled-no-token' }
+  if (!visionConsentedPref) return { kind: 'disabled-no-consent' }
   return visionEnabledPref ? { kind: 'enabled' } : { kind: 'disabled' }
 }
 
 function notifyVisionState(): void {
   if (isWinAlive()) petWindow!.webContents.send('vision:state', visionState())
-}
-
-function notifyVisionProgress(p: VisionProgress): void {
-  if (isWinAlive()) petWindow!.webContents.send('vision:progress', p)
 }
 
 function notifyActivity(): void {
@@ -256,7 +247,7 @@ function setUseFastPath(on: boolean): void {
   // 切换 fast-path 时清 classifier cache —— 防止 LLM 错误结果污染新策略
   clearClassifyCache()
   rebuildTrayMenu()
-  schedulePrefsSave({ modelId: currentModel, followFrontApp, useFastPath, visionEnabled: visionEnabledPref })
+  schedulePrefsSave({ modelId: currentModel, followFrontApp, useFastPath, visionEnabled: visionEnabledPref, visionConsented: visionConsentedPref })
 }
 
 function setFollowFrontApp(on: boolean): void {
@@ -268,7 +259,7 @@ function setFollowFrontApp(on: boolean): void {
     activeAppMonitor.stop() // stop 内部会推一次 'idle' 回到闲态
   }
   rebuildTrayMenu()
-  schedulePrefsSave({ modelId: currentModel, followFrontApp, useFastPath, visionEnabled: visionEnabledPref })
+  schedulePrefsSave({ modelId: currentModel, followFrontApp, useFastPath, visionEnabled: visionEnabledPref, visionConsented: visionConsentedPref })
 }
 
 function setKeyInMemory(key: string | null): void {
@@ -339,7 +330,7 @@ function setModel(id: ModelId): void {
   currentStreamHandle = null
   chatTurnToken++
   rebuildTrayMenu()
-  schedulePrefsSave({ modelId: id, followFrontApp, useFastPath, visionEnabled: visionEnabledPref })
+  schedulePrefsSave({ modelId: id, followFrontApp, useFastPath, visionEnabled: visionEnabledPref, visionConsented: visionConsentedPref })
 }
 
 function trimChatHistory(): void {
@@ -689,32 +680,33 @@ function registerIpc(): void {
   })
 
   // 渲染层挂载完后主动 ping，让主进程补推一次当前 keyState。
-  // —— M4-A-2 vision IPC handlers ——
-  ipcMain.on('vision:submit-token', async (_event, rawToken: string) => {
-    const token = String(rawToken).slice(0, 512).trim()
-    if (!token) return
+  // —— M4-A-3 vision IPC handlers（pivot 后 token-based → consent-based） ——
+  /** 用户在隐私 modal 点了 "我已了解，启用"：consent + enable 一并写入 */
+  ipcMain.on('vision:accept-consent-and-enable', async () => {
+    visionConsentedPref = true
+    visionEnabledPref = true
+    notifyVisionState()
     try {
-      await saveVisionToken(token)
-      currentVisionToken = token
-      notifyVisionState()
+      const prefs = await loadPreferences()
+      await savePreferences({
+        ...prefs,
+        visionConsented: true,
+        visionEnabled: true
+      })
     } catch (err) {
-      console.error('[vision:submit-token] saveVisionToken failed:', err)
-      // 落盘失败也把 token 放内存，让用户当前 session 能用 —— 重启会丢
-      currentVisionToken = token
-      notifyVisionState()
+      console.warn('[vision:accept-consent-and-enable] savePreferences failed:', err)
     }
   })
 
   ipcMain.on('vision:set-enabled', async (_event, enabled: boolean) => {
     if (typeof enabled !== 'boolean') return
-    // 没 token 不允许启用
-    if (enabled && !currentVisionToken) {
+    // 没 consent 不允许启用
+    if (enabled && !visionConsentedPref) {
       notifyVisionState()
       return
     }
     visionEnabledPref = enabled
     notifyVisionState()
-    // 持久化到 preferences
     try {
       const prefs = await loadPreferences()
       await savePreferences({ ...prefs, visionEnabled: enabled })
@@ -723,24 +715,17 @@ function registerIpc(): void {
     }
   })
 
-  ipcMain.on('vision:clear-token', async () => {
-    try {
-      await clearVisionToken()
-    } catch (err) {
-      console.warn('[vision:clear-token] clearVisionToken failed:', err)
-    }
-    currentVisionToken = null
-    // 清 token = 强制 disable
-    if (visionEnabledPref) {
-      visionEnabledPref = false
-      try {
-        const prefs = await loadPreferences()
-        await savePreferences({ ...prefs, visionEnabled: false })
-      } catch (err) {
-        console.warn('[vision:clear-token] persist false failed:', err)
-      }
-    }
+  /** 撤销 consent —— 关掉功能 + 清掉 consent flag，下次开需要重看 modal */
+  ipcMain.on('vision:revoke-consent', async () => {
+    visionConsentedPref = false
+    visionEnabledPref = false
     notifyVisionState()
+    try {
+      const prefs = await loadPreferences()
+      await savePreferences({ ...prefs, visionConsented: false, visionEnabled: false })
+    } catch (err) {
+      console.warn('[vision:revoke-consent] savePreferences failed:', err)
+    }
   })
 
   ipcMain.on('vision:request-state', (event) => {
@@ -771,60 +756,56 @@ function registerIpc(): void {
     // 上一个 stream 还在跑就 abort（用户连点 submit 时不烧两份 token）
     currentStreamHandle?.abort()
 
-    // —— M4-A-2: vision OCR prefix（toggle 开 + token 存在才跑） ——
-    // fail-open：vision 失败时不阻塞对话，发原消息 + UI 显示 warning。
-    let messageContent = cleaned
-    if (visionEnabledPref && currentVisionToken) {
-      const result = await runVisionPipeline({
-        token: currentVisionToken,
-        petWindow: petWindow,
-        onProgress: notifyVisionProgress
-      })
-      if (result.ok) {
-        messageContent = `【屏幕 OCR】\n${result.summary}\n【/OCR】\n\n${cleaned}`
-      }
-      // 失败时 onProgress 已经 push 了 stage:'failed' + reason，渲染层据此显示 inline warning
-    }
+    // —— M4-A-4 agentic vision —— AI 通过 view_screen tool 自行决定是否截屏。
+    // 主进程仅提供 captureScreen callback；不再 always-on 截图，也不再推 progress。
+    const enableVisionTool = visionEnabledPref && visionConsentedPref
+    const captureScreen = enableVisionTool
+      ? (): ReturnType<typeof captureForTool> => captureForTool(petWindow)
+      : undefined
 
-    chatHistory.push({ role: 'user', content: messageContent })
+    chatHistory.push({ role: 'user', content: cleaned })
     trimChatHistory()
     stateMachine.transition('thinking')
 
     const myToken = ++chatTurnToken
     let aiText = ''
     // stream 同步返回 handle，回调异步触发 —— 不要 await 这一行
-    currentStreamHandle = client.stream(chatHistory, {
-      onChunk(delta) {
-        if (myToken !== chatTurnToken) return
-        aiText += delta
-        win.webContents.send('chat:chunk', delta)
-      },
-      onDone(usage) {
-        // 流式中 chatHistory 被 reset 清空了 → 别 push assistant turn 进去，
-        // 否则下次 messages 起头是 assistant，Anthropic 返回 400 invalid_messages
-        if (myToken !== chatTurnToken) return
-        currentStreamHandle = null
-        chatHistory.push({ role: 'assistant', content: aiText })
-        trimChatHistory()
-        win.webContents.send('chat:done', usage)
-        stateMachine.transition('success')
-        stateMachine.scheduleReturnToIdle(SUCCESS_HOLD_MS)
-      },
-      onError(err) {
-        if (myToken !== chatTurnToken) return
-        currentStreamHandle = null
-        if (chatHistory[chatHistory.length - 1]?.role === 'user') {
-          chatHistory.pop()
+    currentStreamHandle = client.stream(
+      chatHistory,
+      {
+        onChunk(delta) {
+          if (myToken !== chatTurnToken) return
+          aiText += delta
+          win.webContents.send('chat:chunk', delta)
+        },
+        onDone(usage) {
+          // 流式中 chatHistory 被 reset 清空了 → 别 push assistant turn 进去，
+          // 否则下次 messages 起头是 assistant，Anthropic 返回 400 invalid_messages
+          if (myToken !== chatTurnToken) return
+          currentStreamHandle = null
+          chatHistory.push({ role: 'assistant', content: aiText })
+          trimChatHistory()
+          win.webContents.send('chat:done', usage)
+          stateMachine.transition('success')
+          stateMachine.scheduleReturnToIdle(SUCCESS_HOLD_MS)
+        },
+        onError(err) {
+          if (myToken !== chatTurnToken) return
+          currentStreamHandle = null
+          if (chatHistory[chatHistory.length - 1]?.role === 'user') {
+            chatHistory.pop()
+          }
+          win.webContents.send('chat:error', err)
+          stateMachine.transition('error')
+          stateMachine.scheduleReturnToIdle(ERROR_HOLD_MS)
+          // 401 invalid-api-key → 自动清掉坏 key，引导用户重设
+          if (err.kind === 'invalid-api-key') {
+            void resetKey()
+          }
         }
-        win.webContents.send('chat:error', err)
-        stateMachine.transition('error')
-        stateMachine.scheduleReturnToIdle(ERROR_HOLD_MS)
-        // 401 invalid-api-key → 自动清掉坏 key，引导用户重设
-        if (err.kind === 'invalid-api-key') {
-          void resetKey()
-        }
-      }
-    })
+      },
+      { enableVisionTool, captureScreen }
+    )
   })
 
   ipcMain.on('chat:set-open', (_event, open: boolean) => {
@@ -882,12 +863,11 @@ app.whenReady().then(async () => {
   followFrontApp = prefs.followFrontApp
   useFastPath = prefs.useFastPath
   visionEnabledPref = prefs.visionEnabled
+  visionConsentedPref = prefs.visionConsented
 
-  // M4-A-2: load vision token —— 没有就 disabled-no-token，UI 引导用户输入
-  currentVisionToken = await loadVisionToken()
-  // 边缘情况：visionEnabled=true 但 token 丢了（用户手动删了 vision-token.bin）
-  // 自动 disable 防止每次发消息空跑 vision 失败
-  if (visionEnabledPref && !currentVisionToken) {
+  // 边缘情况：visionEnabled=true 但 consent=false（异常状态，理论不会发生）
+  // 自动 disable 防止意外开了功能
+  if (visionEnabledPref && !visionConsentedPref) {
     visionEnabledPref = false
     void savePreferences({ ...prefs, visionEnabled: false }).catch((e) =>
       console.warn('[startup] reset visionEnabled=false failed:', e)

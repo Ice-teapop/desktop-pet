@@ -11,8 +11,7 @@
  * macOS 注意：首次调用 desktopCapturer 触发系统"屏幕录制权限"弹窗 —— 用户需在
  * 系统设置批准并重启应用。失败时返回 capture-failed 让上层 fail-open。
  */
-import { BrowserWindow, desktopCapturer, screen } from 'electron'
-import type { VisionFailReason } from '../../shared/vision-types'
+import { BrowserWindow, desktopCapturer, screen, systemPreferences } from 'electron'
 
 export interface CaptureResult {
   ok: true
@@ -25,13 +24,38 @@ export interface CaptureResult {
   petBbox: { x: number; y: number; w: number; h: number } | null
 }
 
-export type CaptureFailure = { ok: false; error: VisionFailReason }
+/** 截屏失败原因 —— M4-A-4 后只剩"截屏失败 + 具体 detail"一种，AI 自己看 detail 引导用户。 */
+export interface CaptureFailure {
+  ok: false
+  error: { kind: 'capture-failed'; detail: string }
+}
 
 /** 截屏入口：返回 CaptureResult 或 fail-open 错误。petWindow 用于算 bbox。 */
 export async function captureCursorScreen(
   petWindow: BrowserWindow | null
 ): Promise<CaptureResult | CaptureFailure> {
   try {
+    // —— macOS 权限 pre-check ——
+    // macOS 13+ 上，没权限时 desktopCapturer.getSources() 不再触发系统请求弹窗，
+    // 而是返回空数组或被裁掉桌面内容。所以我们必须显式查 + 主动触发请求。
+    if (process.platform === 'darwin') {
+      const status = systemPreferences.getMediaAccessStatus('screen')
+      console.warn(`[screen-capture] macOS screen recording status: ${status}`)
+      if (status !== 'granted') {
+        return {
+          ok: false,
+          error: {
+            kind: 'capture-failed',
+            detail:
+              `macOS 屏幕录制权限状态: ${status} —— ` +
+              `请在「系统设置 → 隐私与安全 → 屏幕录制」勾选 Electron（或把 ` +
+              `node_modules/electron/dist/Electron.app 拖进列表），然后完全 ` +
+              `quit npm run dev（ctrl-C）并重新启动`
+          }
+        }
+      }
+    }
+
     // 找 cursor 所在 display（多屏场景）
     const cursor = screen.getCursorScreenPoint()
     const display = screen.getDisplayNearestPoint(cursor)
@@ -87,6 +111,7 @@ export async function captureCursorScreen(
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
+    console.warn('[screen-capture] caught exception:', msg, err)
     return { ok: false, error: { kind: 'capture-failed', detail: msg } }
   }
 }

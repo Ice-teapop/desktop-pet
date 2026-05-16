@@ -20,15 +20,18 @@ export interface Preferences {
   followFrontApp: boolean
   /** fast-path bundleID regex 白名单：默认开（常见 app 1ms 命中），关 = 严格 LLM 识别 */
   useFastPath: boolean
-  /** 视觉感知：每次发消息时附带屏幕 OCR 摘要（M4-A-2）—— 默认关，3 道门后开 */
+  /** 视觉感知：每次发消息时附带屏幕截图给 Claude vision（M4-A-3）—— 默认关 */
   visionEnabled: boolean
+  /** 用户是否同意过隐私 modal（截图发 Anthropic）—— 一次性，consent 后才能 enable */
+  visionConsented: boolean
 }
 
 const DEFAULT_PREFS: Preferences = {
   modelId: DEFAULT_MODEL,
   followFrontApp: true,
   useFastPath: true,
-  visionEnabled: false
+  visionEnabled: false,
+  visionConsented: false
 }
 
 function prefsPath(): string {
@@ -45,6 +48,7 @@ export async function loadPreferences(): Promise<Preferences> {
         followFrontApp?: unknown
         useFastPath?: unknown
         visionEnabled?: unknown
+        visionConsented?: unknown
       }
       const modelId = isValidModelId(obj.modelId) ? obj.modelId : DEFAULT_PREFS.modelId
       const followFrontApp =
@@ -53,7 +57,11 @@ export async function loadPreferences(): Promise<Preferences> {
         typeof obj.useFastPath === 'boolean' ? obj.useFastPath : DEFAULT_PREFS.useFastPath
       const visionEnabled =
         typeof obj.visionEnabled === 'boolean' ? obj.visionEnabled : DEFAULT_PREFS.visionEnabled
-      return { modelId, followFrontApp, useFastPath, visionEnabled }
+      const visionConsented =
+        typeof obj.visionConsented === 'boolean'
+          ? obj.visionConsented
+          : DEFAULT_PREFS.visionConsented
+      return { modelId, followFrontApp, useFastPath, visionEnabled, visionConsented }
     }
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code
@@ -77,6 +85,9 @@ export async function savePreferences(prefs: Preferences): Promise<void> {
   }
   if (typeof prefs.visionEnabled !== 'boolean') {
     throw new Error(`[prefs] visionEnabled must be boolean`)
+  }
+  if (typeof prefs.visionConsented !== 'boolean') {
+    throw new Error(`[prefs] visionConsented must be boolean`)
   }
   const data = JSON.stringify(prefs, null, 2)
   await fs.writeFile(prefsPath(), data, { mode: 0o600 })

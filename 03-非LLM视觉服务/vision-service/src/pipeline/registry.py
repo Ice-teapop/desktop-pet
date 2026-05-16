@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from ..config import config
 from .formula import get_formula_engine
 from .ocr import OcrEngine
 from .recognizers.base import Recognizer
@@ -40,14 +41,25 @@ class RecognizerRegistry:
 
 
 def build_default_registry(ocr_engine: OcrEngine) -> RecognizerRegistry:
-    """默认注册表。步骤 4 逐个登记专项识别器。"""
+    """按 config.recognizers.enabled 条件注册。
+
+    不在 enabled 列表里的 recognizer 不注册 —— dispatch 拿到 region.type 未注册
+    时会 fallback 到 _FALLBACK_TYPE（text），让该类型区域走 text OCR。
+    用途：某识别器误判过多（例如 table 把界面边框当表格）时，改 config 即可
+    临时关掉，无需改代码。
+    """
+    enabled = set(config.recognizers)
     reg = RecognizerRegistry()
+    # text 是 dispatch._FALLBACK_TYPE，强制注册 —— 否则未识别 region 全丢
     reg.register("text", TextRecognizer(ocr_engine), TextTranscoder())
-    reg.register("code", CodeRecognizer(ocr_engine), CodeTranscoder())
-    reg.register("table", TableRecognizer(ocr_engine), TableTranscoder())
-    reg.register(
-        "formula",
-        FormulaRecognizer(get_formula_engine()),
-        FormulaTranscoder(),
-    )
+    if "code" in enabled:
+        reg.register("code", CodeRecognizer(ocr_engine), CodeTranscoder())
+    if "table" in enabled:
+        reg.register("table", TableRecognizer(ocr_engine), TableTranscoder())
+    if "formula" in enabled:
+        reg.register(
+            "formula",
+            FormulaRecognizer(get_formula_engine()),
+            FormulaTranscoder(),
+        )
     return reg
