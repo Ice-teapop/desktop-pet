@@ -21,6 +21,9 @@
 {
     # 关全局 access log —— 不留 IP / 路径 / UA 行（与 uvicorn --no-access-log 对齐）
     # admin off：禁用 Caddy 自身的 admin API（默认 localhost:2019）避免被本机其他进程探测
+    # 注意 trade-off：admin off 会让 `caddy reload` / `systemctl reload caddy` 失效
+    #   （reload 通过 admin API 推新配置进 running 实例）。改配置后必须用
+    #   `systemctl restart caddy`，LE 证书在 /var/lib/caddy 持久化、restart 不重签。
     admin off
     # 用于 LE 注册的邮箱（出错通知和证书续期失败警报会发到这里）
     email admin@iceteamk.com
