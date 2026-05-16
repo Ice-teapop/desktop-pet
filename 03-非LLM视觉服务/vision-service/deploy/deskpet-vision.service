@@ -26,6 +26,10 @@ Environment=OMP_NUM_THREADS=1
 Environment=MKL_NUM_THREADS=1
 Environment=OPENBLAS_NUM_THREADS=1
 
+# Albumentations 启动时默认会向 pypi 发请求探测新版本 → 启动日志噪音 + 轻微
+# 隐私顾虑（外发 GET 请求带版本号）。关掉自动检查。
+Environment=NO_ALBUMENTATIONS_UPDATE=1
+
 # 关于 pix2tex 模型路径（与 ProtectHome=true 的兼容性说明）：
 # pix2tex 上游 cli.py 的 LatexOCR() 用 @in_model_path() 装饰器把 cwd 切到
 # os.path.dirname(pix2tex.__file__) + '/model'，下载并加载 weights.pth 到
@@ -43,6 +47,12 @@ ExecStart=/opt/deskpet/vision-service/.venv/bin/uvicorn src.main:app \
 
 Restart=on-failure
 RestartSec=5
+
+# —— 资源上限 ——
+# MemoryMax：2GB 机器 + pix2tex ~700MB warmup + 处理 burst → 1500M 足够，超出
+# 由 systemd OOM-kill 单实例，配合 Restart=on-failure 自动拉起，比让整机
+# swap/hibernate（把内存往磁盘写）更可控也更符合「不留存」纪律。
+MemoryMax=1500M
 
 # —— 进程加固 ——
 # NoNewPrivileges       禁止子进程获得新特权（防 setuid 提权）
