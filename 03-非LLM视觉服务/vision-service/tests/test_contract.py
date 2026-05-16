@@ -259,6 +259,59 @@ def test_pet_bbox_invalid_rejected():
     assert r.json()["error"]["code"] == "INVALID_REQUEST"
 
 
+def test_mask_pet_region_exact_pixel_count():
+    """_mask_pet_region：精确涂 w×h 像素（end-exclusive 语义），不多不少 1 像素。
+
+    PIL ImageDraw.rectangle 是 end-inclusive，需要 x+w-1/y+h-1 才能涂出 w×h。
+    构造黑底图 + bbox(10,10,5,5)：(10,10)..(14,14) 应全白（255），(15,10) 与
+    (10,15) 应仍为黑（0）。
+    """
+    from src.pipeline.pipeline import _mask_pet_region
+    from src.schema.contract import PetBbox
+
+    img = Image.new("L", (30, 30), 0)
+    out = _mask_pet_region(img, PetBbox(x=10, y=10, w=5, h=5))
+
+    # 涂白区域 5x5：左上 (10,10) ~ 右下 (14,14) 都应是 255
+    for x in range(10, 15):
+        for y in range(10, 15):
+            assert out.getpixel((x, y)) == 255, f"({x},{y}) 应被涂白"
+    # 边界外像素仍为黑（关键断言：不能多涂 1 行 1 列）
+    assert out.getpixel((15, 12)) == 0, "(15,12) 在 bbox 之外，不应被涂白"
+    assert out.getpixel((12, 15)) == 0, "(12,15) 在 bbox 之外，不应被涂白"
+    assert out.getpixel((15, 15)) == 0, "(15,15) 在 bbox 之外，不应被涂白"
+
+
+def test_mask_pet_region_handles_palette_mode():
+    """_mask_pet_region：P (palette) 模式不应崩 —— 先 convert 兜底再涂。
+
+    P 模式直接传 (255,255,255) tuple 给 ImageDraw.rectangle 会 raise；
+    fix 后应 convert 成 RGB 再涂白。
+    """
+    from src.pipeline.pipeline import _mask_pet_region
+    from src.schema.contract import PetBbox
+
+    # 构造 P 模式图（palette index 0 = 黑）
+    img = Image.new("P", (30, 30), 0)
+    out = _mask_pet_region(img, PetBbox(x=5, y=5, w=10, h=10))
+
+    # convert 后 mode 是 RGB，涂白区域应是 (255,255,255)
+    assert out.mode == "RGB"
+    assert out.getpixel((10, 10)) == (255, 255, 255)
+    # 边界外是 palette index 0 对应的 RGB 值（通常黑）
+    assert out.getpixel((20, 20)) != (255, 255, 255)
+
+
+def test_mask_pet_region_rgba_keeps_alpha_opaque():
+    """_mask_pet_region：RGBA 模式涂白时 alpha 应保持 255（不透明白）。"""
+    from src.pipeline.pipeline import _mask_pet_region
+    from src.schema.contract import PetBbox
+
+    img = Image.new("RGBA", (20, 20), (0, 0, 0, 255))
+    out = _mask_pet_region(img, PetBbox(x=2, y=2, w=4, h=4))
+    assert out.getpixel((3, 3)) == (255, 255, 255, 255)
+
+
 # ---------- 步骤 2：预处理 + 文本 OCR + 文本转码 ----------
 
 def test_preprocess_upscales_small_image():

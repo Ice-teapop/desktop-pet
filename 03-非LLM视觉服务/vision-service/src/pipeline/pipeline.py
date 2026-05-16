@@ -51,23 +51,32 @@ def _placeholder_block(width: int, height: int, note: str) -> Block:
     )
 
 
-def _mask_pet_region(img: Image.Image, bbox: PetBbox) -> None:
+def _mask_pet_region(img: Image.Image, bbox: PetBbox) -> Image.Image:
     """把桌宠所在区域涂白 —— 防桌宠形象 echo 进 OCR 文本/公式识别。
 
-    原地修改 img。坐标按原图像素坐标系，超出边界会被 PIL clip。
-    涂白用 (255,255,255) 对 RGB / 255 对 L / (255,255,255,255) 对 RGBA。
+    返回涂白后的 Image。P/CMYK 等不支持 RGB tuple fill 的模式会先 convert 兜底
+    （此时返回的是新对象，不是原 img 的修改）；RGB/RGBA/L/1 等模式则就地涂白
+    并返回 img 本身。caller 必须重新绑定返回值，不能依赖原地修改。
+
+    坐标按原图像素坐标系。PIL ImageDraw.rectangle 是 end-inclusive
+    （右下角点也被绘制），所以传 x+w-1 / y+h-1 才能精确涂 w×h 像素。
+    超出图像边界会被 PIL 静默 clip。
     """
-    fill: object
+    # P (palette) / CMYK / 其他罕见模式：PIL 不接受 (255,255,255) tuple 作为 fill，
+    # 直接调 rectangle 会 raise。统一 convert 成 RGB 兜底（截屏 OCR 不在乎色彩保真）。
+    if img.mode not in ("L", "1", "RGB", "RGBA"):
+        img = img.convert("RGB")
     if img.mode in ("L", "1"):
-        fill = 255
+        fill: object = 255
     elif img.mode == "RGBA":
         fill = (255, 255, 255, 255)
     else:
         fill = (255, 255, 255)
     ImageDraw.Draw(img).rectangle(
-        [bbox.x, bbox.y, bbox.x + bbox.w, bbox.y + bbox.h],
+        [bbox.x, bbox.y, bbox.x + bbox.w - 1, bbox.y + bbox.h - 1],
         fill=fill,
     )
+    return img
 
 
 def run_pipeline(image_bytes: bytes, metadata: ExtractMetadata):
@@ -85,9 +94,11 @@ def run_pipeline(image_bytes: bytes, metadata: ExtractMetadata):
             img.load()
             # 桌宠 echo 防御：涂白 pet_bbox 区域后再交给预处理
             # （preprocess 会转灰度 / 缩放 —— 涂白要在转换前做坐标才对得上原图）
+            # _mask_pet_region 在 P/CMYK 等冷门模式时返回新对象，所以必须重新绑定。
+            work_img: Image.Image = img
             if metadata.pet_bbox is not None:
-                _mask_pet_region(img, metadata.pet_bbox)
-            pre = preprocess(img)
+                work_img = _mask_pet_region(work_img, metadata.pet_bbox)
+            pre = preprocess(work_img)
     except ServiceError:
         raise
     except Exception as e:  # noqa: BLE001
