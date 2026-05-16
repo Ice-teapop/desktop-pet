@@ -94,12 +94,14 @@ body,
   cursor: grabbing;
 }
 
-.pet svg {
+.pet svg,
+.pet img {
   width: 100%;
   height: 100%;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
   overflow: visible;
+  pointer-events: none;
 }
 
 /* —— 对话 UI 容器（左侧） —— */
@@ -239,6 +241,31 @@ body,
 
 .msg-ai .msg-bubble {
   background: var(--coral-soft);
+}
+
+/* —— 错误气泡：暖红色调，跟珊瑚色系统协调但明显是警告 —— */
+.msg-ai .msg-bubble[data-status='error'] {
+  background: #fce4e0;
+  border-color: #a94c3a;
+  color: #6b2418;
+  filter: drop-shadow(2px 2px 0 #8a3a28);
+}
+
+/* —— 流式光标：模仿打字机末尾的闪烁竖线 —— */
+.cursor-blink {
+  display: inline-block;
+  width: 6px;
+  height: 1.1em;
+  margin-left: 2px;
+  vertical-align: -2px;
+  background: var(--coral-deep);
+  animation: cursor-blink 1s steps(1) infinite;
+}
+
+@keyframes cursor-blink {
+  50% {
+    opacity: 0;
+  }
 }
 
 @keyframes msg-in {

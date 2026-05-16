@@ -1,5 +1,5 @@
-appId: com.electron.app
-productName: desktop-pet
+appId: com.deskpet.desktop-pet
+# productName 单一来源在 package.json —— 这里删掉避免 drift（改 app 名时只改一处）
 directories:
   buildResources: build
 files:
@@ -11,6 +11,10 @@ files:
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
 asarUnpack:
   - resources/**
+extraResources:
+  # Swift binary 必须可执行 → 不进 asar，直接进 .app/Contents/Resources/
+  - from: resources/frontmost-listener
+    to: frontmost-listener
 win:
   executableName: desktop-pet
 nsis:
@@ -20,12 +24,25 @@ nsis:
   createDesktopShortcut: always
 mac:
   entitlementsInherit: build/entitlements.mac.plist
+  category: public.app-category.utilities
+  # LSUIElement=true → 不在 dock 显示，只在状态栏（菜单条托盘）显示 —— 桌宠应用要的就是这种
   extendInfo:
-    - NSCameraUsageDescription: Application requests access to the device's camera.
-    - NSMicrophoneUsageDescription: Application requests access to the device's microphone.
-    - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
-    - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
+    LSUIElement: true
+    NSHumanReadableCopyright: © 2026 han · DeskPet
+  # dev build 跳过 codesign（避开「resource fork detritus」+ 不需要 Apple Developer 证书）。
+  # 首次启动 Gatekeeper 会拦：右键 .app → 打开 → 允许。
+  # 上架前打开签名：identity 改成你的 Developer ID，notarize 设 true。
+  identity: null
   notarize: false
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+    - target: zip
+      arch:
+        - arm64
+        - x64
 dmg:
   artifactName: ${name}-${version}.${ext}
 linux:

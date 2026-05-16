@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- DeskPet 原创 logo（不依赖 AGPL clawd-on-desk 素材）
+       配色沿用 chat UI 的奶油+珊瑚+暖棕调，dock 上视觉一致 -->
+
+  <!-- 奶油底 squircle（macOS Big Sur+ 风格） -->
+  <rect width="1024" height="1024" rx="200" ry="200" fill="#f7f1e6"/>
+
+  <!-- 四条腿（暖深棕粗线，分两组在身体下方两侧伸出） -->
+  <g stroke="#3a2820" stroke-width="32" stroke-linecap="round" fill="none">
+    <path d="M 360 720 Q 290 790 240 900"/>
+    <path d="M 430 760 Q 400 840 380 920"/>
+    <path d="M 664 720 Q 734 790 784 900"/>
+    <path d="M 594 760 Q 624 840 644 920"/>
+  </g>
+
+  <!-- 左钳子：连身臂 + 圆形钳头 + 钳口缝 -->
+  <path d="M 280 560 Q 220 480 160 470" stroke="#3a2820" stroke-width="38" stroke-linecap="round" fill="none"/>
+  <circle cx="150" cy="450" r="78" fill="#d97560" stroke="#3a2820" stroke-width="22"/>
+  <path d="M 95 415 L 175 460 L 95 495" stroke="#3a2820" stroke-width="20" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- 右钳子（左钳子镜像） -->
+  <path d="M 744 560 Q 804 480 864 470" stroke="#3a2820" stroke-width="38" stroke-linecap="round" fill="none"/>
+  <circle cx="874" cy="450" r="78" fill="#d97560" stroke="#3a2820" stroke-width="22"/>
+  <path d="M 929 415 L 849 460 L 929 495" stroke="#3a2820" stroke-width="20" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- 身体：扁椭圆，珊瑚色 + 深棕描边 -->
+  <ellipse cx="512" cy="620" rx="244" ry="184" fill="#d97560" stroke="#3a2820" stroke-width="34"/>
+
+  <!-- 眼睛：白底黑瞳，瞳孔偏下让表情更萌 -->
+  <circle cx="430" cy="560" r="44" fill="#ffffff" stroke="#3a2820" stroke-width="16"/>
+  <circle cx="594" cy="560" r="44" fill="#ffffff" stroke="#3a2820" stroke-width="16"/>
+  <circle cx="430" cy="572" r="20" fill="#3a2820"/>
+  <circle cx="594" cy="572" r="20" fill="#3a2820"/>
+
+  <!-- 嘴巴：轻微 U 形微笑 -->
+  <path d="M 488 660 Q 512 686 536 660" stroke="#3a2820" stroke-width="16" fill="none" stroke-linecap="round"/>
+</svg>

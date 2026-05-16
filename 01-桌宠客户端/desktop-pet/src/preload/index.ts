@@ -5,15 +5,12 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
+import type { ActivityState, ChatError as ChatErrorMsg, KeyState } from '../shared/chat-types'
 
 const api = {
   /** 渲染层接管鼠标后，把 dx/dy 增量发给主进程，由主进程移动窗口。 */
   windowMoveDelta(dx: number, dy: number): void {
     ipcRenderer.send('window:move-delta', dx, dy)
-  },
-  /** 通知主进程：用户单击了桌宠。 */
-  petClick(): void {
-    ipcRenderer.send('pet:event:click')
   },
   /** 订阅状态机推送的状态 ID；返回取消订阅函数。 */
   onPetState(listener: (state: string) => void): () => void {
@@ -30,15 +27,30 @@ const api = {
   setIgnoreMouse(ignore: boolean): void {
     ipcRenderer.send('window:ignore-mouse', ignore)
   },
-  /** 用户提交对话消息（M1-8 主进程模拟 echo；M2 替换为真 LLM 流式调用）。 */
+  /** 用户提交对话消息（M2-1 真 Anthropic Claude 流式调用）。 */
   submitChat(text: string): void {
     ipcRenderer.send('chat:submit', text)
   },
-  /** 订阅 AI 回复推送；返回取消订阅函数。 */
-  onChatReply(listener: (text: string) => void): () => void {
+  /** 订阅 AI 流式 chunk；每个 chunk 是当次新增的文本片段。 */
+  onChatChunk(listener: (text: string) => void): () => void {
     const handler = (_event: IpcRendererEvent, text: string): void => listener(text)
-    ipcRenderer.on('chat:reply', handler)
-    return () => ipcRenderer.off('chat:reply', handler)
+    ipcRenderer.on('chat:chunk', handler)
+    return () => ipcRenderer.off('chat:chunk', handler)
+  },
+  /** 订阅 AI 流式完成事件（带 usage 统计）。 */
+  onChatDone(listener: (usage: { inputTokens: number; outputTokens: number }) => void): () => void {
+    const handler = (
+      _event: IpcRendererEvent,
+      usage: { inputTokens: number; outputTokens: number }
+    ): void => listener(usage)
+    ipcRenderer.on('chat:done', handler)
+    return () => ipcRenderer.off('chat:done', handler)
+  },
+  /** 订阅 LLM 错误（typed discriminated union，渲染层据 kind 显示不同 UI）。 */
+  onChatError(listener: (err: ChatErrorMsg) => void): () => void {
+    const handler = (_event: IpcRendererEvent, err: ChatErrorMsg): void => listener(err)
+    ipcRenderer.on('chat:error', handler)
+    return () => ipcRenderer.off('chat:error', handler)
   },
   /** 通知主进程对话 UI 开/关：主进程据此切换窗口尺寸（紧凑 260 / 扩展 540）。 */
   setChatOpen(open: boolean): void {
@@ -52,6 +64,39 @@ const api = {
     const handler = (): void => listener()
     ipcRenderer.on('chat:window-ready', handler)
     return () => ipcRenderer.off('chat:window-ready', handler)
+  },
+  /**
+   * 订阅 API key 状态推送 —— 主进程是单一事实来源，启动 + 任何变更都广播。
+   * 渲染层据此决定走对话 (submitChat) 还是当 key 处理 (submitKey)。
+   */
+  onKeyState(listener: (state: KeyState) => void): () => void {
+    const handler = (_event: IpcRendererEvent, state: KeyState): void => listener(state)
+    ipcRenderer.on('key:state', handler)
+    return () => ipcRenderer.off('key:state', handler)
+  },
+  /** 渲染层提交 API key —— 主进程会校验前缀 + safeStorage 加密落盘。 */
+  submitKey(key: string): void {
+    ipcRenderer.send('key:submit', key)
+  },
+  /** 渲染层请求清除已存 key —— 主进程会清盘 + 推送 key:state='missing'。 */
+  resetKey(): void {
+    ipcRenderer.send('key:reset')
+  },
+  /**
+   * 渲染层 mount 后主动请求一次当前 keyState 推送 —— 防御启动 race：
+   * 主进程 did-finish-load 推 'key:state' 时若 React effect 还没装 listener 会丢。
+   */
+  requestKeyState(): void {
+    ipcRenderer.send('key:request-state')
+  },
+  /**
+   * 订阅活动识别状态推送 —— 主进程 detector 每 5s 拿前台 App 映射出 ActivityState
+   * （coding / writing / chatting / terminal / idle）。渲染层据此切对应 SVG。
+   */
+  onActivityState(listener: (state: ActivityState) => void): () => void {
+    const handler = (_event: IpcRendererEvent, state: ActivityState): void => listener(state)
+    ipcRenderer.on('pet:activity', handler)
+    return () => ipcRenderer.off('pet:activity', handler)
   }
 }
 

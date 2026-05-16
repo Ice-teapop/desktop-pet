@@ -1,5 +1,6 @@
 {
   "name": "desktop-pet",
+  "productName": "DeskPet",
   "version": "0.0.1",
   "description": "DeskPet — 智能桌宠助手客户端（Electron + React + TS）",
   "main": "./out/main/index.js",
@@ -21,6 +22,7 @@
     "build:linux": "electron-vite build && electron-builder --linux"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.96.0",
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0"
   },

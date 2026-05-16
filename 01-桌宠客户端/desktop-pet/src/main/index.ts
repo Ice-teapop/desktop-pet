@@ -1,31 +1,76 @@
 /**
- * DeskPet 主进程 — M1-8（cr 复审三项修复 #1 #2 #3）。
+ * DeskPet 主进程 — M3-3-D（累计 M2 / M3 + 活动识别 + GIF 真动画 + Swift 事件驱动）。
  *
- * 修复要点：
- *   - #1 智能扩展方向：检测桌宠中心在屏幕哪一边，决定窗口往左/右展，
- *     桌宠在左半屏时往右扩（不出屏），右半屏时往左扩（原行为）；x 加边界 clamp
- *   - #2/#3 配合渲染层的两阶段过渡：开屏 setBounds 完成后 IPC 'chat:window-ready'
- *     通知渲染层 fade-in conversation；关屏由渲染层 fade-out 完成后才回 setChatOpen(false)
+ * 核心机制：
+ *  - 启动 key 解析顺序：env ANTHROPIC_API_KEY > userData/credentials.bin > missing
+ *  - 启动 model 解析：userData/preferences.json > DEFAULT_MODEL（'claude-haiku-4-5'）
+ *  - 启动 followFrontApp：同 prefs，默认 true
+ *  - 旧目录迁移：migrateLegacyUserData() 把 desktop-pet/ 的 credentials.bin + prefs
+ *    一次性 rename 到 DeskPet/（productName 改名时的兼容补丁）
+ *  - 主进程是 keyState / chatHistory / currentModel / currentActivity 单一事实来源
  *
- * 其它（M1-7 基础）：透明 NSPanel + focusable:true / Space 跨越 watchdog /
- * 'screen-saver' level / 点击穿透 IPC / SUCCESS_HOLD_MS=minMs+100 防 transition 拦截。
+ * 三大 IPC 流：
+ *  - chat:* → LLM 流式（M2-1）：chunk / done / error，token + AbortController 双保险
+ *  - key:* → API key 生命周期（M2-2）：submit / reset / request-state，safeStorage 加密
+ *  - pet:state / pet:activity → 桌宠状态（M3-3）：state 由 LLM 流推，activity 由
+ *    Swift binary 事件驱动推（NSWorkspaceDidActivateApplicationNotification）
+ *
+ * 托盘菜单：当前活动 readonly · 跟随前台 App checkbox · 重设 API Key · 模型 radio ·
+ *  显示隐藏 · 重置位置 · 退出
+ *
+ * 健壮性补丁（cr-fix 累计）：
+ *  - chatTurnToken / currentStreamHandle 双保险：resetKey / setModel 触发后旧 stream
+ *    callback 自我跳过 + 真正的 SDK fetch abort（避免白烧 token）
+ *  - queueCredentialOp：串行化 saveApiKey/clearApiKey（防 unlink 删刚写的 key）
+ *  - schedulePrefsSave：debounce 200ms（防快速连切丢 race）
+ *  - setModel 中断清理：chat:done + pop user turn + transition idle，解 streaming 气泡 stuck
+ *  - migrate + productName=DeskPet：dev / prod 共用同一 userData 路径
+ *  - devTools: is.dev：production build 关 F12 防 IPC 嗅探
+ *
+ * 沿用 M1-8 的窗口策略：智能扩展方向 + 开/关屏两阶段过渡 + NSPanel + screen-saver level
+ *  + reapplyMacVisibility watchdog。
  */
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, screen, Tray } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { PET_STATES, type PetState } from '../shared/pet-state'
+import {
+  ACTIVITY_INFO,
+  AVAILABLE_MODELS,
+  DEFAULT_MODEL,
+  type ActivityState,
+  type ChatMessage,
+  type KeyState,
+  type ModelId
+} from '../shared/chat-types'
+import {
+  AnthropicLlmClient,
+  getApiKeyFromEnv,
+  looksLikeApiKey,
+  type StreamHandle
+} from './llm/anthropic'
+import { clearApiKey, loadApiKey, saveApiKey } from './storage/credentials'
+import { loadPreferences, savePreferences, type Preferences } from './storage/preferences'
+import { migrateLegacyUserData } from './storage/migration'
+import { ActiveAppMonitor } from './services/active-app'
 import trayIconPath from '../../resources/icon.png?asset'
 
+// userData 路径走 package.json 的 productName='DeskPet' —— Electron 启动早期就读
+// package.json 决定 app.getName()，dev / prod 都用 ~/Library/Application Support/DeskPet/。
+// 之前用 app.setName('DeskPet') 时序偏晚 —— 在某些路径上 userData 已经按 name='desktop-pet'
+// 创建过；改 productName 是更早 + 更稳的方式。旧目录 desktop-pet/credentials.bin 由
+// migrateLegacyUserData() 在 startup 自动搬到新目录。
+
 const WIN_WIDTH_COMPACT = 260
-const WIN_WIDTH_FULL = 500 // 像素风字体更紧凑，对话区可以缩到 230px（之前 280）
+const WIN_WIDTH_FULL = 500
 const WIN_HEIGHT = 280
 const MARGIN_FROM_EDGE = 24
 const VISIBILITY_WATCHDOG_MS = 1000
-// setBounds animate=true 默认 ~250ms（macOS）；其它平台无动画。固定 320ms 等动画完。
 const WINDOW_RESIZE_ANIM_MS = 320
 
-const ECHO_DELAY_MS = 1500
 const SUCCESS_HOLD_MS = PET_STATES.success.minMs + 100
+const ERROR_HOLD_MS = PET_STATES.error.minMs + 100
+const MAX_HISTORY_PAIRS = 10
 
 class PetStateMachine {
   private current: PetState = 'idle'
@@ -65,25 +110,189 @@ class PetStateMachine {
     }, 2000)
   }
 
-  chatCycle(onReplyReady: () => void): void {
+  scheduleReturnToIdle(holdMs: number): void {
     if (this.timer) clearTimeout(this.timer)
-    this.transition('thinking')
     this.timer = setTimeout(() => {
-      onReplyReady()
-      this.transition('success')
-      this.timer = setTimeout(() => {
-        this.transition('idle')
-        this.timer = null
-      }, SUCCESS_HOLD_MS)
-    }, ECHO_DELAY_MS)
+      this.transition('idle')
+      this.timer = null
+    }, holdMs)
   }
+}
+
+// 主进程 = 对话历史 / API key / keyState / model / activity 单一事实来源
+const chatHistory: ChatMessage[] = []
+let currentApiKey: string | null = null
+let keyState: KeyState = 'missing'
+let currentModel: ModelId = DEFAULT_MODEL
+let llmClient: AnthropicLlmClient | null = null
+// 活动识别（M3-3）：detector 推的状态独立于 PetState，渲染层组合两者决定 SVG
+let currentActivity: ActivityState = 'idle'
+let followFrontApp = true
+
+/**
+ * 对话轮次令牌 —— 每次 chat:submit 进入时 snapshot 当前值，stream 回调用 snapshot 比对。
+ * resetKey() 时 ++ → in-flight stream 的 onChunk/onDone/onError 都会跳过自身，避免：
+ *   - 把 assistant turn push 到已被清空的 chatHistory（导致下次 Anthropic 400）
+ *   - 推无意义的 chunk/error 给已经在重设引导流的渲染层
+ */
+let chatTurnToken = 0
+
+/**
+ * 当前 in-flight stream 的 abort 句柄。chat:submit 新 turn / resetKey 时调 .abort()
+ * 取消上一次 stream，避免白烧 Anthropic token（chatTurnToken 只屏蔽 callback，不停 SDK fetch）。
+ */
+let currentStreamHandle: StreamHandle | null = null
+
+/**
+ * 串行化 credentials 文件 I/O —— resetKey() 的 clearApiKey 与 key:submit 的 saveApiKey
+ * 如果并发执行（用户重设后立刻贴新 key），unlink 可能在 writeFile 之后跑，删了刚写的 key。
+ * 走一个 promise chain 让两者必然按调用顺序串行。
+ */
+let credentialOp: Promise<void> = Promise.resolve()
+function queueCredentialOp(op: () => Promise<void>): Promise<void> {
+  // 前一步失败也不阻塞后一步 —— 不用 then(op, op) 把 op 当 onRejected（行为对但读着费劲），
+  // 包一层 lambda 显式表达「无论上一步成功失败都跑下一步」。
+  const next = credentialOp.then(op, () => op())
+  credentialOp = next
+  return next
+}
+
+function isWinAlive(): boolean {
+  return petWindow !== null && !petWindow.isDestroyed()
+}
+
+function notifyKeyState(): void {
+  if (isWinAlive()) petWindow!.webContents.send('key:state', keyState)
+}
+
+function notifyActivity(): void {
+  if (isWinAlive()) petWindow!.webContents.send('pet:activity', currentActivity)
+}
+
+// detector 单例 —— Swift binary 事件驱动，start/stop 切换不重新构造
+const activeAppMonitor = new ActiveAppMonitor((state) => {
+  currentActivity = state
+  notifyActivity()
+  rebuildTrayMenu() // 让托盘「当前活动」readonly 项跟着变
+})
+
+function setFollowFrontApp(on: boolean): void {
+  if (followFrontApp === on) return
+  followFrontApp = on
+  if (on) {
+    activeAppMonitor.start()
+  } else {
+    activeAppMonitor.stop() // stop 内部会推一次 'idle' 回到闲态
+  }
+  rebuildTrayMenu()
+  schedulePrefsSave({ modelId: currentModel, followFrontApp })
+}
+
+function setKeyInMemory(key: string | null): void {
+  currentApiKey = key
+  // 重置缓存 client —— 下次 getLlmClient 会用新 key 重建
+  llmClient = null
+  keyState = key ? 'ready' : 'missing'
+}
+
+function getLlmClient(): AnthropicLlmClient | null {
+  if (llmClient) return llmClient
+  if (!currentApiKey) return null
+  llmClient = new AnthropicLlmClient(currentApiKey, currentModel)
+  return llmClient
+}
+
+/**
+ * Debounced 持久化偏好 —— 用户连切几个模型时只写最后一次到磁盘，避免 fs.writeFile
+ * race（并发 writeFile 到同 path 完成顺序不保证）+ 减少 I/O。
+ *
+ * 200ms 是经验值：用户从点开 submenu 到放手不会超过 200ms；下次切换会 reset timer。
+ * 边缘：debounce 中 quit app 这一次切换没落盘 —— 下次启动 menu 看到的是上次的值，
+ * 用户能立刻再切，是可接受的退化（vs 把 before-quit 改成同步 flush 增加复杂度）。
+ */
+let prefsSaveTimer: NodeJS.Timeout | null = null
+let pendingPrefs: Preferences | null = null
+function schedulePrefsSave(prefs: Preferences): void {
+  pendingPrefs = prefs
+  if (prefsSaveTimer) clearTimeout(prefsSaveTimer)
+  prefsSaveTimer = setTimeout(() => {
+    prefsSaveTimer = null
+    const toSave = pendingPrefs
+    pendingPrefs = null
+    if (toSave) {
+      void savePreferences(toSave).catch((err) => console.error('[prefs] save failed:', err))
+    }
+  }, 200)
+}
+
+/**
+ * 切换模型：
+ *  - 如果有 in-flight stream，必须清理三件事，否则状态卡死：
+ *    1. send chat:done 给 renderer → streaming 气泡的 cursor-blink 停下
+ *    2. pop chatHistory 末尾的 user turn → 下次 messages 不会以 [user, user, ...] 起头
+ *    3. transition idle（受 thinking minMs 保护时用 scheduleReturnToIdle 兜底）
+ *       → 桌宠 SVG 不卡在 thinking
+ *  - 然后才更新内存 + abort SDK fetch + chatTurnToken++ 让旧 callback 自我屏蔽
+ *  - 重建托盘 menu 让 radio checked 反映新选项 + debounced 落盘
+ */
+function setModel(id: ModelId): void {
+  if (currentModel === id) return
+
+  if (currentStreamHandle) {
+    if (isWinAlive()) {
+      petWindow!.webContents.send('chat:done', { inputTokens: 0, outputTokens: 0 })
+    }
+    if (chatHistory[chatHistory.length - 1]?.role === 'user') {
+      chatHistory.pop()
+    }
+    if (!stateMachine.transition('idle')) {
+      stateMachine.scheduleReturnToIdle(PET_STATES.thinking.minMs)
+    }
+  }
+
+  currentModel = id
+  llmClient = null
+  currentStreamHandle?.abort()
+  currentStreamHandle = null
+  chatTurnToken++
+  rebuildTrayMenu()
+  schedulePrefsSave({ modelId: id, followFrontApp })
+}
+
+function trimChatHistory(): void {
+  const limit = MAX_HISTORY_PAIRS * 2
+  if (chatHistory.length > limit) {
+    chatHistory.splice(0, chatHistory.length - limit)
+  }
+}
+
+/**
+ * 启动时解析 key：env 优先（开发后门），其次解密文件。
+ * env 来的 key 不写入加密文件 —— 让 env 永远是唯一开发覆盖渠道。
+ *
+ * env 格式不像 Anthropic key 时跳过 —— 否则会进入 ready 状态发请求触发 401 → resetKey
+ * 清磁盘 → 下次启动 env 仍在又被读上来 → 死循环走 invalid-api-key 而非引导流。
+ */
+async function resolveStartupKey(): Promise<void> {
+  const fromEnv = getApiKeyFromEnv()
+  if (fromEnv && looksLikeApiKey(fromEnv)) {
+    setKeyInMemory(fromEnv)
+    return
+  }
+  if (fromEnv) {
+    console.warn(
+      '[startup] ANTHROPIC_API_KEY env 格式不像 Anthropic key，忽略，走加密文件 / missing'
+    )
+  }
+  const fromDisk = await loadApiKey()
+  setKeyInMemory(fromDisk)
 }
 
 let petWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let visibilityWatchdog: NodeJS.Timeout | null = null
 const stateMachine = new PetStateMachine((state) => {
-  petWindow?.webContents.send('pet:state', state)
+  if (isWinAlive()) petWindow!.webContents.send('pet:state', state)
 })
 
 function reapplyMacVisibility(win: BrowserWindow | null): void {
@@ -107,18 +316,6 @@ function stopVisibilityWatchdog(): void {
   }
 }
 
-/**
- * 切换对话 UI 对应的窗口尺寸 —— 关闭 compact，打开 full。
- *
- * 智能扩展方向（修 cr #1）：
- *   - 桌宠中心在屏幕右半 → 对话往左扩（窗口左上角 x 减小）
- *   - 桌宠中心在屏幕左半 → 对话往右扩（窗口左上角 x 不动，桌宠保持在窗口右侧）
- *   - 边界 clamp 确保 x 始终在 workArea 内
- * 关屏方向同样基于当前窗口位置反推，保持桌宠视觉位置不变。
- *
- * 开屏完成后 setTimeout 等动画结束发 'chat:window-ready' 通知渲染层 fade-in
- * conversation（修 cr #2）。
- */
 function setChatOpen(open: boolean): void {
   if (!petWindow || petWindow.isDestroyed()) return
   const newW = open ? WIN_WIDTH_FULL : WIN_WIDTH_COMPACT
@@ -126,33 +323,27 @@ function setChatOpen(open: boolean): void {
   if (oldW === newW) return
 
   const [x, y] = petWindow.getPosition()
-  // 用 getDisplayMatching 拿当前窗口所在的显示器（多屏场景对的）
   const display = screen.getDisplayMatching({ x, y, width: oldW, height: WIN_HEIGHT })
   const { workArea } = display
 
   const centerX = x + oldW / 2
   const screenCenterX = workArea.x + workArea.width / 2
-  const expandsLeft = centerX > screenCenterX // 右半屏 → 往左扩；左半屏 → 往右扩
+  const expandsLeft = centerX > screenCenterX
 
   let newX: number
   if (open) {
-    newX = expandsLeft ? x + (oldW - newW) : x // 往左扩 x 减小；往右扩 x 不动
+    newX = expandsLeft ? x + (oldW - newW) : x
   } else {
-    newX = expandsLeft ? x + (oldW - newW) : x // 关屏方向跟开屏一致即保持桌宠原位
+    newX = expandsLeft ? x + (oldW - newW) : x
   }
 
-  // 边界 clamp：x ∈ [workArea.x, workArea.x + workArea.width - newW]
   const minX = workArea.x
   const maxX = workArea.x + workArea.width - newW
   newX = Math.max(minX, Math.min(newX, maxX))
 
-  petWindow.setBounds(
-    { x: newX, y, width: newW, height: WIN_HEIGHT },
-    true // animate（macOS 上 setBounds 第二参数启用过渡）
-  )
+  petWindow.setBounds({ x: newX, y, width: newW, height: WIN_HEIGHT }, true)
   reapplyMacVisibility(petWindow)
 
-  // 开屏：等窗口动画完成（macOS ~250ms）后通知渲染层 fade-in conversation
   if (open) {
     setTimeout(() => {
       if (petWindow && !petWindow.isDestroyed()) {
@@ -182,7 +373,9 @@ function createPetWindow(): void {
     fullscreenable: false,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      sandbox: false,
+      // prod 关 devtools：F12 / ⌥⌘I 拿不到 IPC 监控面板，避免 submitKey 明文 key 被嗅探
+      devTools: is.dev
     }
   })
 
@@ -193,6 +386,8 @@ function createPetWindow(): void {
 
   win.webContents.on('did-finish-load', () => {
     win.webContents.send('pet:state', stateMachine.getState())
+    win.webContents.send('key:state', keyState)
+    win.webContents.send('pet:activity', currentActivity)
   })
 
   win.on('ready-to-show', () => {
@@ -218,6 +413,14 @@ function togglePetVisibility(): void {
   }
 }
 
+function ensurePetVisible(): void {
+  if (!petWindow) return
+  if (!petWindow.isVisible()) {
+    petWindow.show()
+    reapplyMacVisibility(petWindow)
+  }
+}
+
 function resetPetPosition(): void {
   if (!petWindow) return
   const { workArea } = screen.getPrimaryDisplay()
@@ -228,21 +431,71 @@ function resetPetPosition(): void {
   )
 }
 
-function createTray(): void {
-  let image = nativeImage.createFromPath(trayIconPath)
-  if (process.platform === 'darwin') {
-    image = image.resize({ width: 18, height: 18 })
-  }
-  tray = new Tray(image)
-  tray.setToolTip('DeskPet 桌宠')
+/**
+ * 托盘 / IPC 主动重设 key：清存盘 + 清内存 + 清对话上下文 + 推送 missing + 确保窗口可见。
+ *
+ * 先做内存 / 状态推送（同步），让任何并发 chat:submit 立刻看到 keyState=missing；
+ * 自增 chatTurnToken 让任何 in-flight stream 的回调自我跳过；
+ * 磁盘 unlink 通过 queueCredentialOp 串行 —— 保证不会跑在后续 saveApiKey 之后。
+ *
+ * 对话历史一并清掉 —— key 换了等于换账户视角，旧上下文不带过去（且涉及隐私）。
+ * env var 来的 key 也会被清磁盘 —— 但 env 仍在，下次启动 resolveStartupKey 会再读上来。
+ */
+async function resetKey(): Promise<void> {
+  // 先 abort 任何 in-flight stream：chatTurnToken 只屏蔽 callback，真正的 fetch 还在跑会烧 token
+  currentStreamHandle?.abort()
+  currentStreamHandle = null
+  setKeyInMemory(null)
+  chatHistory.length = 0
+  chatTurnToken++
+  ensurePetVisible()
+  notifyKeyState()
+  await queueCredentialOp(async () => {
+    try {
+      await clearApiKey()
+    } catch (err) {
+      console.error('[resetKey] clearApiKey failed:', err)
+    }
+  })
+}
 
-  const menu = Menu.buildFromTemplate([
+/**
+ * 构造托盘菜单 —— 抽出来是为了 setModel / 状态变化时重建 menu 让 radio 反映最新 checked。
+ * Electron MenuItem 不 reactive：改 currentModel 不会自动更新 menu 的 checked 标记，
+ * 只能整菜单重建。setContextMenu 是廉价操作（O(item count)），可以放心多调。
+ */
+function buildTrayMenu(): Menu {
+  const activityInfo = ACTIVITY_INFO[currentActivity]
+  const activityLabel = followFrontApp
+    ? `当前活动：${activityInfo.emoji} ${activityInfo.label}`
+    : '当前活动：（未跟随）'
+
+  return Menu.buildFromTemplate([
     {
       label: '显示 / 隐藏桌宠',
       accelerator: 'CmdOrCtrl+Shift+P',
       click: togglePetVisibility
     },
     { label: '重置位置（右下角）', click: resetPetPosition },
+    { type: 'separator' },
+    { label: activityLabel, enabled: false }, // readonly 状态显示
+    {
+      label: '跟随前台 App',
+      type: 'checkbox',
+      checked: followFrontApp,
+      click: (item) => setFollowFrontApp(item.checked)
+    },
+    { type: 'separator' },
+    { label: '重设 API Key…', click: () => void resetKey() },
+    {
+      label: '模型',
+      submenu: AVAILABLE_MODELS.map((m) => ({
+        label: m.label,
+        type: 'radio' as const,
+        checked: currentModel === m.id,
+        click: () => setModel(m.id)
+      }))
+    },
     { type: 'separator' },
     {
       label: 'Demo: 思考 → 庆祝 → 待机',
@@ -255,7 +508,29 @@ function createTray(): void {
       click: () => app.quit()
     }
   ])
-  tray.setContextMenu(menu)
+}
+
+function rebuildTrayMenu(): void {
+  if (tray && !tray.isDestroyed()) {
+    tray.setContextMenu(buildTrayMenu())
+  }
+}
+
+function createTray(): void {
+  // LSUIElement=true 让 app 不在 Dock 也不在 ⌘-Tab —— tray 创建失败就找不到地方 quit。
+  // try/catch 兜底：失败时 console.error，至少 main 进程没崩，用户能 killall。
+  try {
+    let image = nativeImage.createFromPath(trayIconPath)
+    if (process.platform === 'darwin') {
+      image = image.resize({ width: 18, height: 18 })
+    }
+    tray = new Tray(image)
+  } catch (err) {
+    console.error('[tray] 创建失败，app 仍在跑但没有 tray 入口：', err)
+    return
+  }
+  tray.setToolTip('DeskPet 桌宠')
+  tray.setContextMenu(buildTrayMenu())
   tray.on('click', togglePetVisibility)
 }
 
@@ -267,10 +542,6 @@ function registerIpc(): void {
     win.setPosition(x + Math.round(dx), y + Math.round(dy))
   })
 
-  ipcMain.on('pet:event:click', () => {
-    stateMachine.demoCycle()
-  })
-
   ipcMain.on('window:ignore-mouse', (event, ignore: boolean) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return
@@ -278,13 +549,97 @@ function registerIpc(): void {
     reapplyMacVisibility(win)
   })
 
-  ipcMain.on('chat:submit', (event, text: string) => {
+  // 渲染层提交 key —— 主进程校验 + 加密存盘 + 切 ready + 广播
+  ipcMain.on('key:submit', async (_event, rawKey: string) => {
+    const key = String(rawKey ?? '').trim()
+    if (!looksLikeApiKey(key)) {
+      // 渲染层应该已经先做过前缀校验，这里兜底；不报错给 renderer，直接忽略
+      return
+    }
+    // 串行化：避免与任何 in-flight resetKey 的 clearApiKey 撞车
+    let persisted = true
+    await queueCredentialOp(async () => {
+      try {
+        await saveApiKey(key)
+      } catch (err) {
+        console.error('[key:submit] saveApiKey failed:', err)
+        persisted = false
+      }
+    })
+    setKeyInMemory(key)
+    notifyKeyState()
+    if (!persisted && isWinAlive()) {
+      // safeStorage 不可用（典型场景 Linux 无 keyring）—— 内存里仍可用但下次启动会丢
+      petWindow!.webContents.send('chat:error', { kind: 'key-not-persisted' })
+    }
+  })
+
+  ipcMain.on('key:reset', () => {
+    void resetKey()
+  })
+
+  // 渲染层挂载完后主动 ping，让主进程补推一次当前 keyState。
+  // 防御启动竞态：did-finish-load 推 'key:state' 时若 React useEffect 还没装好 listener
+  // 会丢掉，桌宠就永远不开口。renderer 收到响应后才知道自己是 missing 还是 ready。
+  ipcMain.on('key:request-state', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    win?.webContents.send('key:state', keyState)
+  })
+
+  ipcMain.on('chat:submit', async (event, text: string) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return
     const cleaned = String(text).slice(0, 2000).trim()
     if (!cleaned) return
-    stateMachine.chatCycle(() => {
-      win.webContents.send('chat:reply', `🤖 收到：${cleaned}`)
+
+    const client = getLlmClient()
+    if (!client) {
+      // missing 状态兜底：渲染层应当走 key:submit，不该走到这里
+      win.webContents.send('chat:error', { kind: 'no-api-key' })
+      return
+    }
+
+    // 上一个 stream 还在跑就 abort（用户连点 submit 时不烧两份 token）
+    currentStreamHandle?.abort()
+
+    chatHistory.push({ role: 'user', content: cleaned })
+    trimChatHistory()
+    stateMachine.transition('thinking')
+
+    const myToken = ++chatTurnToken
+    let aiText = ''
+    // stream 同步返回 handle，回调异步触发 —— 不要 await 这一行
+    currentStreamHandle = client.stream(chatHistory, {
+      onChunk(delta) {
+        if (myToken !== chatTurnToken) return
+        aiText += delta
+        win.webContents.send('chat:chunk', delta)
+      },
+      onDone(usage) {
+        // 流式中 chatHistory 被 reset 清空了 → 别 push assistant turn 进去，
+        // 否则下次 messages 起头是 assistant，Anthropic 返回 400 invalid_messages
+        if (myToken !== chatTurnToken) return
+        currentStreamHandle = null
+        chatHistory.push({ role: 'assistant', content: aiText })
+        trimChatHistory()
+        win.webContents.send('chat:done', usage)
+        stateMachine.transition('success')
+        stateMachine.scheduleReturnToIdle(SUCCESS_HOLD_MS)
+      },
+      onError(err) {
+        if (myToken !== chatTurnToken) return
+        currentStreamHandle = null
+        if (chatHistory[chatHistory.length - 1]?.role === 'user') {
+          chatHistory.pop()
+        }
+        win.webContents.send('chat:error', err)
+        stateMachine.transition('error')
+        stateMachine.scheduleReturnToIdle(ERROR_HOLD_MS)
+        // 401 invalid-api-key → 自动清掉坏 key，引导用户重设
+        if (err.kind === 'invalid-api-key') {
+          void resetKey()
+        }
+      }
     })
   })
 
@@ -300,17 +655,30 @@ function watchScreenEvents(): void {
   screen.on('display-removed', trigger)
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   electronApp.setAppUserModelId('com.deskpet.desktop-pet')
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
   })
 
+  // 一次性把旧 desktop-pet/ 目录的 key + prefs 搬到当前 DeskPet/ —— 必须在
+  // loadApiKey / loadPreferences 之前，否则首次启动找不到旧 key 走迎宾流。
+  await migrateLegacyUserData()
+
+  await resolveStartupKey()
+  // load 偏好（找不到 / 损坏 → 用 DEFAULT_PREFS fallback）
+  const prefs = await loadPreferences()
+  currentModel = prefs.modelId
+  followFrontApp = prefs.followFrontApp
+
   registerIpc()
   createPetWindow()
   createTray()
   watchScreenEvents()
+
+  // 启动 detector —— 按用户偏好（默认开）
+  if (followFrontApp) activeAppMonitor.start()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createPetWindow()
@@ -319,6 +687,7 @@ app.whenReady().then(() => {
 
 app.on('before-quit', () => {
   stopVisibilityWatchdog()
+  activeAppMonitor.stop()
 })
 
 app.on('window-all-closed', () => {
