@@ -11,6 +11,7 @@ import type { ApprovalDecision, ApprovalRequest } from '../shared/approval-types
 import type { TavilyState } from '../shared/tavily-types'
 import type { ModelId } from '../shared/chat-types'
 import type { IpcResult, PrefsState, TrustedDirsState } from '../shared/settings-types'
+import type { UserProfile } from '../shared/user-profile-types'
 
 const api = {
   /** 渲染层接管鼠标后，把 dx/dy 增量发给主进程，由主进程移动窗口。 */
@@ -209,6 +210,51 @@ const api = {
   },
   revokeAllSessionTrustedDirs(): void {
     ipcRenderer.send('trusted-dirs:revoke-all-session')
+  },
+  // —— M5-2 跨会话记忆 ——
+  readMemory(): Promise<{ ok: true; content: string } | { ok: false; error: string }> {
+    return ipcRenderer.invoke('memory:read') as Promise<
+      { ok: true; content: string } | { ok: false; error: string }
+    >
+  },
+  clearMemory(): Promise<IpcResult> {
+    return ipcRenderer.invoke('memory:clear') as Promise<IpcResult>
+  },
+  saveMemory(content: string): Promise<IpcResult> {
+    return ipcRenderer.invoke('memory:save', content) as Promise<IpcResult>
+  },
+  revealMemoryInFinder(): void {
+    ipcRenderer.send('memory:reveal-in-finder')
+  },
+  clearChatHistory(): Promise<IpcResult> {
+    return ipcRenderer.invoke('chat-history:clear') as Promise<IpcResult>
+  },
+  revealChatHistoryInFinder(): void {
+    ipcRenderer.send('chat-history:reveal-in-finder')
+  },
+  /** 主进程在 user 触发 clearChatHistory 后会广播此事件 —— App.tsx 用来清消息 UI */
+  onChatHistoryCleared(listener: () => void): () => void {
+    const handler = (): void => listener()
+    ipcRenderer.on('chat:history-cleared', handler)
+    return () => ipcRenderer.off('chat:history-cleared', handler)
+  },
+  // —— M5-3 用户档案 ——
+  requestUserProfileState(): void {
+    ipcRenderer.send('user-profile:request-state')
+  },
+  onUserProfileState(listener: (profile: UserProfile) => void): () => void {
+    const handler = (_e: IpcRendererEvent, p: UserProfile): void => listener(p)
+    ipcRenderer.on('user-profile:state', handler)
+    return () => ipcRenderer.off('user-profile:state', handler)
+  },
+  saveUserProfile(profile: Partial<UserProfile>): Promise<IpcResult> {
+    return ipcRenderer.invoke('user-profile:save', profile) as Promise<IpcResult>
+  },
+  resetUserProfileSetup(): Promise<IpcResult> {
+    return ipcRenderer.invoke('user-profile:reset-setup') as Promise<IpcResult>
+  },
+  revealUserProfileInFinder(): void {
+    ipcRenderer.send('user-profile:reveal-in-finder')
   }
 }
 

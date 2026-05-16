@@ -96,6 +96,17 @@ export interface CommandCheck {
   matched?: string
 }
 
+/**
+ * Shell metachar 黑名单（M4-C-fix B1）—— safe path 看到这些字符必须降级到 needs-approval。
+ * 包括命令替换、subshell、管道、重定向、变量展开、glob 等所有让 shell 在表面字符之外
+ * 执行额外动作的 token。审计官 cr 已识别 `echo $TAVILY_API_KEY` / `cat \`...\`` 等绕过。
+ */
+const SHELL_METACHAR_REGEX = /[;|&`$(){}<>*?[\]"'\\]/
+
+export function hasShellMetachars(cmd: string): boolean {
+  return SHELL_METACHAR_REGEX.test(cmd)
+}
+
 export function checkCommand(rawCmd: string): CommandCheck {
   const cmd = rawCmd.trim()
   if (!cmd) return { level: 'deny', reason: 'empty command' }
@@ -112,9 +123,24 @@ export function checkCommand(rawCmd: string): CommandCheck {
   // 白名单
   for (const re of SAFE_REGEX) {
     if (re.test(cmd)) {
+      // M4-C-fix B1：safe path 额外拒 shell metachar —— SAFE_REGEX 正则虽然窄，但
+      // \S+ 参数允许 `cat \`...\`` / `echo $(...)` 这种把 shell 当后门的命令。
+      // safe path 走 shell:false spawn，metachar 也不会被 shell 解释，但仍然拒绝以
+      // 防 user/AI 误以为这种命令能执行（保护"安全 = 你看到的字面意思就是执行的"语义）。
+      if (hasShellMetachars(cmd)) {
+        return { level: 'needs-approval', reason: 'safe 命令但含 shell metachar，需用户确认' }
+      }
       return { level: 'safe' }
     }
   }
   // 其它
   return { level: 'needs-approval' }
+}
+
+/**
+ * 把 SAFE 命令 tokenize 成 argv（safe 已确保无 metachar，简单 whitespace split 足够）。
+ * 用于 spawn shell:false 执行 —— 完全绕过 shell expand。
+ */
+export function tokenizeSafeCommand(cmd: string): string[] {
+  return cmd.trim().split(/\s+/).filter((t) => t.length > 0)
 }

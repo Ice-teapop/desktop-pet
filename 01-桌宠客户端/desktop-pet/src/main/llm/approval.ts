@@ -30,9 +30,6 @@ function persistPath(): string {
   return join(app.getPath('userData'), PERSIST_FILE)
 }
 
-/** main 进程内的"待 response 的 approval"map —— id → resolver */
-const pending = new Map<string, (decision: ApprovalDecision) => void>()
-
 const sessionTrustedDirs = new Set<string>()
 const persistentTrustedDirs = new Set<string>()
 
@@ -123,6 +120,18 @@ export function setApprovalPetWindow(win: BrowserWindow | null): void {
 }
 
 /**
+ * Pending entry：包 resolver + timer，IPC response 来了能 clearTimeout 防 race。
+ * cr-fix S3：之前只存 resolver，timer 不被取消，存在窗口期 race（用户 59.9s 点
+ * allow 但 timer 已经在 60s 时 fire deny）。
+ */
+interface PendingEntry {
+  resolve: (decision: ApprovalDecision) => void
+  timer: NodeJS.Timeout
+}
+
+const pendingEntries = new Map<string, PendingEntry>()
+
+/**
  * 请求用户审批。如果 petWindow 不可用（启动时序异常），直接 deny。
  * Promise 永远 resolve（不会 reject），由 decision 区分 allow/deny。
  */
@@ -135,30 +144,34 @@ export async function requestApproval(
   }
   const id = 'apr_' + randomBytes(8).toString('hex')
   return new Promise<ApprovalDecision>((resolve) => {
-    pending.set(id, resolve)
-    petWindowRef!.webContents.send('approval:request', { id, ...req })
-    // 60s 超时自动 deny —— 用户走神不至于把 main 卡住
-    setTimeout(() => {
-      const r = pending.get(id)
-      if (r) {
-        pending.delete(id)
-        r('deny')
+    const timer = setTimeout(() => {
+      // cr-fix S3：从 map 拿到自己（resolve）才 deny，避免被 IPC response 抢先 delete
+      // 后再走 deny 路径
+      const entry = pendingEntries.get(id)
+      if (entry && entry.timer === timer) {
+        pendingEntries.delete(id)
+        entry.resolve('deny')
       }
     }, 60_000)
+    pendingEntries.set(id, { resolve, timer })
+    petWindowRef!.webContents.send('approval:request', { id, ...req })
   })
 }
 
 /**
  * 注册 IPC handlers —— main 启动时调一次。
  * 接收用户决策；如果是 trust-dir-* 还要把 path's 父目录加进对应 trust set。
+ *
+ * cr-fix S3：拿到 response 立即 clearTimeout 防 timer fire 二次 resolve。
  */
 export function registerApprovalIpc(): void {
   ipcMain.on(
     'approval:response',
     async (_event, id: string, decision: ApprovalDecision, dirToTrust?: string) => {
-      const r = pending.get(id)
-      if (!r) return
-      pending.delete(id)
+      const entry = pendingEntries.get(id)
+      if (!entry) return
+      pendingEntries.delete(id)
+      clearTimeout(entry.timer)
       if (decision === 'trust-dir-session' && dirToTrust) {
         sessionTrustedDirs.add(normDir(dirToTrust))
       }
@@ -166,7 +179,7 @@ export function registerApprovalIpc(): void {
         persistentTrustedDirs.add(normDir(dirToTrust))
         await savePersistentTrustedDirs()
       }
-      r(decision)
+      entry.resolve(decision)
     }
   )
 }

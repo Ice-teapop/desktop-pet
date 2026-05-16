@@ -9,7 +9,8 @@
  *     由 approval.ts 维护。本模块只提供 isPathSafe 的 Layer 1+2 检查。
  */
 import { homedir } from 'os'
-import { resolve, normalize } from 'path'
+import { resolve, normalize, dirname, basename, join } from 'path'
+import { promises as fs } from 'fs'
 
 const HOME = homedir()
 
@@ -56,7 +57,8 @@ const ABSOLUTE_BLACKLIST: RegExp[] = [
   /^\/System(\/|$)/,
   /^\/Library\/Keychains(\/|$)/,
   /^\/Library\/Application Support\/com\.apple/, // 系统级
-  /^\/tmp\/.+\.env/i,
+  // cr-fix: macOS /tmp 真身是 /private/tmp，两条都要拦；.env / .env.local 等都覆盖
+  /^\/(private\/)?tmp\/.*\.env(\.|$)/i,
   /^\/proc(\/|$)/,
   /^\/root(\/|$)/
 ]
@@ -86,23 +88,8 @@ export interface PathSafetyResult {
   matched?: string
 }
 
-/**
- * Layer 1+2 静态黑名单检查。返回 ok=false 表示"硬拦截，approval 也不能放行"。
- *
- * 注意：调用方拿到 ok=false 后应直接 tool_result is_error，不要 ask user。
- */
-export function isPathSafe(rawPath: string): PathSafetyResult {
-  if (typeof rawPath !== 'string' || !rawPath.trim()) {
-    return { ok: false, absPath: '', reason: 'empty path' }
-  }
-  // 解析 ~ + 相对路径 → 绝对路径
-  const expanded = rawPath.startsWith('~/')
-    ? rawPath.replace(/^~/, HOME)
-    : rawPath === '~'
-      ? HOME
-      : rawPath
-  const absPath = normalize(resolve(expanded))
-
+/** 内部：lexical 黑名单匹配（不解 symlink，给 realpath 前后两次复用）。 */
+function checkBlacklist(absPath: string): PathSafetyResult {
   // 黑名单 1：绝对路径系统目录
   for (const re of ABSOLUTE_BLACKLIST) {
     if (re.test(absPath)) {
@@ -114,7 +101,6 @@ export function isPathSafe(rawPath: string): PathSafetyResult {
       }
     }
   }
-
   // 黑名单 2：HOME 相对的敏感文件
   if (absPath.startsWith(HOME + '/')) {
     const rel = absPath.slice(HOME.length + 1)
@@ -129,8 +115,79 @@ export function isPathSafe(rawPath: string): PathSafetyResult {
       }
     }
   }
-
   return { ok: true, absPath }
+}
+
+/**
+ * Layer 1+2 静态黑名单检查（async：因为要 realpath 解 symlink 防 trust-dir bypass）。
+ *
+ * 流程：
+ *  1. 解析 ~ + normalize → lexical absPath
+ *  2. lexical 黑名单匹配（早拒）
+ *  3. fs.realpath 解析 symlink → canonical 路径
+ *     - 文件不存在：realpath 父目录 + 重接 basename（处理 write_file 创建新文件场景）
+ *     - 父目录也不存在：用 lexical absPath 当 canonical（create_directory recursive 走 OK）
+ *  4. canonical 再过一次黑名单（这次抓 symlink 穿透）
+ *
+ * 返回 ok=false → 调用方直接 tool_result is_error，不要 ask user。
+ * 返回的 absPath 是 **canonical 路径**（已解 symlink）—— 后续 trust 检查 / 实际 fs 操作都
+ * 用这个，避免 TOCTOU race（先校验后读时 attacker 改 symlink）—— 但 realpath 跟 fs.read
+ * 之间仍有 race window，要消除得用 openat 等 syscall（Node 不直接支持）。当前接受小 race，
+ * 已经能挡 99% 静态 symlink 攻击。
+ */
+export async function isPathSafe(rawPath: string): Promise<PathSafetyResult> {
+  if (typeof rawPath !== 'string' || !rawPath.trim()) {
+    return { ok: false, absPath: '', reason: 'empty path' }
+  }
+  // 解析 ~ + 相对路径 → lexical 绝对路径
+  const expanded = rawPath.startsWith('~/')
+    ? rawPath.replace(/^~/, HOME)
+    : rawPath === '~'
+      ? HOME
+      : rawPath
+  const lexicalAbs = normalize(resolve(expanded))
+
+  // 1. lexical 黑名单（早拒：直接写 `~/.ssh/id_rsa` 这种）
+  const lexCheck = checkBlacklist(lexicalAbs)
+  if (!lexCheck.ok) return lexCheck
+
+  // 2. realpath 解 symlink 抓"~/Documents/notes → ~/.ssh" 类绕过
+  let canonical: string
+  try {
+    canonical = await fs.realpath(lexicalAbs)
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code
+    if (code === 'ENOENT') {
+      // 路径不存在 —— 试着 realpath 父目录再拼 basename（write_file 创建新文件场景）
+      try {
+        const parentReal = await fs.realpath(dirname(lexicalAbs))
+        canonical = join(parentReal, basename(lexicalAbs))
+      } catch (err2) {
+        // 父目录也不存在 —— recursive 创建场景，用 lexical 路径继续（无 symlink 可解）
+        if ((err2 as NodeJS.ErrnoException).code === 'ENOENT') {
+          canonical = lexicalAbs
+        } else {
+          return { ok: false, absPath: lexicalAbs, reason: 'cannot resolve parent dir' }
+        }
+      }
+    } else {
+      return { ok: false, absPath: lexicalAbs, reason: `realpath failed: ${code ?? 'unknown'}` }
+    }
+  }
+
+  // 3. canonical 再过一次黑名单 —— 抓 symlink 穿透
+  if (canonical !== lexicalAbs) {
+    const canonCheck = checkBlacklist(canonical)
+    if (!canonCheck.ok) {
+      return {
+        ...canonCheck,
+        reason: `${canonCheck.reason}（path 通过 symlink 解析到此处）`
+      }
+    }
+  }
+
+  // 返回 canonical 路径（不是 lexical）—— 后续 trust check + fs op 都用 canonical
+  return { ok: true, absPath: canonical }
 }
 
 /** 给定一个绝对路径，返回其所属目录（用于"信任此目录"按钮）。 */

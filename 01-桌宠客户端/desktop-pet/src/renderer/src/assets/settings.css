@@ -231,6 +231,51 @@
   }
 }
 
+/* —— User profile form inputs（M5-3） —— */
+.profile-input,
+.profile-textarea {
+  flex: 1 1 240px;
+  font-family: var(--fnt-cn);
+  font-size: 12px;
+  color: var(--ink);
+  background: #fff;
+  border: 2px solid var(--coral);
+  padding: 6px 10px;
+  outline: none;
+  clip-path: var(--clip-pixel-card);
+}
+.profile-input:focus,
+.profile-textarea:focus {
+  border-color: var(--coral-deep);
+}
+.profile-textarea {
+  resize: vertical;
+  min-height: 50px;
+  font-family: var(--fnt-cn);
+  line-height: 1.5;
+}
+
+/* —— Memory editor（pet-memory.md 直接 textarea 编辑） —— */
+.memory-editor {
+  width: 100%;
+  font-family: var(--fnt-en);
+  font-size: 11.5px;
+  line-height: 1.55;
+  background: #fff;
+  border: 2px solid var(--coral);
+  padding: 10px 12px;
+  margin: 8px 0;
+  min-height: 180px;
+  max-height: 320px;
+  resize: vertical;
+  color: var(--ink);
+  outline: none;
+  clip-path: var(--clip-pixel-card);
+}
+.memory-editor:focus {
+  border-color: var(--coral-deep);
+}
+
 /* —— Settings 内嵌 modal（Tavily key 输入） —— */
 .settings-modal-overlay {
   position: fixed;

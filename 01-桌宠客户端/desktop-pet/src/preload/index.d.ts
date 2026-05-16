@@ -6,12 +6,14 @@ import type { ApprovalDecision, ApprovalRequest } from '../shared/approval-types
 import type { TavilyState } from '../shared/tavily-types'
 import type { ModelId } from '../shared/chat-types'
 import type { IpcResult, PrefsState, TrustedDirsState } from '../shared/settings-types'
+import type { UserProfile } from '../shared/user-profile-types'
 
 export type { PetState, ActivityState, ChatError, ChatUsage, KeyState }
 export type { VisionState }
 export type { ApprovalDecision, ApprovalRequest }
 export type { TavilyState }
 export type { ModelId, IpcResult, PrefsState, TrustedDirsState }
+export type { UserProfile }
 
 export interface DeskPetAPI {
   windowMoveDelta(dx: number, dy: number): void
@@ -55,6 +57,20 @@ export interface DeskPetAPI {
   onTrustedDirsState(listener: (state: TrustedDirsState) => void): () => void
   revokeTrustedDirPersistent(dir: string): Promise<IpcResult>
   revokeAllSessionTrustedDirs(): void
+  // M5-2 跨会话记忆
+  readMemory(): Promise<{ ok: true; content: string } | { ok: false; error: string }>
+  clearMemory(): Promise<IpcResult>
+  saveMemory(content: string): Promise<IpcResult>
+  revealMemoryInFinder(): void
+  clearChatHistory(): Promise<IpcResult>
+  revealChatHistoryInFinder(): void
+  onChatHistoryCleared(listener: () => void): () => void
+  // M5-3 用户档案
+  requestUserProfileState(): void
+  onUserProfileState(listener: (profile: UserProfile) => void): () => void
+  saveUserProfile(profile: Partial<UserProfile>): Promise<IpcResult>
+  resetUserProfileSetup(): Promise<IpcResult>
+  revealUserProfileInFinder(): void
 }
 
 declare global {

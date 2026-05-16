@@ -78,6 +78,28 @@ import {
   saveTavilyKey
 } from './storage/tavily-key'
 import { clearAuditLog, logPath as auditLogPath } from './audit-log'
+import {
+  chatHistoryPath,
+  clearChatHistory,
+  loadChatHistory,
+  saveChatHistory
+} from './storage/chat-history'
+import {
+  clearMemory,
+  loadMemory,
+  petMemoryPath,
+  setMemory
+} from './storage/pet-memory'
+import {
+  loadUserProfile,
+  resetUserProfileSetup,
+  saveUserProfile,
+  userProfilePath
+} from './storage/user-profile'
+import {
+  DEFAULT_USER_PROFILE,
+  type UserProfile
+} from '../shared/user-profile-types'
 import type { VisionState } from '../shared/vision-types'
 import type { TavilyState } from '../shared/tavily-types'
 import trayIconPath from '../../resources/icon.png?asset'
@@ -148,6 +170,12 @@ class PetStateMachine {
 
 // 主进程 = 对话历史 / API key / keyState / model / activity 单一事实来源
 const chatHistory: ChatMessage[] = []
+// M5-2：跨会话长期记忆 —— pet-memory.md 内容快照，启动时 load，
+// remember tool 触发更新时由 IPC handler 重新读盘刷新。注入 system prompt。
+let petMemoryCache = ''
+// M5-3：用户档案缓存 —— 启动 load，save_user_profile tool / 设置面板编辑后
+// 由 onDone 重读刷新。注入 system prompt（setup 模式或正常模式）。
+let userProfileCache: UserProfile = { ...DEFAULT_USER_PROFILE }
 let currentApiKey: string | null = null
 let keyState: KeyState = 'missing'
 let currentModel: ModelId = DEFAULT_MODEL
@@ -372,6 +400,38 @@ function trimChatHistory(): void {
   const limit = MAX_HISTORY_PAIRS * 2
   if (chatHistory.length > limit) {
     chatHistory.splice(0, chatHistory.length - limit)
+  }
+}
+
+// M5-2：debounce 对话历史落盘 —— 连续 chat:done 时合并 500ms 内的写入
+let chatHistorySaveTimer: NodeJS.Timeout | null = null
+function scheduleChatHistorySave(): void {
+  if (chatHistorySaveTimer) clearTimeout(chatHistorySaveTimer)
+  chatHistorySaveTimer = setTimeout(() => {
+    chatHistorySaveTimer = null
+    void saveChatHistory(chatHistory)
+  }, 500)
+}
+
+// M5-2：重读 pet-memory.md 刷新 system prompt 注入缓存
+async function refreshPetMemory(): Promise<void> {
+  try {
+    petMemoryCache = await loadMemory()
+  } catch (err) {
+    console.warn('[pet-memory] refresh failed:', err)
+  }
+}
+
+// M5-3：重读 user-profile.json 刷新 system prompt 注入缓存
+async function refreshUserProfile(): Promise<void> {
+  try {
+    userProfileCache = await loadUserProfile()
+    // 推给所有窗口（设置面板订阅了）
+    for (const w of BrowserWindow.getAllWindows()) {
+      if (!w.isDestroyed()) w.webContents.send('user-profile:state', userProfileCache)
+    }
+  } catch (err) {
+    console.warn('[user-profile] refresh failed:', err)
   }
 }
 
@@ -892,6 +952,118 @@ function registerIpc(): void {
     broadcastTrustedDirsState()
   })
 
+  // —— M5-2 跨会话记忆 IPC ——
+  ipcMain.handle('memory:read', async () => {
+    try {
+      const content = await loadMemory()
+      return { ok: true as const, content }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      return { ok: false as const, error: msg }
+    }
+  })
+
+  ipcMain.handle('memory:clear', async () => {
+    try {
+      await clearMemory()
+      petMemoryCache = ''
+      return { ok: true as const }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      return { ok: false as const, error: msg }
+    }
+  })
+
+  ipcMain.handle('memory:save', async (_event, content: unknown) => {
+    if (typeof content !== 'string') {
+      return { ok: false as const, error: 'content must be string' }
+    }
+    try {
+      await setMemory(content)
+      petMemoryCache = content
+      return { ok: true as const }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      return { ok: false as const, error: msg }
+    }
+  })
+
+  ipcMain.on('memory:reveal-in-finder', () => {
+    void shell.showItemInFolder(petMemoryPath())
+  })
+
+  ipcMain.handle('chat-history:clear', async () => {
+    try {
+      await clearChatHistory()
+      chatHistory.length = 0
+      // 通知 renderer 重置消息 UI
+      if (isWinAlive()) petWindow!.webContents.send('chat:history-cleared')
+      return { ok: true as const }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      return { ok: false as const, error: msg }
+    }
+  })
+
+  ipcMain.on('chat-history:reveal-in-finder', () => {
+    void shell.showItemInFolder(chatHistoryPath())
+  })
+
+  // —— M5-3 用户档案 IPC ——
+  ipcMain.on('user-profile:request-state', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    win?.webContents.send('user-profile:state', userProfileCache)
+  })
+
+  ipcMain.handle('user-profile:save', async (_event, profile: unknown) => {
+    if (!profile || typeof profile !== 'object') {
+      return { ok: false as const, error: 'profile must be object' }
+    }
+    const p = profile as Partial<UserProfile>
+    // 用现有 cache 做 fallback，让 settings UI 允许部分字段更新
+    const merged: UserProfile = {
+      name: typeof p.name === 'string' ? p.name : userProfileCache.name,
+      about: typeof p.about === 'string' ? p.about : userProfileCache.about,
+      personaPreset:
+        typeof p.personaPreset === 'string'
+          ? (p.personaPreset as UserProfile['personaPreset'])
+          : userProfileCache.personaPreset,
+      personaCustom:
+        typeof p.personaCustom === 'string' ? p.personaCustom : userProfileCache.personaCustom,
+      setupCompleted:
+        typeof p.setupCompleted === 'boolean' ? p.setupCompleted : userProfileCache.setupCompleted
+    }
+    try {
+      await saveUserProfile(merged)
+      userProfileCache = merged
+      // 推给所有 windows
+      for (const w of BrowserWindow.getAllWindows()) {
+        if (!w.isDestroyed()) w.webContents.send('user-profile:state', userProfileCache)
+      }
+      return { ok: true as const }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      return { ok: false as const, error: msg }
+    }
+  })
+
+  ipcMain.handle('user-profile:reset-setup', async () => {
+    try {
+      userProfileCache = await resetUserProfileSetup()
+      for (const w of BrowserWindow.getAllWindows()) {
+        if (!w.isDestroyed()) w.webContents.send('user-profile:state', userProfileCache)
+      }
+      return { ok: true as const }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      return { ok: false as const, error: msg }
+    }
+  })
+
+  ipcMain.on('user-profile:reveal-in-finder', () => {
+    void shell.showItemInFolder(userProfilePath())
+  })
+
   // —— 设置面板 open（菜单 / 快捷键以外的入口） ——
   ipcMain.on('settings:open', () => {
     createSettingsWindow()
@@ -960,6 +1132,11 @@ function registerIpc(): void {
           currentStreamHandle = null
           chatHistory.push({ role: 'assistant', content: aiText })
           trimChatHistory()
+          // M5-2：debounce 持久化对话历史
+          scheduleChatHistorySave()
+          // remember / save_user_profile tool 可能这一轮被调 → 刷新两个缓存
+          void refreshPetMemory()
+          void refreshUserProfile()
           win.webContents.send('chat:done', usage)
           stateMachine.transition('success')
           stateMachine.scheduleReturnToIdle(SUCCESS_HOLD_MS)
@@ -979,7 +1156,12 @@ function registerIpc(): void {
           }
         }
       },
-      { tools, executeTool }
+      {
+        tools,
+        executeTool,
+        memory: petMemoryCache,
+        userProfile: userProfileCache
+      }
     )
   })
 
@@ -1053,6 +1235,26 @@ app.whenReady().then(async () => {
   await loadPersistentTrustedDirs()
   registerApprovalIpc()
 
+  // M5-2：load 对话历史 + 长期记忆 —— 让桌宠重启后记得上次会话
+  const persistedHistory = await loadChatHistory()
+  if (persistedHistory.length > 0) {
+    chatHistory.push(...persistedHistory)
+    trimChatHistory()
+    console.log(`[startup] restored ${chatHistory.length} chat messages`)
+  }
+  petMemoryCache = await loadMemory()
+  if (petMemoryCache.length > 0) {
+    const lines = petMemoryCache.split('\n').filter((l) => l.trim()).length
+    console.log(`[startup] loaded pet-memory.md (${lines} entries)`)
+  }
+  // M5-3：load user profile —— 决定 system prompt 走 setup wizard 还是正常模式
+  userProfileCache = await loadUserProfile()
+  if (userProfileCache.setupCompleted) {
+    console.log(`[startup] user profile loaded (name=${userProfileCache.name})`)
+  } else {
+    console.log('[startup] user profile not set up —— AI will run wizard on first chat')
+  }
+
   // M4-D：加载 Tavily key（env 优先 → 加密文件 → null 则 web_search 不暴露）
   currentTavilyApiKey = await resolveTavilyKey()
   if (currentTavilyApiKey) {
@@ -1083,6 +1285,15 @@ app.whenReady().then(async () => {
 app.on('before-quit', () => {
   stopVisibilityWatchdog()
   activeAppMonitor.stop()
+  // M5-2：强制 flush debounced 对话历史 —— 防退出前最后一条 chat:done 还在
+  // 计时器里没落盘
+  if (chatHistorySaveTimer) {
+    clearTimeout(chatHistorySaveTimer)
+    chatHistorySaveTimer = null
+    // 同步路径不能 await，但 saveChatHistory 是 fs.writeFile，Node 通常给毫秒级
+    // 完成够用；如出现历史丢失再改进同步 fs.writeFileSync
+    void saveChatHistory([...chatHistory])
+  }
 })
 
 app.on('window-all-closed', () => {

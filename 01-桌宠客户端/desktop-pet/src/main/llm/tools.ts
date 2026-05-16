@@ -13,17 +13,49 @@
  *  - 所有 tool 调用不写盘（除非 future take_note 之类显式 write）
  */
 import { BrowserWindow, clipboard, shell } from 'electron'
-import { exec } from 'child_process'
+import { exec, execFile } from 'child_process'
 import { promises as fs } from 'fs'
 import { promisify } from 'util'
+import { lookup } from 'dns/promises'
+import { isIP } from 'net'
 import type { ActivityState } from '../../shared/chat-types'
 import { captureForTool } from '../services/vision-pipeline'
 import { isPathSafe } from './path-safety'
-import { checkCommand } from './command-whitelist'
+import { checkCommand, tokenizeSafeCommand } from './command-whitelist'
 import { checkTrusted, requestApproval } from './approval'
 import { logToolAction } from '../audit-log'
+import { appendMemory, MEMORY_LINE_MAX } from '../storage/pet-memory'
+import { loadUserProfile, saveUserProfile } from '../storage/user-profile'
+import type { PersonaPreset, UserProfile } from '../../shared/user-profile-types'
 
 const execAsync = promisify(exec)
+const execFileAsync = promisify(execFile)
+
+/**
+ * M4-C-fix B2：env 白名单 —— spawn 子进程时只传必要的环境变量，防 process.env
+ * 里的其它 secret (TAVILY_API_KEY / AWS_* / GH_TOKEN / OPENAI_API_KEY / 等) 通过
+ * shell expansion 或 child read 泄漏。
+ */
+function safeChildEnv(): Record<string, string> {
+  const allowed = [
+    'PATH',
+    'HOME',
+    'USER',
+    'LOGNAME',
+    'LANG',
+    'LC_ALL',
+    'LC_CTYPE',
+    'TERM',
+    'TMPDIR',
+    'SHELL'
+  ]
+  const out: Record<string, string> = {}
+  for (const k of allowed) {
+    const v = process.env[k]
+    if (typeof v === 'string') out[k] = v
+  }
+  return out
+}
 
 /** LLM-agnostic Tool 定义 —— 用 JSON Schema input_schema 兼容 Anthropic / OpenAI / MCP */
 export interface ToolDef {
@@ -336,6 +368,73 @@ export const DELETE_FILE: ToolDef = {
   }
 }
 
+export const SAVE_USER_PROFILE: ToolDef = {
+  name: 'save_user_profile',
+  description:
+    "Save the user's profile collected during the first-time setup conversation. " +
+    'Call this exactly ONCE at the end of setup, when you have collected: name ' +
+    '(how to address them), about (their background/interests/projects), ' +
+    'persona preset choice + optional custom additions. This marks setup as ' +
+    'completed so future sessions skip the wizard. After calling, briefly ' +
+    'acknowledge setup is done and let them know they can revise in Settings.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      name: {
+        type: 'string',
+        description: 'How the user wants to be addressed (e.g., "Han")'
+      },
+      about: {
+        type: 'string',
+        description:
+          'Free-form 1-3 sentences summarizing their background: ' +
+          'job / projects / tech stack / interests / habits as user told you'
+      },
+      persona_preset: {
+        type: 'string',
+        enum: ['warm-friend', 'professional', 'witty-cold', 'playful', 'custom'],
+        description:
+          "Pet persona style preset chosen by user. " +
+          "warm-friend = warm casual; professional = direct technical; " +
+          "witty-cold = sarcastic-but-helpful; playful = banter-heavy; " +
+          "custom = no preset, use persona_custom only"
+      },
+      persona_custom: {
+        type: 'string',
+        description:
+          'Optional user additions on top of the preset (or full description ' +
+          'if preset=custom). Empty string if nothing extra.'
+      }
+    },
+    required: ['name', 'about', 'persona_preset', 'persona_custom']
+  }
+}
+
+export const REMEMBER: ToolDef = {
+  name: 'remember',
+  description:
+    "Persist a short fact about the user across sessions. Use ONLY for " +
+    "truly important things user wants you to remember: how they prefer to " +
+    "be called, recurring projects, persistent preferences, important " +
+    "personal context. Do NOT call for transient stuff (today's weather, " +
+    "one-off questions) or sensitive secrets (passwords, tokens). " +
+    "Memory file auto-trimmed to 16KB; oldest entries dropped first.",
+  input_schema: {
+    type: 'object',
+    properties: {
+      note: {
+        type: 'string',
+        description:
+          'A concise single-line fact to remember (max 500 chars). ' +
+          "Format suggestion: state the fact, not the conversation context " +
+          "(e.g., 'User prefers to be called Han, not Hans' not 'Han said " +
+          "to call him Han')."
+      }
+    },
+    required: ['note']
+  }
+}
+
 export const FETCH_URL: ToolDef = {
   name: 'fetch_url',
   description:
@@ -380,8 +479,9 @@ export const READ_SYSTEM_PREFERENCE: ToolDef = {
   description:
     "Read a macOS user preference value via `defaults read <domain> [key]`. " +
     "Use for non-sensitive prefs (e.g., 'what dock icon size is configured'). " +
-    "Returns the value as text. Some domains are denied (Keychain / passwords). " +
-    'Approval modal shown for the first read per domain in a session.',
+    "Returns the value as text. Sensitive domains (Keychain / passwords / mail / " +
+    'messages / safari / accounts / contacts / calendar / notes) are hard-denied ' +
+    'by a domain regex blacklist. No approval modal — denied or executed silently.',
   input_schema: {
     type: 'object',
     properties: {
@@ -416,7 +516,9 @@ const CORE_TOOLS = [
   RUN_COMMAND,
   OPEN_SYSTEM_SETTINGS,
   READ_SYSTEM_PREFERENCE,
-  FETCH_URL
+  FETCH_URL,
+  REMEMBER,
+  SAVE_USER_PROFILE
 ] as const
 
 /**
@@ -480,8 +582,89 @@ export async function executeTool(
       return await execFetchUrl(input)
     case 'web_search':
       return await execWebSearch(input, ctx)
+    case 'remember':
+      return await execRemember(input)
+    case 'save_user_profile':
+      return await execSaveUserProfile(input)
     default:
       return { ok: false, error: `unknown tool: ${name}` }
+  }
+}
+
+const VALID_PERSONA_PRESETS: PersonaPreset[] = [
+  'warm-friend',
+  'professional',
+  'witty-cold',
+  'playful',
+  'custom'
+]
+
+async function execSaveUserProfile(input: unknown): Promise<ToolResult> {
+  if (typeof input !== 'object' || input === null) {
+    return { ok: false, error: 'input must be object' }
+  }
+  const obj = input as Record<string, unknown>
+  if (typeof obj.name !== 'string' || !obj.name.trim()) {
+    return { ok: false, error: 'name required' }
+  }
+  if (typeof obj.about !== 'string') {
+    return { ok: false, error: 'about required (can be empty string)' }
+  }
+  const preset = obj.persona_preset
+  if (typeof preset !== 'string' || !(VALID_PERSONA_PRESETS as string[]).includes(preset)) {
+    return { ok: false, error: `persona_preset must be one of ${VALID_PERSONA_PRESETS.join(', ')}` }
+  }
+  if (typeof obj.persona_custom !== 'string') {
+    return { ok: false, error: 'persona_custom must be string (empty allowed)' }
+  }
+  const profile: UserProfile = {
+    name: obj.name.trim(),
+    about: obj.about.trim(),
+    personaPreset: preset as PersonaPreset,
+    personaCustom: obj.persona_custom.trim(),
+    setupCompleted: true
+  }
+  try {
+    await saveUserProfile(profile)
+    await logToolAction({
+      tool: 'save_user_profile',
+      argsSummary: `name=${profile.name.slice(0, 40)} preset=${profile.personaPreset}`,
+      result: 'ok'
+    })
+    // 重读一遍验证（保险）
+    void loadUserProfile()
+    return {
+      ok: true,
+      content: `Saved profile for ${profile.name}. Setup complete.`
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return { ok: false, error: `save_user_profile failed: ${msg}` }
+  }
+}
+
+async function execRemember(input: unknown): Promise<ToolResult> {
+  if (typeof input !== 'object' || input === null) {
+    return { ok: false, error: 'input must be { note: string }' }
+  }
+  const note = (input as { note?: unknown }).note
+  if (typeof note !== 'string' || !note.trim()) {
+    return { ok: false, error: 'note must be non-empty string' }
+  }
+  if (note.length > MEMORY_LINE_MAX * 2) {
+    return { ok: false, error: `note too long, max ${MEMORY_LINE_MAX} chars` }
+  }
+  try {
+    await appendMemory(note)
+    await logToolAction({
+      tool: 'remember',
+      argsSummary: `note=${note.slice(0, 80)}`,
+      result: 'ok'
+    })
+    return { ok: true, content: `Remembered. (Persisted to ~/Library/Application Support/DeskPet/pet-memory.md)` }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return { ok: false, error: `remember failed: ${msg}` }
   }
 }
 
@@ -507,7 +690,8 @@ function execReadClipboard(): ToolResult {
     return { ok: true, content: '(剪贴板为空 / 不是文本内容)' }
   }
   // 不写日志、不持久化（隐私）
-  return { ok: true, content: text.slice(0, CLIPBOARD_MAX) }
+  // cr-fix S1: 包 untrusted 标签防 clipboard 内容里的 prompt injection
+  return { ok: true, content: wrapUntrusted('clipboard', {}, text.slice(0, CLIPBOARD_MAX)) }
 }
 
 async function execOpenUrl(input: unknown): Promise<ToolResult> {
@@ -568,6 +752,31 @@ function execCurrentAppInfo(ctx: ToolContext): ToolResult {
 // M4-C Batch A executors
 // ============================================================================
 
+/**
+ * cr-fix S1：把外部读入的内容包成 untrusted XML 标签，AI 看到这种结构会按 system
+ * prompt 的"不可信内容处理"纪律当 data 不当 instruction。
+ *
+ * 即使内容里写 "</external_content>" 试图闭合标签 + 注入指令，我们用 escape 把
+ * 内容里的 `</external_content>` 替换掉防止闭合 —— attacker 只能让 AI 看到一坨被
+ * 包裹的文本，无法跳出 untrusted scope。
+ */
+function wrapUntrusted(
+  source: string,
+  attrs: Record<string, string>,
+  content: string
+): string {
+  const attrStr = Object.entries(attrs)
+    .map(([k, v]) => `${k}="${v.replace(/"/g, '&quot;').slice(0, 200)}"`)
+    .join(' ')
+  // 防 inner content 闭合 outer 标签：替换 `</external_content>` —— 容忍空白变体
+  // 攻击者可能用 `</ external_content >` / `</\nexternal_content>` 等绕过
+  const safe = content.replace(
+    /<\s*\/\s*external_content\s*>/gi,
+    '<\\/external_content>'
+  )
+  return `<external_content source="${source}"${attrStr ? ' ' + attrStr : ''} untrusted>\n${safe}\n</external_content>`
+}
+
 const READ_FILE_MAX = 50_000 // chars
 const RUN_COMMAND_TIMEOUT_MS = 30_000
 const RUN_COMMAND_MAX_STDOUT = 20_000 // chars per stream
@@ -602,7 +811,7 @@ async function requestPathApprovalInner(
   summaryVerb: string,
   contentPreview: string | undefined
 ): Promise<{ ok: true; absPath: string } | { ok: false; error: string }> {
-  const safety = isPathSafe(rawPath)
+  const safety = await isPathSafe(rawPath)
   if (!safety.ok) {
     await logToolAction({
       tool,
@@ -670,7 +879,9 @@ async function execReadFile(input: unknown): Promise<ToolResult> {
       ? raw.slice(0, READ_FILE_MAX) +
         `\n\n... (truncated, file has ${raw.length} chars total)`
       : raw
-    return { ok: true, content }
+    // cr-fix S1: 文件内容可能含 attacker-controlled prompt injection（user 下载到的
+    // 文件、AI 之前写入的可疑文件等）—— 包 untrusted 标签
+    return { ok: true, content: wrapUntrusted('file', { path: gate.absPath }, content) }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     return { ok: false, error: `readFile failed: ${msg}` }
@@ -762,7 +973,7 @@ async function execFindFiles(input: unknown): Promise<ToolResult> {
     return { ok: false, error: 'name_pattern required' }
   }
   const rootInput = typeof obj.root === 'string' && obj.root.trim() ? obj.root : '~'
-  const rootSafety = isPathSafe(rootInput)
+  const rootSafety = await isPathSafe(rootInput)
   if (!rootSafety.ok) {
     return { ok: false, error: `root 路径不安全: ${rootSafety.reason}` }
   }
@@ -781,8 +992,24 @@ async function execFindFiles(input: unknown): Promise<ToolResult> {
   const re = globToRegex(obj.name_pattern)
   const found: string[] = []
 
+  // cr-fix S6：DoS 预算 —— entries 扫描总数 + 时间 hard cap
+  const FIND_MAX_ENTRIES = 50_000
+  const FIND_TIMEOUT_MS = 5000
+  const startTime = Date.now()
+  let entriesScanned = 0
+  let aborted = false
+
   async function walk(dir: string, depthLeft: number): Promise<void> {
+    if (aborted) return
     if (depthLeft < 0 || found.length >= FIND_FILES_MAX_RESULTS) return
+    if (entriesScanned >= FIND_MAX_ENTRIES) {
+      aborted = true
+      return
+    }
+    if (Date.now() - startTime > FIND_TIMEOUT_MS) {
+      aborted = true
+      return
+    }
     let entries
     try {
       entries = await fs.readdir(dir, { withFileTypes: true })
@@ -790,14 +1017,20 @@ async function execFindFiles(input: unknown): Promise<ToolResult> {
       return // 没权限读 / 不存在，跳过
     }
     for (const e of entries) {
+      if (aborted) return
+      entriesScanned++
       if (found.length >= FIND_FILES_MAX_RESULTS) return
+      if (entriesScanned >= FIND_MAX_ENTRIES || Date.now() - startTime > FIND_TIMEOUT_MS) {
+        aborted = true
+        return
+      }
       // 跳过 hidden + 常见构建产物目录
       if (e.name.startsWith('.') && e.name !== '.') continue
       if (e.isDirectory() && FIND_FILES_SKIP_DIRS.has(e.name)) continue
       const full = dir + '/' + e.name
       if (e.isFile() && re.test(e.name)) {
         // 黑名单 cross-check：跳过 .env 等敏感文件即使匹配
-        const safety = isPathSafe(full)
+        const safety = await isPathSafe(full)
         if (safety.ok) found.push(full)
       }
       if (e.isDirectory()) {
@@ -811,7 +1044,7 @@ async function execFindFiles(input: unknown): Promise<ToolResult> {
     tool: 'find_files',
     argsSummary: `root=${rootSafety.absPath} pattern=${obj.name_pattern}`,
     result: 'ok',
-    detail: `found ${found.length}`
+    detail: `found ${found.length}${aborted ? ` (aborted: budget exceeded after scanning ${entriesScanned} entries / ${Date.now() - startTime}ms)` : ''}`
   })
   if (found.length === 0) {
     return {
@@ -834,7 +1067,7 @@ async function execDeleteFile(input: unknown): Promise<ToolResult> {
     return { ok: false, error: 'path must be a string' }
   }
   // delete 不享受默认信任：始终弹 modal
-  const safety = isPathSafe(rawPath)
+  const safety = await isPathSafe(rawPath)
   if (!safety.ok) {
     return { ok: false, error: `路径被静态黑名单拦截: ${safety.reason}` }
   }
@@ -923,48 +1156,101 @@ async function execRunCommand(input: unknown): Promise<ToolResult> {
   // cwd 处理 + 路径安全
   let cwd = process.env.HOME || '/'
   if (typeof obj.cwd === 'string' && obj.cwd.trim()) {
-    const cwdSafety = isPathSafe(obj.cwd)
+    const cwdSafety = await isPathSafe(obj.cwd)
     if (!cwdSafety.ok) {
       return { ok: false, error: `cwd 路径不安全: ${cwdSafety.reason}` }
     }
     cwd = cwdSafety.absPath
   }
-  if (check.level === 'needs-approval') {
-    const decision = await requestApproval({
-      tool: 'run_command',
-      summary: `AI 想执行命令：${cmd}`,
-      command: cmd,
-      path: cwd
-    })
-    if (decision === 'deny') {
-      await logToolAction({
-        tool: 'run_command',
-        argsSummary: `cmd=${cmd.slice(0, 80)}`,
-        result: 'denied',
-        detail: 'user denied'
-      })
-      return { ok: false, error: '用户拒绝执行该命令' }
+
+  // —— SAFE 路径：B1 修复 —— 抽取 path 类参数过 isPathSafe + 走 spawn shell:false ——
+  if (check.level === 'safe') {
+    const tokens = tokenizeSafeCommand(cmd)
+    if (tokens.length === 0) return { ok: false, error: 'empty command tokens' }
+    // 任何"看起来是路径"的 token（含 / 或 ~ 或 . 开头）都必须过 path-safety
+    for (let i = 1; i < tokens.length; i++) {
+      const t = tokens[i]
+      if (t.startsWith('-')) continue // flag
+      if (t.includes('/') || t.startsWith('~') || t.startsWith('.')) {
+        const safety = await isPathSafe(t)
+        if (!safety.ok) {
+          await logToolAction({
+            tool: 'run_command',
+            argsSummary: `cmd=${cmd.slice(0, 80)}`,
+            result: 'denied',
+            detail: `path token blocked: ${safety.reason}`
+          })
+          return {
+            ok: false,
+            error: `命令参数路径不安全 (${t}): ${safety.reason}`
+          }
+        }
+      }
     }
-    await logToolAction({
-      tool: 'run_command',
-      argsSummary: `cmd=${cmd.slice(0, 80)} cwd=${cwd}`,
-      result: 'ok',
-      detail: `approved: ${decision}`
-    })
-  } else {
     await logToolAction({
       tool: 'run_command',
       argsSummary: `cmd=${cmd.slice(0, 80)} cwd=${cwd}`,
       result: 'whitelist'
     })
+    try {
+      const argv0 = tokens[0]
+      const args = tokens.slice(1)
+      const { stdout, stderr } = await execFileAsync(argv0, args, {
+        cwd,
+        timeout: RUN_COMMAND_TIMEOUT_MS,
+        maxBuffer: RUN_COMMAND_MAX_STDOUT * 4,
+        env: safeChildEnv(),
+        shell: false // 关键：safe 路径不走 shell 防 metachar 后门
+      })
+      const truncate = (s: string): string =>
+        s.length > RUN_COMMAND_MAX_STDOUT
+          ? s.slice(0, RUN_COMMAND_MAX_STDOUT) + `\n... (truncated)`
+          : s
+      return {
+        ok: true,
+        content: `# stdout\n${truncate(stdout)}` + (stderr ? `\n\n# stderr\n${truncate(stderr)}` : '')
+      }
+    } catch (err) {
+      const e = err as { stdout?: string; stderr?: string; code?: number; signal?: string; message?: string }
+      const stdout = e.stdout ?? ''
+      const stderr = e.stderr ?? e.message ?? ''
+      return {
+        ok: false,
+        error:
+          `exit code ${e.code ?? '?'} signal=${e.signal ?? 'none'}\n` +
+          `stdout: ${stdout.slice(0, 1000)}\nstderr: ${stderr.slice(0, 1000)}`
+      }
+    }
   }
+
+  // —— needs-approval 路径：弹 modal，shell:true（user 授权下保留 shell 能力）——
+  const decision = await requestApproval({
+    tool: 'run_command',
+    summary: `AI 想执行命令：${cmd}`,
+    command: cmd,
+    path: cwd
+  })
+  if (decision === 'deny') {
+    await logToolAction({
+      tool: 'run_command',
+      argsSummary: `cmd=${cmd.slice(0, 80)}`,
+      result: 'denied',
+      detail: 'user denied'
+    })
+    return { ok: false, error: '用户拒绝执行该命令' }
+  }
+  await logToolAction({
+    tool: 'run_command',
+    argsSummary: `cmd=${cmd.slice(0, 80)} cwd=${cwd}`,
+    result: 'ok',
+    detail: `approved: ${decision}`
+  })
   try {
     const { stdout, stderr } = await execAsync(cmd, {
       cwd,
       timeout: RUN_COMMAND_TIMEOUT_MS,
       maxBuffer: RUN_COMMAND_MAX_STDOUT * 4,
-      // 不继承 main 的环境敏感变量
-      env: { ...process.env, ANTHROPIC_API_KEY: '', DESKPET_VISION_TOKEN: '' }
+      env: safeChildEnv() // B2 修复：白名单 env（user-approved 也不该泄 secret）
     })
     const truncate = (s: string): string =>
       s.length > RUN_COMMAND_MAX_STDOUT
@@ -975,7 +1261,6 @@ async function execRunCommand(input: unknown): Promise<ToolResult> {
       content: `# stdout\n${truncate(stdout)}` + (stderr ? `\n\n# stderr\n${truncate(stderr)}` : '')
     }
   } catch (err) {
-    // execAsync rejects when exit code != 0 or signaled —— 把 stdout/stderr 一并回给 AI
     const e = err as { stdout?: string; stderr?: string; code?: number; signal?: string; message?: string }
     const stdout = e.stdout ?? ''
     const stderr = e.stderr ?? e.message ?? ''
@@ -1046,12 +1331,24 @@ async function execOpenSystemSettings(input: unknown): Promise<ToolResult> {
   }
 }
 
-// defaults read 黑名单 —— 这些 domain 永远拒绝（含密码 / 密钥）
+// defaults read 黑名单 —— 这些 domain 永远拒绝（含密码 / 密钥 / 隐私数据）
+// cr-fix S5：扩充覆盖 Mail / Messages / Calendar / Contacts / Safari / Accounts
 const DEFAULTS_DOMAIN_BLACKLIST: RegExp[] = [
   /Keychain/i,
   /\.password/i,
   /\.credential/i,
-  /\.secret/i
+  /\.secret/i,
+  /\.token/i,
+  /\.mail/i,
+  /Messages/i,
+  /Calendar/i,
+  /Contact/i,
+  /AddressBook/i,
+  /Safari/i,
+  /Accounts/i,
+  /com\.apple\.identityservices/i,
+  /com\.apple\.notes/i,
+  /com\.apple\.AppleAccount/i
 ]
 
 // ============================================================================
@@ -1062,31 +1359,125 @@ const FETCH_URL_TIMEOUT_MS = 15_000
 const FETCH_URL_MAX_BYTES = 500_000
 const FETCH_URL_MAX_CHARS = 30_000
 
-/** 私网 / 元数据 IP 黑名单 —— SSRF 防御 */
-const PRIVATE_HOST_REGEX = [
-  /^localhost$/i,
-  /^127\.\d+\.\d+\.\d+$/,
-  /^0\.0\.0\.0$/,
-  /^10\.\d+\.\d+\.\d+$/,
-  /^192\.168\.\d+\.\d+$/,
-  /^172\.(1[6-9]|2[0-9]|3[01])\.\d+\.\d+$/, // 172.16-31.x.x
-  /^169\.254\.\d+\.\d+$/, // 链路本地 + AWS/GCP metadata 169.254.169.254
-  /\.local$/i,
-  /\.internal$/i,
-  /^fc[\da-f]{2}:/i, // IPv6 unique local
-  /^fe80:/i, // IPv6 link-local
-  /^::1$/, // IPv6 loopback
-  /^\[::1\]$/
-]
-
-/** 已批准过 fetch 的 host 集合（会话级，main 退出即丢） */
+/**
+ * 已批准过 fetch 的 host 集合（会话级，main 退出即丢）。
+ * 注意：host 必须先过 SSRF 校验（dns 解析后 IP 不私网）才入这个 set；后续 redirect
+ * 即使到同 host 仍要重做校验（防 DNS rebinding）。
+ */
 const approvedFetchHosts = new Set<string>()
 
-function isHostPrivate(hostname: string): boolean {
-  for (const re of PRIVATE_HOST_REGEX) {
-    if (re.test(hostname)) return true
-  }
+/**
+ * 名字白名单：用户明确 reject .local/.internal/.lan 等内部 TLD 字面（不解析 DNS）。
+ * 注意只匹配 hostname 字面，不解析 —— DNS lookup 才是 SSRF 主防线。
+ */
+const INTERNAL_TLD_REGEX = /\.(local|internal|lan|home|corp|intranet)$/i
+
+/**
+ * IPv4 私网 / 保留段 + AWS/GCP/Azure metadata 黑名单（解析后的实际 IP 字面）。
+ */
+function isPrivateIPv4(addr: string): boolean {
+  const parts = addr.split('.').map((p) => parseInt(p, 10))
+  if (parts.length !== 4 || parts.some((p) => isNaN(p) || p < 0 || p > 255)) return true
+  const [a, b] = parts
+  // 0.0.0.0/8
+  if (a === 0) return true
+  // 127.0.0.0/8 loopback
+  if (a === 127) return true
+  // 10.0.0.0/8 private
+  if (a === 10) return true
+  // 172.16.0.0/12 private
+  if (a === 172 && b >= 16 && b <= 31) return true
+  // 192.168.0.0/16 private
+  if (a === 192 && b === 168) return true
+  // 169.254.0.0/16 link-local (含 AWS/GCP/Azure metadata 169.254.169.254)
+  if (a === 169 && b === 254) return true
+  // 100.64.0.0/10 CGNAT (carrier-grade NAT, 可能内部)
+  if (a === 100 && b >= 64 && b <= 127) return true
+  // 224.0.0.0/4 multicast + 240.0.0.0/4 reserved
+  if (a >= 224) return true
   return false
+}
+
+function isPrivateIPv6(addr: string): boolean {
+  const lower = addr.toLowerCase()
+  // ::1 loopback
+  if (lower === '::1' || lower === '::') return true
+  // fc00::/7 unique local
+  if (lower.startsWith('fc') || lower.startsWith('fd')) return true
+  // fe80::/10 link-local
+  if (lower.startsWith('fe80:') || lower.startsWith('fe9') || lower.startsWith('fea') || lower.startsWith('feb')) return true
+  // IPv4-mapped (::ffff:127.0.0.1) —— extract v4 portion
+  const v4mapped = lower.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/)
+  if (v4mapped) return isPrivateIPv4(v4mapped[1])
+  // IPv4-mapped HEX 形式 (::ffff:HHHH:HHHH) —— cr-fix 补，例：::ffff:7f00:1 = 127.0.0.1
+  const v4mappedHex = lower.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/)
+  if (v4mappedHex) {
+    const hi = parseInt(v4mappedHex[1], 16)
+    const lo = parseInt(v4mappedHex[2], 16)
+    const a = (hi >> 8) & 0xff
+    const b = hi & 0xff
+    const c = (lo >> 8) & 0xff
+    const d = lo & 0xff
+    return isPrivateIPv4(`${a}.${b}.${c}.${d}`)
+  }
+  // IPv4-compatible (::a.b.c.d) deprecated 但还可能出现
+  const v4compat = lower.match(/^::(\d+\.\d+\.\d+\.\d+)$/)
+  if (v4compat) return isPrivateIPv4(v4compat[1])
+  return false
+}
+
+/**
+ * 给定一个 IP 字面（v4 或 v6），返回是否私网。
+ * 不解析 hostname —— 调用方必须先 dns lookup 拿 IP。
+ */
+function isPrivateIPAddr(addr: string): boolean {
+  const v = isIP(addr)
+  if (v === 4) return isPrivateIPv4(addr)
+  if (v === 6) return isPrivateIPv6(addr)
+  return true // 不是合法 IP，保守拒
+}
+
+/**
+ * 完整 SSRF 主校验（B3 修复）：dns.lookup 解析 hostname → 所有返回 IP 必须公网。
+ * 处理所有 IP 字面变体（hex 0x7f000001 / decimal 2130706433 / short 127.1 / 等）—— 因为
+ * dns.lookup 内部把这些 normalize 成 dotted-quad 再返回。
+ *
+ * 缺陷（接受）：DNS rebinding 在 fetch 实际打开 socket 那一瞬间 attacker 可以让 DNS
+ * 返回不同 IP（与我们 lookup 的不一致）。完美防御要 dns.lookup 拿 IP → http.request
+ * with explicit IP + Host header。当前架构用 fetch 不方便接管 socket，先实施 95% 防御。
+ */
+async function checkHostSafety(hostname: string): Promise<
+  { ok: true; ips: string[] } | { ok: false; reason: string }
+> {
+  // 字面 IP 形式直接判
+  if (isIP(hostname) > 0) {
+    if (isPrivateIPAddr(hostname)) {
+      return { ok: false, reason: `private IP literal: ${hostname}` }
+    }
+    return { ok: true, ips: [hostname] }
+  }
+  // 名字黑名单（内部 TLD 不要去 DNS resolve）
+  if (hostname === 'localhost' || INTERNAL_TLD_REGEX.test(hostname)) {
+    return { ok: false, reason: `internal hostname: ${hostname}` }
+  }
+  // DNS 解析所有地址
+  let addrs: { address: string; family: number }[]
+  try {
+    addrs = await lookup(hostname, { all: true })
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return { ok: false, reason: `DNS lookup failed: ${msg}` }
+  }
+  if (addrs.length === 0) {
+    return { ok: false, reason: 'no DNS records' }
+  }
+  const ips = addrs.map((a) => a.address)
+  for (const ip of ips) {
+    if (isPrivateIPAddr(ip)) {
+      return { ok: false, reason: `${hostname} resolves to private IP ${ip}` }
+    }
+  }
+  return { ok: true, ips }
 }
 
 /** HTML → 简化文本（去 script/style/标签，保留换行 + 链接 anchor 文本）。 */
@@ -1109,6 +1500,8 @@ function htmlToText(html: string): string {
     .trim()
 }
 
+const MAX_FETCH_REDIRECTS = 5
+
 async function execFetchUrl(input: unknown): Promise<ToolResult> {
   if (typeof input !== 'object' || input === null) {
     return { ok: false, error: 'input must be { url: string }' }
@@ -1126,17 +1519,18 @@ async function execFetchUrl(input: unknown): Promise<ToolResult> {
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     return { ok: false, error: `only http/https allowed, got ${parsed.protocol}` }
   }
-  // SSRF: 拒私网 / metadata IP
-  if (isHostPrivate(parsed.hostname)) {
+  // SSRF (B3): dns.lookup + IP 私网校验 —— 覆盖 0x/dec/short/IPv4-mapped/CGNAT/链路本地等
+  const initialHostCheck = await checkHostSafety(parsed.hostname)
+  if (!initialHostCheck.ok) {
     await logToolAction({
       tool: 'fetch_url',
       argsSummary: `host=${parsed.hostname}`,
       result: 'denied',
-      detail: 'private host blocked (SSRF defense)'
+      detail: `SSRF blocked: ${initialHostCheck.reason}`
     })
     return {
       ok: false,
-      error: `禁止访问私网/本机地址: ${parsed.hostname}（防 SSRF）`
+      error: `禁止访问私网/本机地址: ${initialHostCheck.reason}（防 SSRF）`
     }
   }
   // 同一 host 首次 → 弹 modal；之后 session 内静默
@@ -1163,17 +1557,63 @@ async function execFetchUrl(input: unknown): Promise<ToolResult> {
       detail: `approved: ${decision}, session-trusted host`
     })
   }
-  // 抓取
+  // 抓取（B3 修复：redirect:'manual' 手动跟 + 每跳重做 SSRF 校验防 302 到 metadata IP）
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), FETCH_URL_TIMEOUT_MS)
   try {
-    const resp = await fetch(parsed.toString(), {
-      signal: controller.signal,
-      redirect: 'follow',
-      headers: {
-        'User-Agent': 'DeskPet/0.1 (Electron; +https://github.com/Ice-teapop/desktop-pet)'
+    let currentUrl = parsed.toString()
+    let resp: Response | null = null
+    for (let redirects = 0; redirects <= MAX_FETCH_REDIRECTS; redirects++) {
+      const currentParsed = new URL(currentUrl)
+      // 非首次：重做 SSRF 校验（B3：302 redirect 到 169.254.169.254 类攻击）
+      if (redirects > 0) {
+        if (currentParsed.protocol !== 'http:' && currentParsed.protocol !== 'https:') {
+          return {
+            ok: false,
+            error: `redirect 到非 http(s) scheme 已拒：${currentParsed.protocol}`
+          }
+        }
+        const hopCheck = await checkHostSafety(currentParsed.hostname)
+        if (!hopCheck.ok) {
+          await logToolAction({
+            tool: 'fetch_url',
+            argsSummary: `redirect-host=${currentParsed.hostname}`,
+            result: 'denied',
+            detail: `redirect SSRF blocked: ${hopCheck.reason}`
+          })
+          return {
+            ok: false,
+            error: `redirect 到私网地址已拒：${hopCheck.reason}`
+          }
+        }
       }
-    })
+      const r = await fetch(currentUrl, {
+        signal: controller.signal,
+        redirect: 'manual',
+        headers: {
+          'User-Agent': 'DeskPet/0.1 (Electron; +https://github.com/Ice-teapop/desktop-pet)'
+        }
+      })
+      // 3xx：手动跟
+      if (r.status >= 300 && r.status < 400) {
+        const loc = r.headers.get('location')
+        if (!loc) {
+          resp = r
+          break
+        }
+        try {
+          currentUrl = new URL(loc, currentUrl).toString()
+        } catch {
+          return { ok: false, error: `redirect Location 无效: ${loc}` }
+        }
+        continue
+      }
+      resp = r
+      break
+    }
+    if (!resp) {
+      return { ok: false, error: `redirect 链超过 ${MAX_FETCH_REDIRECTS} 跳` }
+    }
     if (!resp.ok) {
       return {
         ok: false,
@@ -1202,26 +1642,51 @@ async function execFetchUrl(input: unknown): Promise<ToolResult> {
       chunks.push(value)
     }
     const bytes = Buffer.concat(chunks)
+    // cr-fix S1: 把抓到的网页内容包 untrusted 标签 + 标 host 供 AI 判断来源
+    const finalHost = new URL(currentUrl).hostname
     if (contentType.startsWith('application/json')) {
       const txt = bytes.toString('utf8')
+      let formatted = txt
       try {
         const obj = JSON.parse(txt)
-        return { ok: true, content: JSON.stringify(obj, null, 2).slice(0, FETCH_URL_MAX_CHARS) }
+        formatted = JSON.stringify(obj, null, 2)
       } catch {
-        return { ok: true, content: txt.slice(0, FETCH_URL_MAX_CHARS) }
+        /* keep raw */
+      }
+      return {
+        ok: true,
+        content: wrapUntrusted(
+          'fetch_url',
+          { host: finalHost, content_type: 'json' },
+          formatted.slice(0, FETCH_URL_MAX_CHARS)
+        )
       }
     }
     if (contentType.startsWith('text/html')) {
       const html = bytes.toString('utf8')
       const text = htmlToText(html)
-      return { ok: true, content: text.slice(0, FETCH_URL_MAX_CHARS) }
+      return {
+        ok: true,
+        content: wrapUntrusted(
+          'fetch_url',
+          { host: finalHost, content_type: 'html' },
+          text.slice(0, FETCH_URL_MAX_CHARS)
+        )
+      }
     }
     if (contentType.startsWith('text/')) {
-      return { ok: true, content: bytes.toString('utf8').slice(0, FETCH_URL_MAX_CHARS) }
+      return {
+        ok: true,
+        content: wrapUntrusted(
+          'fetch_url',
+          { host: finalHost, content_type: contentType.split(';')[0] },
+          bytes.toString('utf8').slice(0, FETCH_URL_MAX_CHARS)
+        )
+      }
     }
     return {
       ok: true,
-      content: `(non-text content) Content-Type: ${contentType}, size: ${bytes.byteLength} bytes`
+      content: `(non-text content from ${finalHost}) Content-Type: ${contentType}, size: ${bytes.byteLength} bytes`
     }
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
@@ -1345,9 +1810,16 @@ async function execReadSystemPreference(input: unknown): Promise<ToolResult> {
     return { ok: false, error: 'key must be string with [\\w.-] chars only' }
   }
   // 此 tool 不弹 modal（read-only + 黑名单已硬拦），audit log 即可
-  const cmd = key ? `defaults read ${domain} ${key}` : `defaults read ${domain}`
+  // cr-fix: 用 execFile shell:false 改 argv —— 即使 domain/key 字符校验过仍多一层
+  // 防 metachar 后门；env 用 safeChildEnv 跟 run_command 一致防泄漏
+  const args = key ? ['read', domain, key] : ['read', domain]
   try {
-    const { stdout } = await execAsync(cmd, { timeout: 5000, maxBuffer: 200_000 })
+    const { stdout } = await execFileAsync('defaults', args, {
+      timeout: 5000,
+      maxBuffer: 200_000,
+      env: safeChildEnv(),
+      shell: false
+    })
     await logToolAction({
       tool: 'read_system_preference',
       argsSummary: `domain=${domain} key=${key ?? '*'}`,

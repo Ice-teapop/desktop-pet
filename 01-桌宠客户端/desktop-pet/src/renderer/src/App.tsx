@@ -250,6 +250,14 @@ function App(): React.JSX.Element {
     return off
   }, [])
 
+  // —— M5-2 用户在设置面板清空对话历史 → 同步清 UI 消息列表 ——
+  useEffect(() => {
+    const off = window.api.onChatHistoryCleared(() => {
+      setMessages([])
+    })
+    return off
+  }, [])
+
   const handleApprovalDecision = (decision: ApprovalDecision): void => {
     if (!pendingApproval) return
     // trust-dir-* 决策需要目录路径 —— 从 req.path 推出（path 是文件或目录绝对路径）
