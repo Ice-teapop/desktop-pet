@@ -60,7 +60,14 @@ import { clearApiKey, loadApiKey, saveApiKey } from './storage/credentials'
 import { loadPreferences, savePreferences, type Preferences } from './storage/preferences'
 import { migrateLegacyUserData } from './storage/migration'
 import { loadTheme } from './storage/theme'
+import {
+  clearVisionToken,
+  loadVisionToken,
+  saveVisionToken
+} from './storage/vision-token'
 import { ActiveAppMonitor } from './services/active-app'
+import { runVisionPipeline } from './services/vision-pipeline'
+import type { VisionProgress, VisionState } from '../shared/vision-types'
 import trayIconPath from '../../resources/icon.png?asset'
 
 // userData 路径走 package.json 的 productName='DeskPet' —— Electron 启动早期就读
@@ -138,6 +145,11 @@ let currentActivity: ActivityState = 'idle'
 let followFrontApp = true
 // fast-path bundleID regex 白名单是否启用（用户托盘可关 → 走严格 LLM 识别）
 let useFastPath = true
+// —— M4-A-2 视觉感知 ——
+// vision-service Bearer token（safeStorage 解密后内存常驻；启动 load，submit 时 reset）
+let currentVisionToken: string | null = null
+// preferences.visionEnabled 的内存副本 —— 写到 prefs 时同步更新这里
+let visionEnabledPref = false
 
 /**
  * 对话轮次令牌 —— 每次 chat:submit 进入时 snapshot 当前值，stream 回调用 snapshot 比对。
@@ -173,6 +185,26 @@ function isWinAlive(): boolean {
 
 function notifyKeyState(): void {
   if (isWinAlive()) petWindow!.webContents.send('key:state', keyState)
+}
+
+/**
+ * 推 vision 配置状态给渲染层 —— 单一事实来源住在主进程。
+ * 三态：
+ *  - disabled-no-token：用户没存过 token，UI 显示"请先输入 token"
+ *  - disabled：token 已存但 toggle 关 —— UI 显示 toggle off
+ *  - enabled：toggle 开，每次发消息会截屏
+ */
+function visionState(): VisionState {
+  if (!currentVisionToken) return { kind: 'disabled-no-token' }
+  return visionEnabledPref ? { kind: 'enabled' } : { kind: 'disabled' }
+}
+
+function notifyVisionState(): void {
+  if (isWinAlive()) petWindow!.webContents.send('vision:state', visionState())
+}
+
+function notifyVisionProgress(p: VisionProgress): void {
+  if (isWinAlive()) petWindow!.webContents.send('vision:progress', p)
 }
 
 function notifyActivity(): void {
@@ -224,7 +256,7 @@ function setUseFastPath(on: boolean): void {
   // 切换 fast-path 时清 classifier cache —— 防止 LLM 错误结果污染新策略
   clearClassifyCache()
   rebuildTrayMenu()
-  schedulePrefsSave({ modelId: currentModel, followFrontApp, useFastPath })
+  schedulePrefsSave({ modelId: currentModel, followFrontApp, useFastPath, visionEnabled: visionEnabledPref })
 }
 
 function setFollowFrontApp(on: boolean): void {
@@ -236,7 +268,7 @@ function setFollowFrontApp(on: boolean): void {
     activeAppMonitor.stop() // stop 内部会推一次 'idle' 回到闲态
   }
   rebuildTrayMenu()
-  schedulePrefsSave({ modelId: currentModel, followFrontApp, useFastPath })
+  schedulePrefsSave({ modelId: currentModel, followFrontApp, useFastPath, visionEnabled: visionEnabledPref })
 }
 
 function setKeyInMemory(key: string | null): void {
@@ -307,7 +339,7 @@ function setModel(id: ModelId): void {
   currentStreamHandle = null
   chatTurnToken++
   rebuildTrayMenu()
-  schedulePrefsSave({ modelId: id, followFrontApp, useFastPath })
+  schedulePrefsSave({ modelId: id, followFrontApp, useFastPath, visionEnabled: visionEnabledPref })
 }
 
 function trimChatHistory(): void {
@@ -448,6 +480,7 @@ function createPetWindow(): void {
     win.webContents.send('pet:state', stateMachine.getState())
     win.webContents.send('key:state', keyState)
     win.webContents.send('pet:activity', currentActivity)
+    win.webContents.send('vision:state', visionState())
   })
 
   win.on('ready-to-show', () => {
@@ -656,6 +689,65 @@ function registerIpc(): void {
   })
 
   // 渲染层挂载完后主动 ping，让主进程补推一次当前 keyState。
+  // —— M4-A-2 vision IPC handlers ——
+  ipcMain.on('vision:submit-token', async (_event, rawToken: string) => {
+    const token = String(rawToken).slice(0, 512).trim()
+    if (!token) return
+    try {
+      await saveVisionToken(token)
+      currentVisionToken = token
+      notifyVisionState()
+    } catch (err) {
+      console.error('[vision:submit-token] saveVisionToken failed:', err)
+      // 落盘失败也把 token 放内存，让用户当前 session 能用 —— 重启会丢
+      currentVisionToken = token
+      notifyVisionState()
+    }
+  })
+
+  ipcMain.on('vision:set-enabled', async (_event, enabled: boolean) => {
+    if (typeof enabled !== 'boolean') return
+    // 没 token 不允许启用
+    if (enabled && !currentVisionToken) {
+      notifyVisionState()
+      return
+    }
+    visionEnabledPref = enabled
+    notifyVisionState()
+    // 持久化到 preferences
+    try {
+      const prefs = await loadPreferences()
+      await savePreferences({ ...prefs, visionEnabled: enabled })
+    } catch (err) {
+      console.warn('[vision:set-enabled] savePreferences failed:', err)
+    }
+  })
+
+  ipcMain.on('vision:clear-token', async () => {
+    try {
+      await clearVisionToken()
+    } catch (err) {
+      console.warn('[vision:clear-token] clearVisionToken failed:', err)
+    }
+    currentVisionToken = null
+    // 清 token = 强制 disable
+    if (visionEnabledPref) {
+      visionEnabledPref = false
+      try {
+        const prefs = await loadPreferences()
+        await savePreferences({ ...prefs, visionEnabled: false })
+      } catch (err) {
+        console.warn('[vision:clear-token] persist false failed:', err)
+      }
+    }
+    notifyVisionState()
+  })
+
+  ipcMain.on('vision:request-state', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    win?.webContents.send('vision:state', visionState())
+  })
+
   // 防御启动竞态：did-finish-load 推 'key:state' 时若 React useEffect 还没装好 listener
   // 会丢掉，桌宠就永远不开口。renderer 收到响应后才知道自己是 missing 还是 ready。
   ipcMain.on('key:request-state', (event) => {
@@ -679,7 +771,22 @@ function registerIpc(): void {
     // 上一个 stream 还在跑就 abort（用户连点 submit 时不烧两份 token）
     currentStreamHandle?.abort()
 
-    chatHistory.push({ role: 'user', content: cleaned })
+    // —— M4-A-2: vision OCR prefix（toggle 开 + token 存在才跑） ——
+    // fail-open：vision 失败时不阻塞对话，发原消息 + UI 显示 warning。
+    let messageContent = cleaned
+    if (visionEnabledPref && currentVisionToken) {
+      const result = await runVisionPipeline({
+        token: currentVisionToken,
+        petWindow: petWindow,
+        onProgress: notifyVisionProgress
+      })
+      if (result.ok) {
+        messageContent = `【屏幕 OCR】\n${result.summary}\n【/OCR】\n\n${cleaned}`
+      }
+      // 失败时 onProgress 已经 push 了 stage:'failed' + reason，渲染层据此显示 inline warning
+    }
+
+    chatHistory.push({ role: 'user', content: messageContent })
     trimChatHistory()
     stateMachine.transition('thinking')
 
@@ -774,6 +881,18 @@ app.whenReady().then(async () => {
   currentModel = prefs.modelId
   followFrontApp = prefs.followFrontApp
   useFastPath = prefs.useFastPath
+  visionEnabledPref = prefs.visionEnabled
+
+  // M4-A-2: load vision token —— 没有就 disabled-no-token，UI 引导用户输入
+  currentVisionToken = await loadVisionToken()
+  // 边缘情况：visionEnabled=true 但 token 丢了（用户手动删了 vision-token.bin）
+  // 自动 disable 防止每次发消息空跑 vision 失败
+  if (visionEnabledPref && !currentVisionToken) {
+    visionEnabledPref = false
+    void savePreferences({ ...prefs, visionEnabled: false }).catch((e) =>
+      console.warn('[startup] reset visionEnabled=false failed:', e)
+    )
+  }
 
   registerIpc()
   createPetWindow()

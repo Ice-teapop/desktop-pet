@@ -20,12 +20,15 @@ export interface Preferences {
   followFrontApp: boolean
   /** fast-path bundleID regex 白名单：默认开（常见 app 1ms 命中），关 = 严格 LLM 识别 */
   useFastPath: boolean
+  /** 视觉感知：每次发消息时附带屏幕 OCR 摘要（M4-A-2）—— 默认关，3 道门后开 */
+  visionEnabled: boolean
 }
 
 const DEFAULT_PREFS: Preferences = {
   modelId: DEFAULT_MODEL,
   followFrontApp: true,
-  useFastPath: true
+  useFastPath: true,
+  visionEnabled: false
 }
 
 function prefsPath(): string {
@@ -41,13 +44,16 @@ export async function loadPreferences(): Promise<Preferences> {
         modelId?: unknown
         followFrontApp?: unknown
         useFastPath?: unknown
+        visionEnabled?: unknown
       }
       const modelId = isValidModelId(obj.modelId) ? obj.modelId : DEFAULT_PREFS.modelId
       const followFrontApp =
         typeof obj.followFrontApp === 'boolean' ? obj.followFrontApp : DEFAULT_PREFS.followFrontApp
       const useFastPath =
         typeof obj.useFastPath === 'boolean' ? obj.useFastPath : DEFAULT_PREFS.useFastPath
-      return { modelId, followFrontApp, useFastPath }
+      const visionEnabled =
+        typeof obj.visionEnabled === 'boolean' ? obj.visionEnabled : DEFAULT_PREFS.visionEnabled
+      return { modelId, followFrontApp, useFastPath, visionEnabled }
     }
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code
@@ -68,6 +74,9 @@ export async function savePreferences(prefs: Preferences): Promise<void> {
   }
   if (typeof prefs.useFastPath !== 'boolean') {
     throw new Error(`[prefs] useFastPath must be boolean`)
+  }
+  if (typeof prefs.visionEnabled !== 'boolean') {
+    throw new Error(`[prefs] visionEnabled must be boolean`)
   }
   const data = JSON.stringify(prefs, null, 2)
   await fs.writeFile(prefsPath(), data, { mode: 0o600 })

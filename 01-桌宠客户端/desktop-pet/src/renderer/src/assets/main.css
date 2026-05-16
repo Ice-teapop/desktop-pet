@@ -365,3 +365,198 @@ body,
 .chat-input:focus {
   border-color: var(--coral-deep);
 }
+
+/* ============================================================
+ * M4-A-2 视觉感知 UI
+ * ============================================================ */
+
+/* —— vision-bar：input 上方的小工具栏（toggle 按钮）—— */
+.vision-bar {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 2px;
+}
+
+.vision-toggle {
+  font-family: var(--fnt-cn);
+  font-size: 10.5px;
+  letter-spacing: 0.3px;
+  padding: 3px 8px;
+  background: var(--paper);
+  color: var(--ink);
+  border: 2px solid var(--coral);
+  cursor: pointer;
+  clip-path: var(--clip-pixel-card);
+  filter: drop-shadow(2px 2px 0 var(--coral-deep));
+  transition: transform 80ms steps(2);
+}
+
+.vision-toggle:hover:not(:disabled) {
+  transform: translate(-1px, -1px);
+}
+
+.vision-toggle:active:not(:disabled) {
+  transform: translate(1px, 1px);
+  filter: drop-shadow(1px 1px 0 var(--coral-deep));
+}
+
+.vision-toggle:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.vision-toggle[data-state='enabled'] {
+  background: var(--coral);
+  color: #fff;
+  border-color: var(--coral-deep);
+}
+
+/* —— vision-chip：3-stage progress 短暂气泡 —— */
+.vision-chip {
+  flex-shrink: 0;
+  align-self: center;
+  font-family: var(--fnt-cn);
+  font-size: 10.5px;
+  padding: 4px 9px;
+  background: var(--coral-soft);
+  color: var(--ink);
+  border: 2px solid var(--coral);
+  clip-path: var(--clip-pixel-card);
+  filter: drop-shadow(2px 2px 0 var(--coral-deep));
+  animation: vision-chip-in 220ms ease-out;
+}
+
+.vision-chip[data-stage='failed'] {
+  background: #fce4e0;
+  border-color: #a94c3a;
+  color: #6b2418;
+  filter: drop-shadow(2px 2px 0 #8a3a28);
+}
+
+@keyframes vision-chip-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* —— 隐私 + token 设置 modal —— */
+.vision-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(58, 40, 32, 0.45); /* 暖深棕半透 —— 跟主题色系一致 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+  /* 父窗口宽度 230px 太窄，modal 需要更大画布 —— 这里铺整个窗口 */
+}
+
+.vision-modal {
+  background: var(--paper);
+  color: var(--ink);
+  border: 3px solid var(--coral);
+  padding: 16px 18px;
+  width: calc(100% - 24px);
+  max-height: 92vh;
+  overflow-y: auto;
+  font-family: var(--fnt-cn);
+  font-size: 12px;
+  line-height: 1.55;
+  clip-path: var(--clip-pixel-card);
+  filter: var(--drop-shadow);
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.vision-modal-title {
+  font-size: 15px;
+  font-weight: bold;
+  margin-bottom: 10px;
+  color: var(--coral-deep);
+}
+
+.vision-modal-body p {
+  margin-bottom: 6px;
+}
+
+.vision-modal-body ul {
+  margin-left: 14px;
+  margin-bottom: 8px;
+}
+
+.vision-modal-body li {
+  margin-bottom: 3px;
+  font-size: 11px;
+}
+
+.vision-modal-endpoint {
+  font-family: var(--fnt-en);
+  font-size: 10px;
+  background: var(--coral-soft);
+  padding: 3px 6px;
+  display: inline-block;
+  margin: 2px 0;
+}
+
+.vision-modal-input {
+  width: 100%;
+  margin-top: 8px;
+  padding: 7px 10px;
+  font-family: var(--fnt-cn);
+  font-size: 11.5px;
+  color: var(--ink);
+  background: #fff;
+  border: 2px solid var(--coral);
+  outline: none;
+  clip-path: var(--clip-pixel-card);
+}
+
+.vision-modal-input:focus {
+  border-color: var(--coral-deep);
+}
+
+.vision-modal-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  justify-content: flex-end;
+}
+
+.vision-modal-btn-cancel,
+.vision-modal-btn-ok {
+  font-family: var(--fnt-cn);
+  font-size: 11.5px;
+  padding: 6px 12px;
+  border: 2px solid var(--coral);
+  cursor: pointer;
+  clip-path: var(--clip-pixel-card);
+  filter: drop-shadow(2px 2px 0 var(--coral-deep));
+  transition: transform 80ms steps(2);
+}
+
+.vision-modal-btn-cancel {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.vision-modal-btn-ok {
+  background: var(--coral);
+  color: #fff;
+  border-color: var(--coral-deep);
+}
+
+.vision-modal-btn-cancel:hover,
+.vision-modal-btn-ok:hover:not(:disabled) {
+  transform: translate(-1px, -1px);
+}
+
+.vision-modal-btn-ok:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

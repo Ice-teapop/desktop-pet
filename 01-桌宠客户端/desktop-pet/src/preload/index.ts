@@ -6,6 +6,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type { ActivityState, ChatError as ChatErrorMsg, KeyState } from '../shared/chat-types'
+import type { VisionProgress, VisionState } from '../shared/vision-types'
 
 const api = {
   /** 渲染层接管鼠标后，把 dx/dy 增量发给主进程，由主进程移动窗口。 */
@@ -97,6 +98,36 @@ const api = {
     const handler = (_event: IpcRendererEvent, state: ActivityState): void => listener(state)
     ipcRenderer.on('pet:activity', handler)
     return () => ipcRenderer.off('pet:activity', handler)
+  },
+
+  // —— M4-A-2 视觉感知 ——
+  /** 提交 vision token，主进程加密落盘 + 推送 vision:state */
+  submitVisionToken(token: string): void {
+    ipcRenderer.send('vision:submit-token', token)
+  },
+  /** 启/停 vision toggle，主进程持久化到 preferences + 推送 state */
+  setVisionEnabled(enabled: boolean): void {
+    ipcRenderer.send('vision:set-enabled', enabled)
+  },
+  /** 清掉 token，主进程 unlink + 自动 disable */
+  clearVisionToken(): void {
+    ipcRenderer.send('vision:clear-token')
+  },
+  /** 渲染层 mount 后主动拉一次当前 visionState（防启动 race） */
+  requestVisionState(): void {
+    ipcRenderer.send('vision:request-state')
+  },
+  /** 订阅 vision 配置状态推送（has-token / enabled / disabled） */
+  onVisionState(listener: (state: VisionState) => void): () => void {
+    const handler = (_event: IpcRendererEvent, state: VisionState): void => listener(state)
+    ipcRenderer.on('vision:state', handler)
+    return () => ipcRenderer.off('vision:state', handler)
+  },
+  /** 订阅 vision 3-stage progress（一次 chat:submit 期间多次触发） */
+  onVisionProgress(listener: (p: VisionProgress) => void): () => void {
+    const handler = (_event: IpcRendererEvent, p: VisionProgress): void => listener(p)
+    ipcRenderer.on('vision:progress', handler)
+    return () => ipcRenderer.off('vision:progress', handler)
   }
 }
 

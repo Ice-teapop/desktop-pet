@@ -19,6 +19,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { PetState } from '../../shared/pet-state'
 import type { ActivityState, ChatError, KeyState } from '../../shared/chat-types'
+import type { VisionFailReason, VisionProgress, VisionState } from '../../shared/vision-types'
 // idle 池 6 种"无聊时的小动作"，闲态随机切
 import idleGif from '@themes/clawd-dev/clawd-idle.gif'
 import idleReadingGif from '@themes/clawd-dev/clawd-idle-reading.gif'
@@ -132,6 +133,26 @@ function chatErrorText(err: ChatError): string {
 
 type ChatPhase = 'closed' | 'opening' | 'open' | 'closing'
 
+/** 把 VisionFailReason 映射成用户友好短语（inline warning 显示）。 */
+function failReasonText(r: VisionFailReason): string {
+  switch (r.kind) {
+    case 'no-token':
+      return 'token 未设置'
+    case 'capture-failed':
+      return '截屏失败'
+    case 'network':
+      return '网络不通'
+    case 'unauthorized':
+      return 'token 无效'
+    case 'rate-limited':
+      return '请求过频'
+    case 'server-error':
+      return `服务错误 ${r.status}`
+    case 'timeout':
+      return '响应超时'
+  }
+}
+
 function App(): React.JSX.Element {
   const [state, setState] = useState<PetState>('idle')
   const [chatPhase, setChatPhase] = useState<ChatPhase>('closed')
@@ -148,6 +169,14 @@ function App(): React.JSX.Element {
   // → CSS opacity transition 让 back 0→1 + front 1→0 同时 ramp，永远不出现透明窗口
   const [frontIdx, setFrontIdx] = useState<0 | 1>(0)
   const [urls, setUrls] = useState<[string, string]>([IDLE_POOL[0], IDLE_POOL[0]])
+  // —— M4-A-2 视觉感知 state ——
+  const [visionState, setVisionState] = useState<VisionState | null>(null)
+  // 当前 vision pipeline progress（仅 chat:submit 期间 non-null；attached/failed 后清空）
+  const [visionProgress, setVisionProgress] = useState<VisionProgress | null>(null)
+  // 隐私 + token 设置 modal 开关
+  const [visionModalOpen, setVisionModalOpen] = useState(false)
+  // modal 内 token input
+  const [visionTokenDraft, setVisionTokenDraft] = useState('')
   // 记录"想切到的 url" —— 防止 back img 在我们没期待时（如初始 mount）fire onLoad 误触发 swap
   const pendingBackRef = useRef<string | null>(null)
   const msgIdRef = useRef(1)
@@ -211,6 +240,31 @@ function App(): React.JSX.Element {
   useEffect(() => {
     const off = window.api.onKeyState((s) => setKeyState(s))
     window.api.requestKeyState()
+    return off
+  }, [])
+
+  // —— vision state 订阅 + 启动主动拉一次（同 keyState 防 race 模式）——
+  useEffect(() => {
+    const off = window.api.onVisionState((s) => setVisionState(s))
+    window.api.requestVisionState()
+    return off
+  }, [])
+
+  // —— vision progress 订阅：每次 chat:submit 期间收 3 个 stage ——
+  useEffect(() => {
+    const off = window.api.onVisionProgress((p) => {
+      setVisionProgress(p)
+      // attached/failed 2 秒后自动隐藏 chip（保留瞬间反馈，不长期占用 UI）
+      if (p.stage === 'attached' || p.stage === 'failed') {
+        const timer = setTimeout(() => {
+          setVisionProgress((cur) =>
+            cur?.stage === p.stage ? null : cur
+          )
+        }, 2200)
+        return () => clearTimeout(timer)
+      }
+      return undefined
+    })
     return off
   }, [])
 
@@ -486,6 +540,59 @@ function App(): React.JSX.Element {
     pendingBackRef.current = null
     requestAnimationFrame(() => setFrontIdx(idx))
   }
+  // —— vision UI helpers ——
+  const handleVisionToggleClick = (): void => {
+    if (!visionState) return // 还没拿到状态，禁用
+    if (visionState.kind === 'disabled-no-token') {
+      // 没 token：弹设置 modal
+      setVisionTokenDraft('')
+      setVisionModalOpen(true)
+    } else if (visionState.kind === 'disabled') {
+      // 有 token + 关 → 直接开
+      window.api.setVisionEnabled(true)
+    } else {
+      // enabled → 关
+      window.api.setVisionEnabled(false)
+    }
+  }
+
+  const handleVisionEnableConfirm = (): void => {
+    const trimmed = visionTokenDraft.trim()
+    if (!trimmed) return
+    // 先存 token，主进程会 push vision:state='disabled'
+    window.api.submitVisionToken(trimmed)
+    // 然后立即 enable
+    window.api.setVisionEnabled(true)
+    setVisionModalOpen(false)
+    setVisionTokenDraft('')
+  }
+
+  const handleVisionModalCancel = (): void => {
+    setVisionModalOpen(false)
+    setVisionTokenDraft('')
+  }
+
+  const visionLabel = ((): string => {
+    if (!visionState) return '...'
+    if (visionState.kind === 'enabled') return '👁 截屏识别 ON'
+    if (visionState.kind === 'disabled') return '👁 截屏识别 OFF'
+    return '🔒 设置截屏识别'
+  })()
+
+  const visionProgressText = ((): string | null => {
+    if (!visionProgress) return null
+    switch (visionProgress.stage) {
+      case 'capturing':
+        return '📸 截图中…'
+      case 'recognizing':
+        return '🔍 识别中…'
+      case 'attached':
+        return `✓ 已附加 OCR (${visionProgress.ocrChars} 字)`
+      case 'failed':
+        return `⚠ ${failReasonText(visionProgress.reason)}（本次不带 OCR）`
+    }
+  })()
+
   // keyState 还没就位时禁用：避免「user msg / no-api-key 错误 / 迎宾」三连闪
   // 等 AI 回复时禁用：避免连点 submit 让旧 stream 被 token 屏蔽但仍在烧 Anthropic token
   const isInputDisabled = keyState === null || isWaitingForReply
@@ -535,6 +642,27 @@ function App(): React.JSX.Element {
               </>
             )}
           </div>
+          {visionProgressText && (
+            <div
+              className="vision-chip"
+              data-stage={visionProgress?.stage}
+              role="status"
+              aria-live="polite"
+            >
+              {visionProgressText}
+            </div>
+          )}
+          <div className="vision-bar">
+            <button
+              type="button"
+              className="vision-toggle"
+              onClick={handleVisionToggleClick}
+              disabled={!visionState}
+              data-state={visionState?.kind}
+            >
+              {visionLabel}
+            </button>
+          </div>
           <input
             className="chat-input"
             value={draft}
@@ -544,6 +672,45 @@ function App(): React.JSX.Element {
             disabled={isInputDisabled}
             placeholder={placeholder}
           />
+        </div>
+      )}
+      {visionModalOpen && (
+        <div className="vision-modal-overlay" onClick={handleVisionModalCancel}>
+          <div className="vision-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="vision-modal-title">启用屏幕感知</div>
+            <div className="vision-modal-body">
+              <p>每次你发消息时，DeskPet 会截取当前屏幕一张全屏图，发到：</p>
+              <p className="vision-modal-endpoint">vision.iceteamk.com（你自己的服务器）</p>
+              <p>做 OCR 识别，结果作为消息的一部分发给 AI。</p>
+              <ul>
+                <li>截屏 → 仅内存 → 发送 → 服务端识别 → 字节即刻销毁</li>
+                <li>桌宠所在区域服务端涂白（防 AI 看到自己）</li>
+                <li>任何环节不存盘（服务器已加固 raw-bytes + LimitCORE=0）</li>
+              </ul>
+              <p>可随时关闭；token 加密本地存储。</p>
+              <input
+                className="vision-modal-input"
+                type="password"
+                placeholder="粘贴 vision token (DESKPET_VISION_TOKEN)"
+                value={visionTokenDraft}
+                onChange={(e) => setVisionTokenDraft(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <div className="vision-modal-actions">
+              <button type="button" className="vision-modal-btn-cancel" onClick={handleVisionModalCancel}>
+                取消
+              </button>
+              <button
+                type="button"
+                className="vision-modal-btn-ok"
+                onClick={handleVisionEnableConfirm}
+                disabled={!visionTokenDraft.trim()}
+              >
+                我已了解，启用
+              </button>
+            </div>
+          </div>
         </div>
       )}
       <div ref={petRef} className="pet" data-state={state} onMouseDown={handleMouseDown}>
