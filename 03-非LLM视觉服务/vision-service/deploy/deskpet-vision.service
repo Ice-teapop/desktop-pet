@@ -66,6 +66,15 @@ RestrictSUIDSGID=true
 LockPersonality=true
 RestrictRealtime=true
 
+# —— Core dump 禁用（「截屏字节不落盘」纪律最后一公里）——
+# Ubuntu 默认 core_pattern 走 apport 把 core 写 /var/lib/apport/coredump/。
+# core dump 包含进程完整内存，即正在处理的 image_bytes（截屏内容）。
+# RLIMIT_CORE=0 时内核完全不生成 core（也不会 pipe 给 apport），是 fail-closed
+# 的硬保证 —— 即使进程 segfault 在 PIL/PyTorch 解码途中也不会落盘。
+# 代价：失去 core 调试能力，崩溃后只能看 journalctl 的 Python traceback。
+# 此服务的 privacy 不变量优先级 > 调试便利性。
+LimitCORE=0
+
 # 必须可写的路径：工作目录（pip cache 在 .venv 里）、运行时 socket
 # 注意：不放 /tmp（PrivateTmp 已经处理）；不放 /var（不写持久日志，靠 journal）
 ReadWritePaths=/opt/deskpet/vision-service
