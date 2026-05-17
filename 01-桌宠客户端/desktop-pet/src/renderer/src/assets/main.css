@@ -131,6 +131,15 @@ body,
   transform: translateZ(0);
 }
 
+/* M9-4 eye-following inline SVG layer：跟两个 <img> 同样 absolute 叠加，做 idle
+   eye tracking 时 opacity 1（其他 state 时 0）。will-change 加 transform 因为
+   内部 group 通过 JS 直接 mutate style.transform。 */
+.pet > svg {
+  position: absolute;
+  inset: 0;
+  will-change: opacity;
+}
+
 /* —— 对话 UI 容器（左侧） —— */
 .conversation {
   position: absolute;

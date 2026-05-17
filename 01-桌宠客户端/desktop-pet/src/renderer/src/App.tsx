@@ -38,6 +38,8 @@ import yawningSvg from '@themes/clawd-dev/clawd-idle-yawn.svg'
 import dozingSvg from '@themes/clawd-dev/clawd-idle-doze.svg'
 import collapsingSvg from '@themes/clawd-dev/clawd-idle-collapse.svg'
 import wakingSvg from '@themes/clawd-dev/clawd-wake.svg'
+// M9-4 eye tracking: inline SVG component（?react suffix triggers vite-plugin-svgr）
+import IdleFollowSvg from '@themes/clawd-dev/clawd-idle-follow.svg?react'
 // activity → GIF 映射：识别到不同活动时桌宠"陪你做同样的事"
 import typingGif from '@themes/clawd-dev/clawd-typing.gif'
 import debuggerGif from '@themes/clawd-dev/clawd-debugger.gif'
@@ -48,6 +50,16 @@ import happyGif from '@themes/clawd-dev/clawd-happy.gif'
 import errorGif from '@themes/clawd-dev/clawd-error.gif'
 
 const DRAG_THRESHOLD_PX = 5
+
+// M9-4 eye tracking 参数（SVG 单位 = viewBox 1 单位 ≈ ~7px 显示尺寸）：
+//   SENSE_RANGE_PX = cursor 超过这个距离 pet 中心 → eye/body 进入饱和（最大偏移）
+//   EYE_MAX_SVG = eye group transform 最大偏移（svg units）
+//   BODY_MAX_DEG = 身体倾斜最大角度
+//   SHADOW_MAX_STRETCH = 影子 scaleX 增量（1 = 不变；1 + 0.2 = 拉长 20%）
+const SENSE_RANGE_PX = 600
+const EYE_MAX_SVG = 0.4
+const BODY_MAX_DEG = 4
+const SHADOW_MAX_STRETCH = 0.2
 
 // M9-2 click burst 时间常量：
 //   POKE_DETECT_MS = 单击 burst window；250ms 内没新 click → fire burst action
@@ -222,6 +234,15 @@ function App(): React.JSX.Element {
     timer: ReturnType<typeof setTimeout> | null
   } | null>(null)
 
+  /**
+   * M9-4 eye tracking: main 端 30Hz 推 cursor dx/dy 进 ref（**不**触发 React
+   * re-render）。rAF loop 读 ref → 直接 mutate IdleFollow SVG 内部 group 的
+   * style.transform（CSS 已 transition: transform 0.2s ease-out 让 30Hz 输入
+   * 平滑过渡，不需手动 lerp）。
+   */
+  const cursorRef = useRef<{ dx: number; dy: number }>({ dx: 0, dy: 0 })
+  const idleFollowSvgRef = useRef<SVGSVGElement>(null)
+
   const isConvMounted = chatPhase === 'open' || chatPhase === 'closing'
   // 等 AI 回复：ready 状态下最后一条是 user 才显示 typing
   // missing 下 user 提交 key/普通文本后渲染层会立即插入 AI 回应，不会卡 typing
@@ -265,9 +286,62 @@ function App(): React.JSX.Element {
   // 主进程 did-finish-load 推 key:state 时若这个 useEffect 还没 subscribe 会丢
   useEffect(() => {
     const off = window.api.onKeyState((s) => setKeyState(s))
+    // M9-4 eye tracking: 订阅 main 端 30Hz cursor push → 写 ref，不触发 React re-render
+    const offCursor = window.api.onPetCursor((cursor) => {
+      cursorRef.current = cursor
+    })
+
     window.api.requestKeyState()
-    return off
+    return () => {
+      off()
+      offCursor()
+    }
   }, [])
+
+  /**
+   * M9-4 eye tracking rAF loop：每帧从 cursorRef 读取最新 cursor 位置 → mutate
+   * IdleFollow SVG 内部 `#eyes-js` / `#body-js` / `#shadow-js` group 的
+   * style.transform。**不**触发 React render（直接 DOM mutation）。
+   *
+   * Officer B fixes:
+   *   - querySelector cache：mount 一次性 query 3 group + 存闭包变量，rAF 直接读
+   *     （之前每帧 ×3 = 180 q/sec，svgr forwardRef 让 svg mount 后 group 引用稳定）
+   *   - SVG opacity 0 (非 idle) 时 skip transform mutation（CSS 已 transition,
+   *     残留 transform 值无视觉影响；省 frame 写）
+   *
+   * CSS 已 transition: transform 0.2s ease-out 让 30Hz 输入平滑，不需手动 lerp.
+   */
+  useEffect(() => {
+    const svg = idleFollowSvgRef.current
+    if (!svg) return
+    // querySelector 一次性 mount 时拿 3 group 引用，rAF 直接读 closure 变量
+    const eyes = svg.querySelector<SVGGElement>('#eyes-js')
+    const body = svg.querySelector<SVGGElement>('#body-js')
+    const shadow = svg.querySelector<SVGGElement>('#shadow-js')
+    let raf = 0
+    const tick = (): void => {
+      // 非 idle-follow 模式 skip mutation（SVG 不可见，无意义的 style write）
+      // 当前 inline check 比把 state 进 deps 触发 rAF 重启更简单
+      if (state === 'idle' && activity === 'idle') {
+        const { dx, dy } = cursorRef.current
+        const normX = Math.max(-1, Math.min(1, dx / SENSE_RANGE_PX))
+        const normY = Math.max(-1, Math.min(1, dy / SENSE_RANGE_PX))
+        if (eyes) {
+          eyes.style.transform = `translate(${normX * EYE_MAX_SVG}px, ${normY * EYE_MAX_SVG}px)`
+        }
+        if (body) {
+          body.style.transform = `rotate(${normX * BODY_MAX_DEG}deg)`
+        }
+        if (shadow) {
+          shadow.style.transform = `scaleX(${1 + Math.abs(normX) * SHADOW_MAX_STRETCH}) translateX(${normX * 0.5}px)`
+        }
+      }
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+    // state + activity 进 deps —— gate inline 判断需要拿最新值，重启 rAF 更稳
+  }, [state, activity])
 
   // —— vision state 订阅 + 启动主动拉一次（同 keyState 防 race 模式）——
   useEffect(() => {
@@ -985,17 +1059,30 @@ function App(): React.JSX.Element {
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
       >
+        {/* M9-4 IdleFollow inline SVG layer —— state=idle && activity=idle 时显示，
+            内部 `#eyes-js`/`#body-js`/`#shadow-js` group 由 rAF loop 直接 mutate
+            transform 实现 eye tracking + body lean + shadow stretch。
+            其他状态时 opacity 0，让下面 dual-img 接管。 */}
+        <IdleFollowSvg
+          ref={idleFollowSvgRef}
+          style={{
+            opacity: state === 'idle' && activity === 'idle' ? 1 : 0,
+            transition: `opacity ${FADE_HALF_MS}ms ${FADE_EASING}`
+          }}
+        />
         {/* 双层 cross-fade：两个 absolute 叠加，opacity 互补 ramp。
             会同时跑 0→1 和 1→0，旧 GIF 在 fade-out 期间继续 paint 旧帧（不会突然透明）。
             onLoad 驱动 swap：新 GIF decode 完才 ramp，消除 Chromium <img src> 重置的 1-2 帧透明窗口。
-            两层都常驻 mount，避免 unmount/remount 抖动；通过 frontIdx 切角色。 */}
+            两层都常驻 mount，避免 unmount/remount 抖动；通过 frontIdx 切角色。
+            M9-4: idle-follow 模式时整组 img 强制 opacity 0 让 SVG layer 占主导。 */}
         <img
           src={urls[0]}
           alt=""
           draggable={false}
           onLoad={handleImgLoad(0)}
           style={{
-            opacity: frontIdx === 0 ? 1 : 0,
+            opacity:
+              state === 'idle' && activity === 'idle' ? 0 : frontIdx === 0 ? 1 : 0,
             transition: `opacity ${FADE_HALF_MS}ms ${FADE_EASING}`
           }}
         />
@@ -1005,7 +1092,8 @@ function App(): React.JSX.Element {
           draggable={false}
           onLoad={handleImgLoad(1)}
           style={{
-            opacity: frontIdx === 1 ? 1 : 0,
+            opacity:
+              state === 'idle' && activity === 'idle' ? 0 : frontIdx === 1 ? 1 : 0,
             transition: `opacity ${FADE_HALF_MS}ms ${FADE_EASING}`
           }}
         />

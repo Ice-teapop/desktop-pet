@@ -84,6 +84,19 @@ const api = {
     ipcRenderer.send('pet:wake')
   },
   /**
+   * M9-4 eye tracking: 订阅 main 端 30Hz 推的 cursor 位置（相对 pet window 中心）。
+   * 30Hz → renderer 在 rAF loop 里直接 mutate SVG group `#eyes-js`/`#body-js`/
+   * `#shadow-js` 的 style.transform，不触发 React re-render。
+   */
+  onPetCursor(listener: (cursor: { dx: number; dy: number }) => void): () => void {
+    const handler = (
+      _event: IpcRendererEvent,
+      cursor: { dx: number; dy: number }
+    ): void => listener(cursor)
+    ipcRenderer.on('pet:cursor', handler)
+    return () => ipcRenderer.off('pet:cursor', handler)
+  },
+  /**
    * 订阅主进程通知"窗口扩展完成"事件 —— 用于渲染层等窗口动画完才 fade-in 对话 UI，
    * 避免 conversation 在 260px 窗口内右侧被裁的半渲染期。返回取消订阅函数。
    */

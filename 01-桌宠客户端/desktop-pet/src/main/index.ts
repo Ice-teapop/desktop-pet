@@ -285,6 +285,54 @@ class PetStateMachine {
 /** M8: idle 多久后自动 sleep。60s 跟 clawd-on-desk 一致 */
 const IDLE_SLEEP_MS = 60_000
 
+/**
+ * M9-4 eye tracking: main 端轮询全局 cursor，推 dx/dy 给 renderer 让 inline SVG
+ * 眼球/身体/影子跟随。renderer 在 panel 外收不到 mousemove（DOM mousemove 只
+ * 当 cursor 在 webContents 区域内 fire），所以必须 main 端 polling。
+ *
+ * 33ms ≈ 30Hz，跟 renderer rAF (60Hz 但实际很多 frame 一致) 协调够用；CPU
+ * 负担经测 < 0.5% (screen.getCursorScreenPoint 是 sync native call)。
+ */
+const CURSOR_POLL_MS = 33
+let cursorPollTimer: NodeJS.Timeout | null = null
+
+function startCursorPoll(): void {
+  if (cursorPollTimer) return
+  cursorPollTimer = setInterval(() => {
+    if (!petWindow || petWindow.isDestroyed()) return
+    const cursor = screen.getCursorScreenPoint()
+    const bounds = petWindow.getBounds()
+    const dx = cursor.x - (bounds.x + bounds.width / 2)
+    const dy = cursor.y - (bounds.y + bounds.height / 2)
+    petWindow.webContents.send('pet:cursor', { dx, dy })
+  }, CURSOR_POLL_MS)
+}
+
+function stopCursorPoll(): void {
+  if (cursorPollTimer) {
+    clearInterval(cursorPollTimer)
+    cursorPollTimer = null
+  }
+}
+
+/**
+ * M9-4 (Officer B ⚠️ #3 fix): state-gated cursor poll —— 仅 state=idle &&
+ * activity=idle 时启动；其它时刻 stop，避免持续 30Hz IPC 在 non-idle 期间
+ * 唤醒 renderer 影响 LLM stream 调度 + 笔记本待机 battery。
+ *
+ * 调用点：stateMachine.notify (state 变) + activeAppMonitor callback (activity 变)
+ * + startup 初始化一次（currentActivity 默认 'idle'）。
+ */
+function updateCursorPoll(): void {
+  const shouldPoll =
+    stateMachine.getState() === 'idle' && currentActivity === 'idle'
+  if (shouldPoll) {
+    startCursorPoll()
+  } else {
+    stopCursorPoll()
+  }
+}
+
 // 主进程 = 对话历史 / API key / keyState / model / activity 单一事实来源
 const chatHistory: ChatMessage[] = []
 // M5-2：跨会话长期记忆 —— pet-memory.md 内容快照，启动时 load，
@@ -467,6 +515,8 @@ const activeAppMonitor = new ActiveAppMonitor((app) => {
     currentActivity = nextActivity
     notifyActivity()
     rebuildTrayMenu()
+    // M9-4: activity 变也评估 cursor poll —— 跟随前台 app 切到 coding/etc 时停
+    updateCursorPoll()
   })()
 })
 
@@ -718,6 +768,8 @@ let tray: Tray | null = null
 let visibilityWatchdog: NodeJS.Timeout | null = null
 const stateMachine = new PetStateMachine((state) => {
   if (isWinAlive()) petWindow!.webContents.send('pet:state', state)
+  // M9-4: state 变即评估是否启停 cursor poll（idle 进入开，离开关）
+  updateCursorPoll()
 })
 
 function reapplyMacVisibility(win: BrowserWindow | null): void {
@@ -1769,6 +1821,9 @@ app.whenReady().then(async () => {
   createTray()
   watchScreenEvents()
 
+  // M9-4: 启动时评估 cursor poll —— state=idle + activity 默认 idle → 会启动
+  updateCursorPoll()
+
   // 启动 detector —— 按用户偏好（默认开）
   if (followFrontApp) activeAppMonitor.start()
   // 预热 Anthropic TLS pool：让首次真实 classify 从 ~1000ms 降到 ~250ms（A 根因 1）
@@ -1783,6 +1838,7 @@ app.whenReady().then(async () => {
 
 app.on('before-quit', () => {
   stopVisibilityWatchdog()
+  stopCursorPoll()
   activeAppMonitor.stop()
   // M5-2：强制 flush debounced 对话历史 —— 防退出前最后一条 chat:done 还在
   // 计时器里没落盘

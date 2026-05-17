@@ -23,13 +23,28 @@ export default defineConfig({
     },
     plugins: [
       react(),
-      // M9-4 spike: 让 `import { ReactComponent } from 'foo.svg?react'` 返回
-      // inline SVG React 组件 —— renderer 能 ref `<g id="eyes-js">` 之类直接
-      // 改 style.transform 实现 eye tracking。
+      // M9-4 spike: 让 `import X from 'foo.svg?react'` 返回 inline SVG React 组件 ——
+      // renderer 能 ref `<g id="eyes-js">` 之类直接改 style.transform 实现 eye tracking。
       // include: '**/*.svg?react' 只处理带 ?react query 的 import；其它路径
       // `import url from 'foo.svg'` 仍返回 URL string（dual-img cross-fade 用）
+      // svgrOptions:
+      //   ref: true ——  让组件用 forwardRef wrap，ref={svgRef} 真 attach 到 <svg>
+      //     根（Officer A 发现 default false 让整个 feature 静默不工作）
+      //   svgoConfig.cleanupIds: false —— 防 svgo 默认行为删未被 <use> 引用的 id
+      //     (#eyes-js / #body-js / #shadow-js 是 JS DOM mutation 入口，必须保留)
       svgr({
-        include: '**/*.svg?react'
+        include: '**/*.svg?react',
+        svgrOptions: {
+          ref: true,
+          svgoConfig: {
+            plugins: [
+              {
+                name: 'preset-default',
+                params: { overrides: { cleanupIds: false } }
+              }
+            ]
+          }
+        }
       })
     ]
   }
