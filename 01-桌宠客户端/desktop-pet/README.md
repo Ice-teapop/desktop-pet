@@ -102,6 +102,8 @@ DeskPet 的核心对话引擎依赖 Anthropic API；agentic tools（屏幕感知
 curl -fsSL https://raw.githubusercontent.com/Ice-teapop/desktop-pet/main/scripts/install.sh | bash
 ```
 
+> `install.sh` 在 monorepo 根目录的 `scripts/` 下（不是 `01-桌宠客户端/desktop-pet/scripts/`）。
+
 脚本自动：
 - 检测你的架构（M1/M2/M3/M4 arm64 或 Intel x64）
 - 从 GitHub Releases 拉最新版 zip
