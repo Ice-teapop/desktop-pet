@@ -47,3 +47,16 @@ export const MINI_PEEK_LERP = 0.3
 export const MINI_PEEK_SNAP_PX = 1
 /** Peek watcher 轮询间隔 —— 30Hz 跟 cursorPollTimer 一致 */
 export const MINI_PEEK_POLL_MS = 33
+
+// —— M9-5b B-5c 周期性 micro-peek（mini panel 自己周期性探头, 即使用户不靠近也有"活着"信号）——
+/** micro-peek 露出量 —— 介于默认 32 跟 hover-peek 64 之间，每个有 16px 区分度 */
+export const MINI_MICRO_PEEK_VISIBLE_PX = 48
+/** micro-peek 周期 —— 平均每 12 秒来一次 */
+export const MINI_MICRO_PEEK_PERIOD_MS = 12000
+/** ± jitter, 防机械感 → 实际间隔 9-15 秒随机 */
+export const MINI_MICRO_PEEK_JITTER_MS = 3000
+/** 到达 micro-peek 位置后 hold 多久才开始收回 */
+export const MINI_MICRO_PEEK_HOLD_MS = 600
+/** micro-peek 期间用的较慢 lerp（vs hover-peek 0.3）—— 0.07 给"探头犹豫"手感
+ *  数学: delta=16, 0.93^N < 1/16 → N≈38 frames @ 33ms = 1.26s 收敛, 接近设计师的 1200ms ease-out */
+export const MINI_MICRO_PEEK_LERP = 0.07

@@ -41,6 +41,11 @@ import {
 } from '../shared/pet-state'
 import {
   DEFAULT_PET_MODE,
+  MINI_MICRO_PEEK_HOLD_MS,
+  MINI_MICRO_PEEK_JITTER_MS,
+  MINI_MICRO_PEEK_LERP,
+  MINI_MICRO_PEEK_PERIOD_MS,
+  MINI_MICRO_PEEK_VISIBLE_PX,
   MINI_PEEK_ENTER_DIST,
   MINI_PEEK_LEAVE_DIST,
   MINI_PEEK_LERP,
@@ -427,16 +432,52 @@ function setPetMode(mode: PetMode): void {
   schedulePrefsSave(currentPrefsSnapshot())
 }
 
-// —— M9-5b B-4 Hover peek watcher —————————————————————————————————
-// mini 模式下 cursor 靠近 mini panel 时面板平滑滑出（露 64px vs retract 24px）。
-// hysteresis 防抖：ENTER_DIST < LEAVE_DIST，cursor 在阈值附近震荡不会触发反复切。
-// 设计上跟 cursorPollTimer 解耦 —— 那个服务 full mode eye tracking，这个仅服务 mini peek.
+// —— M9-5b B-4 + B-5c Hover peek watcher + 周期 micro-peek ———————————————
+// 两种 peek 行为合并在同一个 30Hz watcher 里:
+//   - hover peek (user-driven): cursor 靠近 → 滑出 64px, 离开 → 收回 32px
+//   - micro peek (auto): 每 12±3s 周期，自动滑出 48px hold 600ms 再收回 (表达"我还活着")
+// 优先级: user-peek > micro-peek > retract.  micro-peek 期间 user 进入 → cancel micro
+// + 切 user-peek; user 离开 → schedule 下一次 micro.
 let miniPeekTimer: NodeJS.Timeout | null = null
 let miniPeeking = false
+// micro-peek state machine: 'idle' = 默认收回; 'out' = 朝 48px 滑出; 'hold' = 在 48px 等
+// MINI_MICRO_PEEK_HOLD_MS; 'in' = 朝 32px 收回
+type MicroPhase = 'idle' | 'out' | 'hold' | 'in'
+let microPhase: MicroPhase = 'idle'
+// 一个 microPhaseTimer 复用 schedule-next-out 跟 hold 阶段，二选一在跑 (永远不会并存)
+let microPhaseTimer: NodeJS.Timeout | null = null
+
+function clearMicroPhaseTimer(): void {
+  if (microPhaseTimer) {
+    clearTimeout(microPhaseTimer)
+    microPhaseTimer = null
+  }
+}
+
+function scheduleNextMicroPeek(): void {
+  clearMicroPhaseTimer()
+  // ±jitter 防机械感（实际间隔 9-15s 随机）
+  const jitter = (Math.random() * 2 - 1) * MINI_MICRO_PEEK_JITTER_MS
+  const delay = MINI_MICRO_PEEK_PERIOD_MS + jitter
+  microPhaseTimer = setTimeout(() => {
+    microPhaseTimer = null
+    // schedule 期间 user 进 peek / 退 mini → 别 trigger
+    if (petMode === 'mini' && !miniPeeking && microPhase === 'idle') {
+      microPhase = 'out'
+    }
+  }, delay)
+}
+
+function cancelMicroPeek(): void {
+  clearMicroPhaseTimer()
+  microPhase = 'idle'
+}
 
 function startMiniPeekWatcher(): void {
   if (miniPeekTimer) return
   miniPeeking = false
+  microPhase = 'idle'
+  scheduleNextMicroPeek()
   miniPeekTimer = setInterval(() => {
     if (!petWindow || petWindow.isDestroyed() || petMode !== 'mini') return
     const cursor = screen.getCursorScreenPoint()
@@ -448,23 +489,50 @@ function startMiniPeekWatcher(): void {
     const dyToCenter = cursor.y - panelCenterY
     const dxFromRight = wa.x + wa.width - cursor.x
     const dist = Math.sqrt(dxFromRight * dxFromRight + dyToCenter * dyToCenter)
-    // Hysteresis 状态转移
+    // Hysteresis 状态转移 + 边沿触发 micro-peek 调度
+    const prevPeeking = miniPeeking
     if (miniPeeking) {
       if (dist > MINI_PEEK_LEAVE_DIST) miniPeeking = false
     } else {
       if (dist < MINI_PEEK_ENTER_DIST) miniPeeking = true
     }
-    const targetX = miniPeeking
-      ? wa.x + wa.width - MINI_PEEK_VISIBLE_PX
-      : wa.x + wa.width - MINI_VISIBLE_PX
-    // 平滑 lerp 朝 target，距 ≤1px 直接 snap
+    if (!prevPeeking && miniPeeking) cancelMicroPeek() // user 进 peek → 抢占
+    if (prevPeeking && !miniPeeking) scheduleNextMicroPeek() // user 离 peek → 重排下一次 micro
+    // Target X 优先级: hover-peek > micro-peek (out/hold) > retract (in/idle)
+    let targetX: number
+    if (miniPeeking) {
+      targetX = wa.x + wa.width - MINI_PEEK_VISIBLE_PX
+    } else if (microPhase === 'out' || microPhase === 'hold') {
+      targetX = wa.x + wa.width - MINI_MICRO_PEEK_VISIBLE_PX
+    } else {
+      targetX = wa.x + wa.width - MINI_VISIBLE_PX
+    }
+    // Lerp 系数: micro-peek 用 slower 0.07 给"探头犹豫"感; hover / idle 用 normal 0.3 fast snap
+    const isMicroTween = !miniPeeking && (microPhase === 'out' || microPhase === 'in')
+    const lerp = isMicroTween ? MINI_MICRO_PEEK_LERP : MINI_PEEK_LERP
+    // 平滑插值 + snap detection
     const currentX = bounds.x
     const delta = targetX - currentX
     if (Math.abs(delta) < MINI_PEEK_SNAP_PX) {
       if (currentX !== targetX) petWindow.setBounds({ ...bounds, x: targetX })
+      // 到达 micro-peek target → 进 hold (600ms 后 → in)
+      if (microPhase === 'out' && !miniPeeking) {
+        microPhase = 'hold'
+        clearMicroPhaseTimer()
+        microPhaseTimer = setTimeout(() => {
+          microPhaseTimer = null
+          // hold 完成: 若 user-peek 没抢占 + 仍在 mini → 进 'in' 收回; 否则回 idle
+          if (petMode === 'mini' && !miniPeeking) microPhase = 'in'
+          else microPhase = 'idle'
+        }, MINI_MICRO_PEEK_HOLD_MS)
+      } else if (microPhase === 'in' && !miniPeeking) {
+        // 'in' 阶段收回完成 → idle + schedule 下一次 micro-peek
+        microPhase = 'idle'
+        scheduleNextMicroPeek()
+      }
       return
     }
-    const newX = Math.round(currentX + delta * MINI_PEEK_LERP)
+    const newX = Math.round(currentX + delta * lerp)
     if (newX !== currentX) {
       petWindow.setBounds({ ...bounds, x: newX })
     }
@@ -477,6 +545,7 @@ function stopMiniPeekWatcher(): void {
     miniPeekTimer = null
   }
   miniPeeking = false
+  cancelMicroPeek()
 }
 
 /**
