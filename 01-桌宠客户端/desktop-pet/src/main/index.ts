@@ -45,6 +45,10 @@ import {
   type ModelId
 } from '../shared/chat-types'
 import {
+  DEFAULT_SELECTED_MODEL,
+  type SelectedModel
+} from '../shared/provider-types'
+import {
   AnthropicLlmClient,
   getApiKeyFromEnv,
   looksLikeApiKey,
@@ -179,6 +183,15 @@ let userProfileCache: UserProfile = { ...DEFAULT_USER_PROFILE }
 let currentApiKey: string | null = null
 let keyState: KeyState = 'missing'
 let currentModel: ModelId = DEFAULT_MODEL
+/**
+ * M7-3 mirror：当前选定的 SelectedModel（provider + modelId）。
+ * 跟 `currentModel: ModelId` 平行存在直到 wave 4 整体切换 —— 当前只 wave 3.x，需要
+ * 这个 mirror 让 schedulePrefsSave 不再 hardcode `provider:'anthropic'`。
+ *
+ * 启动时由 loadPreferences seed；setModel 时同步两者（保持 Anthropic ID 时同步，
+ * 切 provider 在 wave 4 通过新 IPC 入口 setSelectedModel 改）。
+ */
+let currentSelectedModel: SelectedModel = DEFAULT_SELECTED_MODEL
 let llmClient: AnthropicLlmClient | null = null
 // 活动识别（M3-3）：detector 推的状态独立于 PetState，渲染层组合两者决定 SVG
 let currentActivity: ActivityState = 'idle'
@@ -310,7 +323,14 @@ function setUseFastPath(on: boolean): void {
   // 切换 fast-path 时清 classifier cache —— 防止 LLM 错误结果污染新策略
   clearClassifyCache()
   rebuildTrayMenu()
-  schedulePrefsSave({ modelId: currentModel, followFrontApp, useFastPath, visionEnabled: visionEnabledPref, visionConsented: visionConsentedPref })
+  schedulePrefsSave({
+    modelId: currentModel,
+    selectedModel: currentSelectedModel,
+    followFrontApp,
+    useFastPath,
+    visionEnabled: visionEnabledPref,
+    visionConsented: visionConsentedPref
+  })
 }
 
 function setFollowFrontApp(on: boolean): void {
@@ -322,7 +342,14 @@ function setFollowFrontApp(on: boolean): void {
     activeAppMonitor.stop() // stop 内部会推一次 'idle' 回到闲态
   }
   rebuildTrayMenu()
-  schedulePrefsSave({ modelId: currentModel, followFrontApp, useFastPath, visionEnabled: visionEnabledPref, visionConsented: visionConsentedPref })
+  schedulePrefsSave({
+    modelId: currentModel,
+    selectedModel: currentSelectedModel,
+    followFrontApp,
+    useFastPath,
+    visionEnabled: visionEnabledPref,
+    visionConsented: visionConsentedPref
+  })
 }
 
 function setKeyInMemory(key: string | null): void {
@@ -388,12 +415,24 @@ function setModel(id: ModelId): void {
   }
 
   currentModel = id
+  // M7-3: setModel 仍只接 ModelId（单 Anthropic 时代 API），同步更新 mirror 保持
+  // 一致 —— 这一路径用户只能从 Anthropic 三个 model 间切（tray menu），所以
+  // selectedModel 一定是 anthropic + id。Wave 4 新增 setSelectedModel 入口才能
+  // 切到别的 provider。
+  currentSelectedModel = { provider: 'anthropic', modelId: id }
   llmClient = null
   currentStreamHandle?.abort()
   currentStreamHandle = null
   chatTurnToken++
   rebuildTrayMenu()
-  schedulePrefsSave({ modelId: id, followFrontApp, useFastPath, visionEnabled: visionEnabledPref, visionConsented: visionConsentedPref })
+  schedulePrefsSave({
+    modelId: id,
+    selectedModel: currentSelectedModel,
+    followFrontApp,
+    useFastPath,
+    visionEnabled: visionEnabledPref,
+    visionConsented: visionConsentedPref
+  })
 }
 
 function trimChatHistory(): void {
@@ -1217,6 +1256,7 @@ app.whenReady().then(async () => {
   // load 偏好（找不到 / 损坏 → 用 DEFAULT_PREFS fallback）
   const prefs = await loadPreferences()
   currentModel = prefs.modelId
+  currentSelectedModel = prefs.selectedModel
   followFrontApp = prefs.followFrontApp
   useFastPath = prefs.useFastPath
   visionEnabledPref = prefs.visionEnabled
