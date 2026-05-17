@@ -45,8 +45,15 @@ import {
  * ToolResultOutput 形态（参见 @ai-sdk/provider-utils 的 ToolResultOutput union）。
  *
  * - 纯 string → { type: 'text', value }
- * - ToolContentBlock[] → { type: 'content', value: [...] } 其中 image source.base64 用
- *   { type: 'file-data', data, mediaType } 表示（'media' 已 deprecated）
+ * - ToolContentBlock[] (image) → { type: 'content', value: [...] } 其中 image base64 用
+ *   { type: 'image-data', data, mediaType } —— AI SDK v6 ToolResultOutput 里 image 的
+ *   canonical variant（file-data 仅 PDF，'media' 已 @deprecated 见 provider-utils 类型）
+ *
+ * 历史 bug (5d0b763 M7-4 wave 2 引入)：曾用 `type:'file-data'`，但 @ai-sdk/anthropic
+ * adapter 的 file-data case 只在 mediaType=='application/pdf' 时返回 document block,
+ * 其它 mediaType 会 `warnings.push('unsupported ... file-data with media type image/png')`
+ * + `return void 0` **静默丢弃** → tool_result 空 → AI 说"看不到截图". 改回 image-data
+ * 走 anthropic adapter image case 正确编码进 tool_result.
  */
 function toModelOutput({ output }: { output: ToolResultContent }) {
   if (typeof output === 'string') {
@@ -58,7 +65,7 @@ function toModelOutput({ output }: { output: ToolResultContent }) {
       b.type === 'text'
         ? { type: 'text' as const, text: b.text }
         : {
-            type: 'file-data' as const,
+            type: 'image-data' as const,
             data: b.source.data,
             mediaType: b.source.media_type
           }
