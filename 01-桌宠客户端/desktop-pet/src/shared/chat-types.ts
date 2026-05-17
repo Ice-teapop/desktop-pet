@@ -39,27 +39,65 @@ export interface ChatUsage {
 export type KeyState = 'missing' | 'ready'
 
 /**
- * 可选的 Claude 模型 —— 这里只白名单 3 个常用档位，避免给用户太多选择 paralysis。
- * 新增模型时往 AVAILABLE_MODELS 加一行即可，托盘 submenu 自动加选项。
+ * Anthropic Claude 单 provider 时代的 model 类型 + 注册表 + 校验。
+ *
+ * @deprecated M7-3 multi-provider migration: 新代码统一用 `provider-types.ts`
+ * 的 `SelectedModel`（含 `Provider` 维度）/ `AVAILABLE_MODELS`（含 6 个 provider 的
+ * model entries 含 vision/tools capability flag）/ `DEFAULT_SELECTED_MODEL` /
+ * `isValidSelectedModel`。
+ *
+ * 仍保留下方的 `ModelId` 等：
+ *  1. `preferences.ts` 的 legacy `Preferences.modelId` 字段 forward-compat
+ *     migration（读老 preferences.json）
+ *  2. `main/index.ts` 的 legacy `currentModel: ModelId` mirror（跟新
+ *     `currentSelectedModel: SelectedModel` 并存到 wave 4 整体切换）
+ *  3. `activity-classifier.ts` 用 `isValidActivityState`（同文件别的 type）
+ *
+ * 桥接重导：本文件下方 re-export `provider-types.ts` 的新类型，方便 consumer 用一个
+ * import 拿到完整面（少改 import 路径）。
  */
+
+/** @deprecated 用 `provider-types.ts` 的 `SelectedModel.modelId` 替代 */
 export type ModelId = 'claude-haiku-4-5' | 'claude-sonnet-4-6' | 'claude-opus-4-7'
 
+/** @deprecated 用 `provider-types.ts` 的 `ModelEntry` 替代（含 provider/vision/tools flag） */
 export interface ModelInfo {
   id: ModelId
   label: string
 }
 
+/** @deprecated 用 `provider-types.ts` 的 `AVAILABLE_MODELS`（6 provider 的 ModelEntry[]）替代 */
 export const AVAILABLE_MODELS: ReadonlyArray<ModelInfo> = [
   { id: 'claude-haiku-4-5', label: 'Haiku 4.5（快 / 便宜）' },
   { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6（平衡）' },
   { id: 'claude-opus-4-7', label: 'Opus 4.7（强 / 贵）' }
 ]
 
+/** @deprecated 用 `provider-types.ts` 的 `DEFAULT_SELECTED_MODEL` 替代 */
 export const DEFAULT_MODEL: ModelId = 'claude-haiku-4-5'
 
+/** @deprecated 用 `provider-types.ts` 的 `isValidSelectedModel` 替代 */
 export function isValidModelId(value: unknown): value is ModelId {
   return typeof value === 'string' && AVAILABLE_MODELS.some((m) => m.id === value)
 }
+
+// —— M7-3 bridge re-exports：让旧 consumer 改 import 时不必同时改路径 ——
+// 新代码推荐直接从 `provider-types.ts` import；这些 re-export 是 transitional 便利。
+export {
+  PROVIDERS,
+  PROVIDER_ORDER,
+  AVAILABLE_MODELS as AVAILABLE_MODELS_V2,
+  DEFAULT_SELECTED_MODEL,
+  isValidProvider,
+  isValidSelectedModel,
+  modelsForProvider,
+  findModel,
+  defaultModelForProvider,
+  type Provider,
+  type ProviderInfo,
+  type ModelEntry,
+  type SelectedModel
+} from './provider-types'
 
 /**
  * 活动状态 —— 主进程 ActiveAppPoller 用 osascript 拿 macOS 前台 app 名后映射出来。
