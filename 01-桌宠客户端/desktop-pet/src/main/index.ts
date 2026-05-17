@@ -389,6 +389,15 @@ function computeModeBounds(
 function setPetMode(mode: PetMode): void {
   if (petMode === mode) return
   if (!petWindow || petWindow.isDestroyed()) return
+  // M9-5b B-3: 进 mini 前若 chat 开着（窗口宽 == WIN_WIDTH_FULL），通知 renderer 关 chat DOM
+  // —— 否则 setBounds 缩到 100×100 后 conversation 元素仍 mounted（被裁切不可见，浪费 render
+  // + 切回 full 时残留状态. Officer B #7 已 flag）。
+  if (mode === 'mini') {
+    const [currentW] = petWindow.getSize()
+    if (currentW === WIN_WIDTH_FULL) {
+      petWindow.webContents.send('pet:chat-force-close')
+    }
+  }
   petMode = mode
   petWindow.setBounds(computeModeBounds(mode, petWindow.getBounds()))
   if (mode === 'mini') {

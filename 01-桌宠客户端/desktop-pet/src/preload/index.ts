@@ -116,6 +116,12 @@ const api = {
   windowDragEnd(): void {
     ipcRenderer.send('window:drag-end')
   },
+  /** main 进 mini 时强制关 chat DOM —— 不走 closing 动画（窗口已缩到 100×100，动画无效） */
+  onChatForceClose(listener: () => void): () => void {
+    const handler = (): void => listener()
+    ipcRenderer.on('pet:chat-force-close', handler)
+    return () => ipcRenderer.off('pet:chat-force-close', handler)
+  },
   /**
    * 订阅主进程通知"窗口扩展完成"事件 —— 用于渲染层等窗口动画完才 fade-in 对话 UI，
    * 避免 conversation 在 260px 窗口内右侧被裁的半渲染期。返回取消订阅函数。

@@ -283,6 +283,16 @@ function App(): React.JSX.Element {
     return off
   }, [])
 
+  // M9-5b B-3: 进 mini 时 main 强制关 chat —— 直接 setChatPhase('closed') 跳过 closing
+  // 动画（窗口已 100×100，'conv-fade-out' animation 看不见）。chatPhaseRef 由上面 effect
+  // 同步。messages 保留不清 —— 用户回 full 后历史还在。
+  useEffect(() => {
+    const off = window.api.onChatForceClose(() => {
+      setChatPhase('closed')
+    })
+    return off
+  }, [])
+
   // idle 子调度器：state=idle && activity=idle 时按 pickNextIdle 完全随机切（不重复 current）。
   // 姿态硬跳由 fade 透明度过渡掩盖。reading "喝茶动作" 一次性 7s 后切走（GIF 一个 loop 时长）。
   // 加 idleVariantIdx 到依赖：每次切了 variant 重 schedule，让 reading 用短 delay。
