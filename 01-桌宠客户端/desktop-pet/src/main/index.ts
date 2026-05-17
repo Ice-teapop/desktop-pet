@@ -1079,7 +1079,26 @@ function registerIpc(): void {
       await resetKey()
       return
     }
-    // 非 anthropic：清盘 + 清内存 + invalidate llmClient（若是当前选的）+ 广播
+    // 非 anthropic：跟 anthropic resetKey 对称的 side effect（Officer B wave 5
+    // follow-up）—— 仅当 reset 的是 currentSelectedModel.provider 时才中断当前
+    // 对话：abort in-flight stream（防 user 切 OpenAI 烧 token 中点 reset 还继续）
+    // + 清 chatHistory（identity reset 语义） + bubble UI 复位。不清 classifier
+    // cache（classifier 用 Anthropic Haiku，跟此 provider 无关）。
+    if (rawProvider === currentSelectedModel.provider) {
+      currentStreamHandle?.abort()
+      currentStreamHandle = null
+      chatTurnToken++
+      if (isWinAlive()) {
+        petWindow!.webContents.send('chat:done', { inputTokens: 0, outputTokens: 0 })
+      }
+      chatHistory.length = 0
+      if (isWinAlive()) {
+        petWindow!.webContents.send('chat:history-cleared')
+      }
+      if (!stateMachine.transition('idle')) {
+        stateMachine.scheduleReturnToIdle(PET_STATES.thinking.minMs)
+      }
+    }
     await queueCredentialOp(async () => {
       try {
         await clearProviderKey(rawProvider)
@@ -1398,7 +1417,10 @@ function registerIpc(): void {
       currentActivity,
       currentAppName,
       currentAppBundleId,
-      tavilyApiKey: currentTavilyApiKey
+      tavilyApiKey: currentTavilyApiKey,
+      // M7-6 wave 6: 让 tool-defs.ts 据此 inject 当前 provider 的 native tool
+      // (anthropic_web_search / openai_code_interpreter / google_search 等)
+      selectedProvider: currentSelectedModel.provider
     }
 
     chatHistory.push({ role: 'user', content: cleaned })

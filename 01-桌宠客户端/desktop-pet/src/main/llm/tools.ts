@@ -19,6 +19,7 @@ import { promisify } from 'util'
 import { lookup } from 'dns/promises'
 import { isIP } from 'net'
 import type { ActivityState } from '../../shared/chat-types'
+import type { Provider } from '../../shared/provider-types'
 import { captureForTool } from '../services/vision-pipeline'
 import { isPathSafe } from './path-safety'
 import { checkCommand, tokenizeSafeCommand } from './command-whitelist'
@@ -99,6 +100,13 @@ export interface ToolContext {
   currentAppBundleId: string
   /** Tavily Search API key —— null = web_search tool 未启用 */
   tavilyApiKey: string | null
+  /**
+   * M7-6: 当前选定 provider —— `specialized-tools.ts` 据此决定 inject 哪些
+   * provider 原生 server-side tool（anthropic_web_search / openai_code_interpreter /
+   * google_search / xai_live_search 等）。chat:submit handler 从 currentSelectedModel
+   * .provider 取值传入。
+   */
+  selectedProvider: Provider
 }
 
 // ============================================================================

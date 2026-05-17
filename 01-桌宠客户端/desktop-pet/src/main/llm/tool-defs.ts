@@ -13,6 +13,7 @@
  */
 import { tool, type ToolSet } from 'ai'
 import { z } from 'zod'
+import { buildSpecializedToolsForProvider } from './specialized-tools'
 import {
   VIEW_SCREEN,
   READ_CLIPBOARD,
@@ -302,5 +303,8 @@ export function buildToolSetForContext(ctx: ToolContext): ToolSet {
     )
   }
 
-  return tools
+  // M7-6 wave 6: merge 当前 provider 的 specialized server-side tool。
+  // AI 自己挑哪个最合适（譬如 Anthropic 模型用 anthropic_web_search 不走 Tavily；
+  // OpenAI 模型用 openai_code_interpreter 不走 run_command 本地跑）。
+  return { ...tools, ...buildSpecializedToolsForProvider(ctx.selectedProvider) }
 }

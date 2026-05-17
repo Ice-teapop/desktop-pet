@@ -18,7 +18,7 @@ import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import { createXai } from '@ai-sdk/xai'
 import { createDeepSeek } from '@ai-sdk/deepseek'
 import { createByteDance } from '@ai-sdk/bytedance'
-import type { LanguageModel } from 'ai'
+import { extractReasoningMiddleware, wrapLanguageModel, type LanguageModel } from 'ai'
 import type { Provider, SelectedModel } from '../../shared/provider-types'
 import { resolveProviderKey } from '../storage/provider-keys'
 
@@ -40,8 +40,20 @@ function instantiateModel(
       return createGoogleGenerativeAI({ apiKey }).languageModel(modelId)
     case 'xai':
       return createXai({ apiKey }).languageModel(modelId)
-    case 'deepseek':
-      return createDeepSeek({ apiKey }).languageModel(modelId)
+    case 'deepseek': {
+      const baseModel = createDeepSeek({ apiKey }).languageModel(modelId)
+      // M7-6 wave 6: DeepSeek-R1 reasoner 返回 <think>...</think> block
+      // 在主 content 里。用 extractReasoningMiddleware 把 reasoning 单独提到
+      // ReasoningPart 让上层（renderer）能区分显示推理过程 vs 最终答案。
+      // V3 (deepseek-chat) 不是 reasoning model，不包 middleware。
+      if (modelId === 'deepseek-reasoner') {
+        return wrapLanguageModel({
+          model: baseModel,
+          middleware: extractReasoningMiddleware({ tagName: 'think' })
+        })
+      }
+      return baseModel
+    }
     case 'bytedance':
       return createByteDance({ apiKey }).languageModel(modelId)
     default: {
