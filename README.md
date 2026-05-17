@@ -2,7 +2,7 @@
 
 > A transparent, always-on-top macOS pixel pet × multi-modal AI assistant — it can see your screen, read/write files, run commands, and search the web.
 >
-> Electron + React 19 + TypeScript 5.9 + Anthropic Claude SDK.
+> Electron + React 19 + TypeScript 5.9 + Vercel AI SDK · 6 LLM providers (Anthropic / OpenAI / Google / xAI / DeepSeek / ByteDance).
 
 <p align="center">
   <img src="./docs/assets/demo.gif" alt="DeskPet interactions demo" width="640" />
@@ -19,8 +19,8 @@ It lives in the corner of your desktop. **Click to chat**, and the AI autonomous
 ## ✨ Features
 
 - **🐚 Transparent always-on-top pet** — NSPanel transparent borderless window. Lives across macOS Spaces and floats above fullscreen apps. Frontmost-app detection auto-switches expression (coding / writing / chatting).
-- **💬 Streaming chat** — Anthropic Claude Haiku 4.5 by default; switchable to Sonnet 4.6 / Opus 4.7. Real-time SDK streaming — the pet "types" replies.
-- **👁 Agentic vision** — The AI autonomously calls the `view_screen` tool when it needs to see your current screen. Screenshots go straight to Claude vision (no OCR middleware).
+- **💬 Streaming chat across 6 providers** — Anthropic Claude / OpenAI GPT / Google Gemini / xAI Grok / DeepSeek / ByteDance 豆包. Switch provider & model from Settings (`⌘+,`); default Anthropic Haiku 4.5. Unified streaming via Vercel AI SDK — the pet "types" replies regardless of provider.
+- **👁 Agentic vision** — The AI autonomously calls the `view_screen` tool when it needs to see your current screen. Screenshots go to whichever vision-capable model is currently selected (no OCR middleware).
 - **🛠 18 agentic tools** — read/write/list/find/delete files, `run_command` (whitelist silent / risky → modal), `fetch_url`, Tavily web search, clipboard read/write, URL open, system settings panels, user-profile wizard, cross-session `remember`, and more.
 - **🧠 Cross-session memory** — Chat history auto-persisted (last 10 exchange pairs) + the AI uses the `remember` tool to write your name / preferences / context into a long-term markdown file. The pet still remembers you on next launch.
 - **🎭 User-profile wizard** — On first chat, the AI proactively asks how you'd like to be called, your work background, and a personality preset for the pet (warm friend / concise pro / cold snarky / playmate goofball / custom).
@@ -63,17 +63,47 @@ Unzip → drag `DeskPet.app` to `/Applications` → **first launch: right-click 
 
 ---
 
-## 🔑 Required: Anthropic API key
+## 🔑 Required: at least one LLM provider key
 
-Powers the chat engine. **Without this key the pet cannot talk.**
+DeskPet supports **6 providers** out of the box (Anthropic / OpenAI / Google / xAI / DeepSeek / ByteDance 豆包). You only need **one** to start. Open Settings (`⌘+,`) → **API Keys** to manage all of them; for legacy Anthropic onboarding you can also paste `sk-ant-...` directly in the pet's chat input.
 
-1. Sign up → https://console.anthropic.com
-2. Sign in → **Settings** → **API Keys** → **Create Key**
-3. Copy the `sk-ant-api03-...` key
-4. Launch DeskPet → paste the key into the chat input's placeholder prompt → hit return
-5. The key is encrypted at rest via `safeStorage` (macOS Keychain-backed AES-256). Never uploaded.
+All keys are encrypted at rest via Electron `safeStorage` (macOS Keychain-backed AES-256). They are stored per-provider in separate files (`<provider>-key.bin`) under `~/Library/Application Support/DeskPet/` and **never uploaded anywhere**.
 
-> Billing: Haiku 4.5 is $1 / 1M input + $5 / 1M output tokens. A normal one-turn chat costs ~$0.001. With vision on, a screenshot turn costs ~$0.002.
+### Quick-start: pick one provider
+
+| Provider | Sign up | Key format | Default model | Why pick it |
+|---|---|---|---|---|
+| **Anthropic Claude** | <https://console.anthropic.com> | `sk-ant-api03-...` | Haiku 4.5 | Most polished tool use + vision; $1/$5 per 1M tokens for Haiku |
+| **OpenAI** | <https://platform.openai.com/api-keys> | `sk-...` | GPT-4o mini | Reasoning models (o1, o3-mini); native web search + code interpreter |
+| **Google Gemini** | <https://aistudio.google.com/apikey> | no fixed prefix | Gemini 2.5 Flash | **Free tier 1500 req/day**; Google Search grounding (most authoritative) |
+| **xAI Grok** | <https://console.x.ai> | `xai-...` | Grok 2 | **Exclusive xSearch for real-time X (Twitter) feed data** |
+| **DeepSeek** | <https://platform.deepseek.com/api_keys> | `sk-...` | DeepSeek V3 | Best cost/perf ratio; R1 reasoner with visible thinking process |
+| **ByteDance 豆包** | <https://console.volcengine.com/ark> | no fixed prefix | Doubao Pro 32k | China-mainland-friendly access; Doubao series + Doubao Vision Pro |
+
+### Switching providers / models
+
+Settings panel (`⌘+,`) → **Pet Behavior**:
+- **Provider dropdown** — pick which provider drives the chat
+- **Model dropdown** — cascades by selected provider, with capability tags (`(推理)` / `(无 tool)` / `(无 vision)` shown when applicable)
+
+Switching provider auto-clears chat history (tool-call protocol is incompatible across providers). Switching model within the same provider preserves history.
+
+### Provider-specific specialized tools (auto-enabled)
+
+When you select a provider, DeskPet automatically exposes that provider's **native server-side tools** alongside our 18 local agentic tools. The AI picks whichever is most appropriate:
+
+| Provider | Specialized tools auto-enabled |
+|---|---|
+| **Anthropic** | `anthropic_web_search` (native search, alternative to Tavily) + `anthropic_code_execution` (Python in Anthropic sandbox, safer than local `run_command`) |
+| **OpenAI** | `openai_web_search` + `openai_code_interpreter` (Python in OpenAI sandbox) |
+| **Google** | `google_search` (Google grounding with citations) + `google_url_context` (parse any URL natively) |
+| **xAI** | `xai_live_search` (real-time X feed) + `xai_web_search` |
+| **DeepSeek** | R1 model: `<think>` reasoning extraction middleware (prevents tag leak into chat UI) |
+| **ByteDance 豆包** | (Standard function calling only — no provider-native server tools yet) |
+
+These run on the provider's infrastructure, not your machine — bypassing local `path-safety` / approval modal / audit log by design (server-sandboxed tools are safer than local execution).
+
+> Billing examples (per 1M tokens): Claude Haiku 4.5 $1/$5 in/out · GPT-4o mini $0.15/$0.60 · Gemini 2.5 Flash free (up to 1500 req/day) · DeepSeek V3 $0.27/$1.10 · etc. A normal one-turn chat costs $0.001-0.005 depending on provider/model.
 
 ---
 
@@ -100,7 +130,7 @@ Lets the AI call `view_screen` to see your current screen.
 3. **Fully quit DeskPet and relaunch** (macOS permission propagation requires it)
 4. The pet button becomes **👁 Allow AI to view screen**. From there, the AI autonomously decides whether to capture — conservative mode, only when you ask screen-related questions.
 
-> Screenshot bytes stay in memory only and go to Anthropic Claude vision as base64. The process disables core dumps (`LimitCORE=0`) so a crash can't dump pixel data to disk.
+> Screenshot bytes stay in memory only and go to the currently selected provider's vision endpoint as base64. The process disables core dumps (`LimitCORE=0`) so a crash can't dump pixel data to disk.
 
 ---
 
@@ -115,8 +145,11 @@ DeskPet智能桌宠助手/
 │   │   ├── main/                 ← Electron main process
 │   │   │   ├── index.ts          ← bootstrap / IPC / state machine
 │   │   │   ├── llm/
-│   │   │   │   ├── anthropic.ts  ← Claude SDK wrapper + tool loop
-│   │   │   │   ├── tools.ts      ← 18 agentic tool defs + executor
+│   │   │   │   ├── llm-client.ts ← Vercel AI SDK streamText + tool loop (replaces old anthropic.ts)
+│   │   │   │   ├── providers.ts  ← provider registry: 6 createXxx factories + DeepSeek R1 reasoning middleware
+│   │   │   │   ├── tool-defs.ts  ← AI SDK ToolSet wrapper (Zod schemas + toModelOutput)
+│   │   │   │   ├── specialized-tools.ts ← per-provider native server-side tool integration
+│   │   │   │   ├── tools.ts      ← 18 agentic tool executors + ToolContext
 │   │   │   │   ├── path-safety.ts ← path blacklist + symlink resolution
 │   │   │   │   ├── command-whitelist.ts ← shell command allowlist
 │   │   │   │   └── approval.ts   ← per-action approval IPC
@@ -137,7 +170,7 @@ DeskPet智能桌宠助手/
 
 ```
 Read-only / info gathering (no modal)
-├── view_screen          capture current screen → Claude vision
+├── view_screen          capture current screen → selected provider's vision model
 ├── read_clipboard       read clipboard (with prompt-injection armor)
 ├── current_app_info     current frontmost app + activity
 ├── fetch_url            HTTP GET on public URLs (SSRF defense + first-host modal)
@@ -179,7 +212,7 @@ Main assembles messages (system prompt + memory + user_profile + chatHistory)
    ↓
 client.stream(messages, tools=[18 tools when consent is ON])
    ↓
-Anthropic Claude (Haiku 4.5 by default) streams a response
+Selected provider's model (Haiku 4.5 by default) streams a response
    ↓
 The AI decides based on the question:
   ├─ No tool needed → stream text directly → pet chat panel
@@ -204,7 +237,7 @@ The AI decides based on the question:
 ### "Never persist" discipline
 
 - **API keys**: safeStorage AES-256 (macOS Keychain-backed), file `chmod 600`, never uploaded
-- **Screenshots**: memory-only base64 → HTTPS to Anthropic → immediately released. `LimitCORE=0` prevents core dumps containing pixel data.
+- **Screenshots**: memory-only base64 → HTTPS to selected provider → immediately released. `LimitCORE=0` prevents core dumps containing pixel data.
 - **Clipboard**: read only when the AI explicitly calls `read_clipboard`. The main process doesn't log or persist clipboard content.
 - **Chat history**: local `chmod 600` JSON; last 10 exchange pairs retained across sessions (user can clear in Settings).
 - **Audit log**: local JSONL, auto-rotated at 5 MB. Never uploaded.
@@ -265,8 +298,11 @@ env GH_TOKEN=<your-github-personal-access-token> npm run build:mac -- --publish 
 | Path | Purpose |
 |------|---------|
 | `src/main/index.ts` | Electron main entry + IPC handlers + state machine |
-| `src/main/llm/anthropic.ts` | Claude SDK + tool loop (max 5 iters) + system prompt |
-| `src/main/llm/tools.ts` | 18 tool definitions + executor dispatcher |
+| `src/main/llm/llm-client.ts` | Vercel AI SDK streamText + tool loop (max 5 steps) + system prompt |
+| `src/main/llm/providers.ts` | 6 provider factory registry (Anthropic/OpenAI/Google/xAI/DeepSeek/ByteDance) + DeepSeek R1 reasoning middleware |
+| `src/main/llm/tool-defs.ts` | AI SDK ToolSet wrapper (Zod schemas + toModelOutput image handling) |
+| `src/main/llm/specialized-tools.ts` | Per-provider native server-side tool integration (web search / code execution / etc) |
+| `src/main/llm/tools.ts` | 18 tool executors + ToolContext |
 | `src/main/services/active-app.ts` | Swift binary that detects the frontmost app |
 | `src/main/storage/*.ts` | safeStorage encryption / preferences JSON |
 | `src/renderer/src/App.tsx` | Pet + chat React component |
@@ -280,12 +316,13 @@ Full developer docs: [01-桌宠客户端/desktop-pet/README.md](01-桌宠客户�
 ## 📜 Roadmap
 
 - ✅ M0–M3 pet UI / state machine / activity recognition
-- ✅ M4-A vision agentic (Claude vision + tool use)
+- ✅ M4-A vision agentic (multi-provider vision + tool use)
 - ✅ M4-B local tools (clipboard / URL / app info)
 - ✅ M4-C filesystem / terminal / system-settings tools + approval flow + audit log
 - ✅ M4-D network tools (`fetch_url` + Tavily search)
 - ✅ M5 Settings panel + cross-session memory + user-profile wizard
 - ✅ M6 Phase 1 zip + GitHub Releases + one-line install script
+- ✅ M7 multi-provider refactor: 6 LLM providers via Vercel AI SDK + provider-specific specialized tools (web search / code execution / X live search / R1 reasoning)
 - 🚧 M6 Phase 2 Apple Developer notarization + dmg + auto-updater
 - 📋 M7 theme switching (multiple clawd-alternative art packs)
 - 📋 More tools: `take_note` / AppleScript automation / MCP server integration
