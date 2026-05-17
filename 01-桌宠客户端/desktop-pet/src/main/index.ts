@@ -143,17 +143,27 @@ const SUCCESS_HOLD_MS = PET_STATES.success.minMs + 100
 const ERROR_HOLD_MS = PET_STATES.error.minMs + 100
 const MAX_HISTORY_PAIRS = 10
 
+/** M9-3: sleep chain 内部 state（chain timer fire 时切到下一个，不要 clearSleepChain） */
+const SLEEP_CHAIN_STATES: ReadonlySet<PetState> = new Set([
+  'yawning',
+  'dozing',
+  'collapsing',
+  'sleep'
+])
+
 class PetStateMachine {
   private current: PetState = 'idle'
   private enteredAt = Date.now()
   private timer: NodeJS.Timeout | null = null
-  private sleepTimer: NodeJS.Timeout | null = null
+  // M9-3: 多 timer 数组（4 个 setTimeout 串：→yawning →dozing →collapsing →sleep）
+  // wake / 任何 user activity 整数组 clearTimeout 防"睡了又被旧 timer 拉回去"
+  private sleepChainTimers: NodeJS.Timeout[] = []
 
   constructor(private notify: (state: PetState) => void) {
     // M8 fix (Officer A cold-start ⚠️): seed current='idle' 不走 transition()，
-    // 不会自动 armSleepTimer。冷启动后若 user 不发 chat 也不动 pet，永远停在 idle
+    // 不会自动 arm chain。冷启动后若 user 不发 chat 也不动 pet，永远停在 idle
     // 不进 sleep —— 违反 "60s idle → sleep" 语义。constructor 显式 arm 一次。
-    this.armSleepTimer()
+    this.armSleepChain()
   }
 
   getState(): PetState {
@@ -170,40 +180,84 @@ class PetStateMachine {
       this.current = target
       this.enteredAt = Date.now()
       this.notify(target)
-      // M8: 进 idle 后 60s 无活动 → 自动 sleep。任何非-idle transition 清掉 sleep timer
+      // M8 / M9-3: state machine 自维护 sleep chain timer
+      // - 进 idle → arm 60s chain（chain 内部 timer 串 yawning→dozing→collapsing→sleep）
+      // - 切到 sleep chain 内部 state（chain timer fire 时）→ 保留剩余 timer 不动
+      // - 切到任何非-chain state → clear chain（防 stale timer 把 pet 拉回 dozing 等）
       if (target === 'idle') {
-        this.armSleepTimer()
-      } else {
-        this.clearSleepTimer()
+        this.armSleepChain()
+      } else if (!SLEEP_CHAIN_STATES.has(target)) {
+        this.clearSleepChain()
       }
+      // else: target ∈ SLEEP_CHAIN_STATES 是 chain timer 自己 fire 的 transition，
+      // 保留后续 timer（如 dozing 进 chain 时 collapsing/sleep timer 还在排队）
       return true
     }
     return false
   }
 
   /**
-   * M8 sleep timer：进 idle 后 60s 没被打断（chat / activity / mouse wake）→ sleep。
-   * sleep 跟 idle 同 priority 1，user wake 时 transition('idle') 任何方向都能切回。
+   * M9-3: 多阶段 sleep chain（Officer A+B 共识 nested 修 race）
+   *
+   * 旧 absolute 4 setTimeout（t+60s/+61.5s/+63s/+64.5s）有 race：yawning
+   * timer fire 慢 50ms (jitter) → dozing timer 在 absolute 61500ms fire 时
+   * yawning enteredAt=60050ms → elapsed=1450 < 1500 → blocked → dozing 帧
+   * 被吞 → user 看 yawn → collapse → sleep 缺一阶段。
+   *
+   * 新 nested 方案：每个 phase 成功 transition 后才 schedule 下一个 phase。
+   * setTimeout(delay) 从 callback 内 schedule，delay 是相对 callback 执行
+   * 时刻；callback 执行时刻就是该 phase enteredAt。所以下次 fire 时
+   * elapsed = 实际 delay (>= setTimeout delay >= minMs) → 永远满足 minMs gate.
+   *
+   * SVG 动画 dur 跟阶段 minMs 1:1 对齐（pet-state.ts 注释）：
+   *   60000ms idle  → yawning（3.8s SVG, minMs 3800）
+   *   3800ms yawning → dozing（4s SVG infinite, 砍一个周期）
+   *   4000ms dozing  → collapsing（1s SVG）
+   *   1000ms collapsing → sleep（永久 sleeping GIF）
    */
-  private armSleepTimer(): void {
-    this.clearSleepTimer()
-    this.sleepTimer = setTimeout(() => {
-      this.sleepTimer = null
-      this.transition('sleep')
-    }, IDLE_SLEEP_MS)
-  }
-
-  private clearSleepTimer(): void {
-    if (this.sleepTimer) {
-      clearTimeout(this.sleepTimer)
-      this.sleepTimer = null
+  private armSleepChain(): void {
+    this.clearSleepChain()
+    const chain: ReadonlyArray<readonly [number, PetState]> = [
+      [IDLE_SLEEP_MS, 'yawning'],
+      [PET_STATES.yawning.minMs, 'dozing'],
+      [PET_STATES.dozing.minMs, 'collapsing'],
+      [PET_STATES.collapsing.minMs, 'sleep']
+    ]
+    const step = (i: number): void => {
+      if (i >= chain.length) return
+      const [delay, target] = chain[i]
+      this.sleepChainTimers.push(
+        setTimeout(() => {
+          // 仅当 transition 成功才 schedule 下一阶段 —— 防 race / 防 user wake
+          // 后 chain 还继续推进。clearSleepChain 走 wake / non-chain transition
+          // 路径已经把这个 setTimeout 干掉，下面 step(i+1) 不会跑到。
+          if (this.transition(target)) step(i + 1)
+        }, delay)
+      )
     }
+    step(0)
   }
 
-  /** 任何用户活动 wake from sleep —— 立刻 transition idle 重新启动 60s 倒数 */
+  private clearSleepChain(): void {
+    for (const t of this.sleepChainTimers) clearTimeout(t)
+    this.sleepChainTimers = []
+  }
+
+  /**
+   * 任何用户活动 wake —— 从 sleep chain 任意阶段 (yawning/dozing/collapsing/sleep)
+   * 转到 'waking' state 播 1500ms wake SVG 后回 idle。waking priority 2 高于 chain
+   * priority 1 → 一定能 transition 成功，不会被 minMs 阻塞。
+   *
+   * Officer B 校准：clawd-wake.svg dur=1.5s，scheduleReturnToIdle 给足 1500ms
+   * 让 wake 动画播完整（旧值 800ms 砍掉 svg 后半段）。
+   */
   wakeFromSleep(): void {
-    if (this.current === 'sleep') {
-      this.transition('idle')
+    if (SLEEP_CHAIN_STATES.has(this.current)) {
+      // transition('waking') 内部 hook：waking ∉ SLEEP_CHAIN_STATES 走 else 分支
+      // 调 clearSleepChain（清掉可能 pending 的后续 chain timer）
+      if (this.transition('waking')) {
+        this.scheduleReturnToIdle(1500)
+      }
     }
   }
 

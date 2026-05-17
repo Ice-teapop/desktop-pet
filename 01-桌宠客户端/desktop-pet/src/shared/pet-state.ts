@@ -21,7 +21,19 @@
  */
 export const PET_STATES = {
   idle: { priority: 1, minMs: 0 },
+  // —— M9-3 多阶段 sleep chain（Officer B 校准 minMs = SVG CSS animation dur） ——
+  // idle 60s → yawning 3.8s → dozing 4s → collapsing 1s → sleep
+  // 每阶段 priority 1 跟 idle 同级 —— thinking (prio 2) 能随时打断；chain timer
+  // 用 nested setTimeout（每 phase 成功 transition 才 schedule 下一个），消除
+  // absolute timer + jitter 让阶段被 minMs gate silently 跳过 race
+  yawning: { priority: 1, minMs: 3800 },    // clawd-idle-yawn.svg dur=3.8s
+  dozing: { priority: 1, minMs: 4000 },     // clawd-idle-doze.svg dur=4s (infinite loop, 切一个完整周期)
+  collapsing: { priority: 1, minMs: 1000 }, // clawd-idle-collapse.svg dur=1s
   sleep: { priority: 1, minMs: 0 },
+  // 惊醒动画：priority 2 让其能从 sleep chain 任意阶段抢占；minMs 0 让 thinking
+  // 能随时抢（user 在 wake 期间 chat 时不被 wake 卡住）；scheduleReturnToIdle
+  // 给 1500ms 让 wake SVG 动画播完整（clawd-wake.svg dur=1.5s）
+  waking: { priority: 2, minMs: 0 },
   thinking: { priority: 2, minMs: 300 },
   drag: { priority: 3, minMs: 0 },
   success: { priority: 4, minMs: 1500 },

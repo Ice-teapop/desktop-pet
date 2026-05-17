@@ -33,6 +33,11 @@ import sleepingGif from '@themes/clawd-dev/clawd-sleeping.gif'
 // M9-2 click reactions
 import reactDoubleJumpGif from '@themes/clawd-dev/clawd-react-double-jump.gif'
 import reactAnnoyedGif from '@themes/clawd-dev/clawd-react-annoyed.gif'
+// M9-3 sleep sequence 多阶段（SMIL-animated SVG，<img src> 自动播）
+import yawningSvg from '@themes/clawd-dev/clawd-idle-yawn.svg'
+import dozingSvg from '@themes/clawd-dev/clawd-idle-doze.svg'
+import collapsingSvg from '@themes/clawd-dev/clawd-idle-collapse.svg'
+import wakingSvg from '@themes/clawd-dev/clawd-wake.svg'
 // activity → GIF 映射：识别到不同活动时桌宠"陪你做同样的事"
 import typingGif from '@themes/clawd-dev/clawd-typing.gif'
 import debuggerGif from '@themes/clawd-dev/clawd-debugger.gif'
@@ -579,6 +584,14 @@ function App(): React.JSX.Element {
     gifUrl = thinkingGif
   } else if (state === 'success') {
     gifUrl = happyGif
+  } else if (state === 'yawning') {
+    gifUrl = yawningSvg
+  } else if (state === 'dozing') {
+    gifUrl = dozingSvg
+  } else if (state === 'collapsing') {
+    gifUrl = collapsingSvg
+  } else if (state === 'waking') {
+    gifUrl = wakingSvg
   } else if (state === 'sleep') {
     gifUrl = sleepingGif
   } else if (activity !== 'idle') {
@@ -598,7 +611,11 @@ function App(): React.JSX.Element {
       errorGif,
       sleepingGif,
       reactDoubleJumpGif,
-      reactAnnoyedGif
+      reactAnnoyedGif,
+      yawningSvg,
+      dozingSvg,
+      collapsingSvg,
+      wakingSvg
     ]
     all.forEach((url) => {
       const img = new Image()
