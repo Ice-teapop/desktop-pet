@@ -303,7 +303,7 @@ env GH_TOKEN=<your-github-personal-access-token> npm run build:mac -- --publish 
 
 ## 📄 License
 
-MIT（计划中）。clawd 像素美术资源在 `themes/clawd-dev/` 目录下走独立 AGPL，**不入库**，需要本地手动拉取。
+[MIT](./LICENSE)。clawd 像素美术资源在 `themes/clawd-dev/` 目录下走独立 AGPL，**不入库**，需要本地手动拉取（详见 [`themes/clawd-dev/README.md`](./01-桌宠客户端/desktop-pet/themes/clawd-dev/README.md)）。
 
 代码作者：[@Ice-teapop](https://github.com/Ice-teapop)
 桌宠形象：clawd by [@rullerzhou](https://github.com/rullerzhou)

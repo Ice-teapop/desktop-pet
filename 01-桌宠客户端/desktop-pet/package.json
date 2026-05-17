@@ -5,6 +5,7 @@
   "description": "DeskPet — 智能桌宠助手客户端（Electron + React + TS）",
   "main": "./out/main/index.js",
   "author": "han",
+  "license": "MIT",
   "homepage": "https://github.com/Ice-teapop/desktop-pet",
   "repository": {
     "type": "git",
