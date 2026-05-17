@@ -43,11 +43,11 @@ case "$ARCH" in
   arm64)  ZIP_PATTERN="arm64-mac.zip" ;;
   x86_64) ZIP_PATTERN="mac.zip" ;; # x64 zip 名字里就叫 "-mac.zip"，没 arch 后缀
   *)
-    err "不支持的架构：$ARCH（只支持 arm64 / x86_64）"
+    err "不支持的架构：${ARCH}（只支持 arm64 / x86_64）"
     exit 1
     ;;
 esac
-info "检测到 macOS / $ARCH，匹配 release asset *-${ZIP_PATTERN}"
+info "检测到 macOS / ${ARCH}，匹配 release asset *-${ZIP_PATTERN}"
 
 # —— Step 2：查最新 release ——
 info "查询 GitHub Releases 最新版本..."
@@ -76,7 +76,7 @@ if [[ -z "$TAG" ]]; then
   echo "$RELEASE_JSON" | head -20 >&2
   exit 1
 fi
-info "最新版本：$TAG"
+info "最新版本：${TAG}"
 
 ZIP_URL=$(echo "$RELEASE_JSON" | python3 -c "
 import sys, json
@@ -87,7 +87,7 @@ for a in d.get('assets', []):
         break
 ")
 if [[ -z "$ZIP_URL" ]]; then
-  err "release $TAG 里找不到 *-${ZIP_PATTERN} asset"
+  err "release ${TAG} 里找不到 *-${ZIP_PATTERN} asset"
   err "可用 assets:"
   echo "$RELEASE_JSON" | python3 -c "
 import sys, json
@@ -96,7 +96,7 @@ for a in json.load(sys.stdin).get('assets', []):
 " >&2
   exit 1
 fi
-info "下载 URL：$ZIP_URL"
+info "下载 URL：${ZIP_URL}"
 
 # —— Step 3：下载 ——
 ZIP_FILE="$TMP_DIR/deskpet.zip"
@@ -117,12 +117,12 @@ fi
 # —— Step 5：如果已有旧版，备份/替换 ——
 TARGET="$INSTALL_DIR/${APP_NAME}.app"
 if [[ -d "$TARGET" ]]; then
-  warn "已存在旧版 $TARGET，覆盖（你的设置 / 对话历史 / API key 都在 ~/Library/Application Support/DeskPet 不会丢）"
+  warn "已存在旧版 ${TARGET}，覆盖（你的设置 / 对话历史 / API key 都在 ~/Library/Application Support/DeskPet 不会丢）"
   rm -rf "$TARGET"
 fi
 
 # —— Step 6：拷贝 ——
-info "安装到 $TARGET..."
+info "安装到 ${TARGET}..."
 cp -R "$APP_PATH" "$TARGET"
 
 # —— Step 7：脱 quarantine（绕过 Gatekeeper "无法验证开发者" 警告） ——
@@ -130,7 +130,7 @@ cp -R "$APP_PATH" "$TARGET"
 # 因为是用户主动执行的本地脚本，不是 .app 自己脱标，属于合法 workflow
 info "脱 quarantine（让 macOS 信任本 app）..."
 xattr -dr com.apple.quarantine "$TARGET" 2>/dev/null || true
-ok "DeskPet 已安装到 $TARGET"
+ok "DeskPet 已安装到 ${TARGET}"
 
 # —— Step 8：完成提示 ——
 cat <<EOF
