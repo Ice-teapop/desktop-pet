@@ -33,7 +33,7 @@
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, screen, shell, Tray } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import { PET_STATES, type PetState } from '../shared/pet-state'
+import { PET_STATES, type PetState, type PetAnimation } from '../shared/pet-state'
 import {
   ACTIVITY_INFO,
   AVAILABLE_MODELS,
@@ -159,9 +159,41 @@ class PetStateMachine {
       this.current = target
       this.enteredAt = Date.now()
       this.notify(target)
+      // M8: 进 idle 后 60s 无活动 → 自动 sleep。任何非-idle transition 清掉 sleep timer
+      if (target === 'idle') {
+        this.armSleepTimer()
+      } else {
+        this.clearSleepTimer()
+      }
       return true
     }
     return false
+  }
+
+  /**
+   * M8 sleep timer：进 idle 后 60s 没被打断（chat / activity / mouse wake）→ sleep。
+   * sleep 跟 idle 同 priority 1，user wake 时 transition('idle') 任何方向都能切回。
+   */
+  private armSleepTimer(): void {
+    this.clearSleepTimer()
+    this.sleepTimer = setTimeout(() => {
+      this.sleepTimer = null
+      this.transition('sleep')
+    }, IDLE_SLEEP_MS)
+  }
+
+  private clearSleepTimer(): void {
+    if (this.sleepTimer) {
+      clearTimeout(this.sleepTimer)
+      this.sleepTimer = null
+    }
+  }
+
+  /** 任何用户活动 wake from sleep —— 立刻 transition idle 重新启动 60s 倒数 */
+  wakeFromSleep(): void {
+    if (this.current === 'sleep') {
+      this.transition('idle')
+    }
   }
 
   demoCycle(): void {
@@ -183,7 +215,12 @@ class PetStateMachine {
       this.timer = null
     }, holdMs)
   }
+
+  private sleepTimer: NodeJS.Timeout | null = null
 }
+
+/** M8: idle 多久后自动 sleep。60s 跟 clawd-on-desk 一致 */
+const IDLE_SLEEP_MS = 60_000
 
 // 主进程 = 对话历史 / API key / keyState / model / activity 单一事实来源
 const chatHistory: ChatMessage[] = []
@@ -908,6 +945,8 @@ function registerIpc(): void {
     if (!win) return
     const [x, y] = win.getPosition()
     win.setPosition(x + Math.round(dx), y + Math.round(dy))
+    // M8: 拖拽 pet = user 主动 interaction → wake from sleep
+    stateMachine.wakeFromSleep()
   })
 
   ipcMain.on('window:ignore-mouse', (event, ignore: boolean) => {
@@ -915,6 +954,8 @@ function registerIpc(): void {
     if (!win) return
     win.setIgnoreMouseEvents(ignore, { forward: true })
     reapplyMacVisibility(win)
+    // M8: 鼠标移入 pet 实体（ignore=false）= 想互动 → wake
+    if (!ignore) stateMachine.wakeFromSleep()
   })
 
   // 渲染层提交 key —— 主进程校验 + 加密存盘 + 切 ready + 广播
@@ -1430,7 +1471,16 @@ function registerIpc(): void {
       tavilyApiKey: currentTavilyApiKey,
       // M7-6 wave 6: 让 tool-defs.ts 据此 inject 当前 provider 的 native tool
       // (anthropic_web_search / openai_code_interpreter / google_search 等)
-      selectedProvider: currentSelectedModel.provider
+      selectedProvider: currentSelectedModel.provider,
+      // M8 set_pet_animation: AI 调 tool → stateMachine.transition 到对应动画
+      // state，scheduleReturnToIdle 让动画播完一个 GIF cycle 自动回 idle
+      setPetAnimation: (name: PetAnimation): void => {
+        if (stateMachine.transition(name)) {
+          stateMachine.scheduleReturnToIdle(PET_STATES[name].minMs)
+        }
+      },
+      // M8 让 AI 知道自己当前在干什么（"pet 要知道自己现在是什么状态"）
+      currentPetState: stateMachine.getState()
     }
 
     chatHistory.push({ role: 'user', content: cleaned })
@@ -1494,7 +1544,9 @@ function registerIpc(): void {
       {
         toolContext: agenticEnabled ? toolCtx : undefined,
         memory: petMemoryCache,
-        userProfile: userProfileCache
+        userProfile: userProfileCache,
+        // M8: 让 AI 知道桌宠当前状态（"pet 要知道自己现在是什么状态"）
+        currentPetState: stateMachine.getState()
       }
     )
   })

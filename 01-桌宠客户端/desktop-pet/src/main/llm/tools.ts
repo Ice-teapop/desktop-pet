@@ -20,6 +20,11 @@ import { lookup } from 'dns/promises'
 import { isIP } from 'net'
 import type { ActivityState } from '../../shared/chat-types'
 import type { Provider } from '../../shared/provider-types'
+import {
+  PET_ANIMATIONS,
+  isPetAnimation,
+  type PetAnimation
+} from '../../shared/pet-state'
 import { captureForTool } from '../services/vision-pipeline'
 import { isPathSafe } from './path-safety'
 import { checkCommand, tokenizeSafeCommand } from './command-whitelist'
@@ -107,6 +112,17 @@ export interface ToolContext {
    * .provider 取值传入。
    */
   selectedProvider: Provider
+  /**
+   * M8: AI 调 set_pet_animation tool 时由 main 端执行的回调 —— 把 stateMachine
+   * transition 到对应 PetAnimation 状态（juggling/sweeping/conducting/...）+
+   * scheduleReturnToIdle 动画播完后回 idle。executor 仅校验 enum + 调 callback。
+   */
+  setPetAnimation: (name: PetAnimation) => void
+  /**
+   * M8: 当前 pet state 名（idle/sleep/thinking/juggling/etc）—— 注入 system
+   * prompt 让 AI 知道自己 currently 在干啥（"pet 要知道自己现在是什么状态"）。
+   */
+  currentPetState: string
 }
 
 // ============================================================================
@@ -376,6 +392,36 @@ export const DELETE_FILE: ToolDef = {
   }
 }
 
+export const SET_PET_ANIMATION: ToolDef = {
+  name: 'set_pet_animation',
+  description:
+    "Make the desktop pet (the pixel crab 🦀 in the bottom-right corner) PLAY " +
+    'a specific animation so the user visually sees the pet doing something fun. ' +
+    'Call this when the user asks the pet to perform/dance/show off/express a ' +
+    `mood ("表演杂技" → juggling, "庆祝下" → celebrating, "扫地" → sweeping, etc). ` +
+    'Also acceptable when YOUR text response would be more vivid with a visual ' +
+    "complement (e.g. completing a complex task → 'celebrating'). " +
+    'The animation auto-returns to idle after one cycle (2-3.5s); call it ONCE, ' +
+    "don't loop the call. Calling with the same animation while it's playing is " +
+    'a no-op. Available animations (pick the closest match in spirit):\n' +
+    `  • juggling     —— 抛接小球，杂技 / 多任务 / 应付多件事 / 灵活\n` +
+    `  • sweeping     —— 扫地 / 整理 / 清扫 / 收拾\n` +
+    `  • conducting   —— 挥舞指挥棒，打节奏 / 指挥 / 音乐表演\n` +
+    `  • grooving     —— 戴耳机摇摆，听音乐 / 沉浸 / 享受节奏\n` +
+    `  • celebrating  —— 开心 / 庆祝 / 完成任务 / 高兴 / 谢谢用户`,
+  input_schema: {
+    type: 'object',
+    properties: {
+      animation: {
+        type: 'string',
+        description: 'One of the animation names listed above',
+        enum: PET_ANIMATIONS as readonly string[] as string[]
+      }
+    },
+    required: ['animation']
+  }
+}
+
 export const SAVE_USER_PROFILE: ToolDef = {
   name: 'save_user_profile',
   description:
@@ -526,7 +572,8 @@ const CORE_TOOLS = [
   READ_SYSTEM_PREFERENCE,
   FETCH_URL,
   REMEMBER,
-  SAVE_USER_PROFILE
+  SAVE_USER_PROFILE,
+  SET_PET_ANIMATION
 ] as const
 
 /**
@@ -594,9 +641,30 @@ export async function executeTool(
       return await execRemember(input)
     case 'save_user_profile':
       return await execSaveUserProfile(input)
+    case 'set_pet_animation':
+      return execSetPetAnimation(input, ctx)
     default:
       return { ok: false, error: `unknown tool: ${name}` }
   }
+}
+
+/**
+ * M8: AI 通过 set_pet_animation tool 触发 pet 表演动画。仅校验 enum +
+ * 调 ctx.setPetAnimation 回调（main 端实现 stateMachine.transition + scheduleReturnToIdle）。
+ */
+function execSetPetAnimation(input: unknown, ctx: ToolContext): ToolResult {
+  if (typeof input !== 'object' || input === null) {
+    return { ok: false, error: 'input must be { animation: string }' }
+  }
+  const name = (input as { animation?: unknown }).animation
+  if (typeof name !== 'string' || !isPetAnimation(name)) {
+    return {
+      ok: false,
+      error: `animation must be one of: ${PET_ANIMATIONS.join(', ')}`
+    }
+  }
+  ctx.setPetAnimation(name)
+  return { ok: true, content: `Pet started ${name} animation (auto-returns to idle after one cycle).` }
 }
 
 const VALID_PERSONA_PRESETS: PersonaPreset[] = [

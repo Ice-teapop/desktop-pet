@@ -30,11 +30,43 @@ export const PET_STATES = {
   organizing: { priority: 5, minMs: 400 },
   building: { priority: 5, minMs: 400 },
   multitask: { priority: 5, minMs: 400 },
+  // —— M8 表演动画（AI 通过 set_pet_animation tool 主动触发） ——
+  // priority 5（同执行类）= 高于 success/thinking，让动画播完一个 GIF cycle
+  // minMs 3500 ≈ 大部分 GIF 一遍循环时长；celebrating 2000 短一点收尾用
+  juggling: { priority: 5, minMs: 3500 },
+  sweeping: { priority: 5, minMs: 3500 },
+  conducting: { priority: 5, minMs: 3500 },
+  grooving: { priority: 5, minMs: 3500 },
+  celebrating: { priority: 5, minMs: 2000 },
   error: { priority: 6, minMs: 1200 },
   awaiting: { priority: 7, minMs: 0 }
 } as const
 
 export type PetState = keyof typeof PET_STATES
+
+/**
+ * M8 表演动画 enum —— AI 通过 set_pet_animation tool 主动触发的子集。
+ * LLM-flow state（thinking / success / error / idle / sleep）不在这个列表，
+ * 由 stream + idleSleepTimer 自动驱动；这里是给 user 直观看的"动起来"。
+ */
+export type PetAnimation =
+  | 'juggling'
+  | 'sweeping'
+  | 'conducting'
+  | 'grooving'
+  | 'celebrating'
+
+export const PET_ANIMATIONS: ReadonlyArray<PetAnimation> = [
+  'juggling',
+  'sweeping',
+  'conducting',
+  'grooving',
+  'celebrating'
+]
+
+export function isPetAnimation(s: string): s is PetAnimation {
+  return PET_ANIMATIONS.includes(s as PetAnimation)
+}
 
 /** 类型守卫：判断字符串是否合法状态 ID（用于 IPC 入口防御性校验） */
 export function isPetState(s: string): s is PetState {

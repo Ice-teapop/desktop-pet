@@ -13,6 +13,7 @@
  */
 import { tool, type ToolSet } from 'ai'
 import { z } from 'zod'
+import { PET_ANIMATIONS } from '../../shared/pet-state'
 import { buildSpecializedToolsForProvider } from './specialized-tools'
 import {
   VIEW_SCREEN,
@@ -29,6 +30,7 @@ import {
   FIND_FILES,
   DELETE_FILE,
   SAVE_USER_PROFILE,
+  SET_PET_ANIMATION,
   REMEMBER,
   FETCH_URL,
   WEB_SEARCH,
@@ -256,6 +258,19 @@ export function buildToolSetForContext(ctx: ToolContext): ToolSet {
           .describe(
             'A concise single-line fact to remember (max 500 chars). ' +
               "Format suggestion: state the fact, not the conversation context"
+          )
+      }),
+      ctx
+    ),
+    set_pet_animation: wrapTool(
+      'set_pet_animation',
+      SET_PET_ANIMATION.description,
+      z.object({
+        animation: z
+          .enum(PET_ANIMATIONS)
+          .describe(
+            'One of: juggling (杂技/多任务) / sweeping (扫地/整理) / conducting ' +
+              '(打节奏/指挥) / grooving (戴耳机摇摆) / celebrating (开心/庆祝)'
           )
       }),
       ctx

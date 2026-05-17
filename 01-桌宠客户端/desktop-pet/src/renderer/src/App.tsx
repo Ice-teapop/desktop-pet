@@ -29,6 +29,7 @@ import sweepingGif from '@themes/clawd-dev/clawd-sweeping.gif'
 import jugglingGif from '@themes/clawd-dev/clawd-juggling.gif'
 import buildingGif from '@themes/clawd-dev/clawd-building.gif'
 import conductingGif from '@themes/clawd-dev/clawd-conducting.gif'
+import sleepingGif from '@themes/clawd-dev/clawd-sleeping.gif'
 // activity → GIF 映射：识别到不同活动时桌宠"陪你做同样的事"
 import typingGif from '@themes/clawd-dev/clawd-typing.gif'
 import debuggerGif from '@themes/clawd-dev/clawd-debugger.gif'
@@ -485,16 +486,30 @@ function App(): React.JSX.Element {
     }
   }
 
-  // GIF 选择优先级：
-  //   LLM 流状态 (thinking / success / error) > 活动识别 (coding 等) > idle 变体池
-  // state 反映 LLM 是否在跑，activity 反映用户当下在干啥；LLM 流在跑时不被 activity 抢
+  // GIF 选择优先级（M8 + LLM 流）：
+  //   LLM error → AI 表演动画 (M8 set_pet_animation) → LLM thinking/success
+  //   → sleep → 活动识别 → idle 变体池
+  // M8: AI 调 set_pet_animation 时 stateMachine 转到 juggling/sweeping/etc
+  // priority 5 > thinking priority 2 → 自动覆盖 thinking，让动画播完 minMs cycle。
   let gifUrl: string
-  if (state === 'thinking') {
+  if (state === 'error') {
+    gifUrl = errorGif
+  } else if (state === 'juggling') {
+    gifUrl = jugglingGif
+  } else if (state === 'sweeping') {
+    gifUrl = sweepingGif
+  } else if (state === 'conducting') {
+    gifUrl = conductingGif
+  } else if (state === 'grooving') {
+    gifUrl = headphonesGif
+  } else if (state === 'celebrating') {
+    gifUrl = happyGif
+  } else if (state === 'thinking') {
     gifUrl = thinkingGif
   } else if (state === 'success') {
     gifUrl = happyGif
-  } else if (state === 'error') {
-    gifUrl = errorGif
+  } else if (state === 'sleep') {
+    gifUrl = sleepingGif
   } else if (activity !== 'idle') {
     gifUrl = ACTIVITY_GIF[activity]
   } else {
@@ -502,9 +517,16 @@ function App(): React.JSX.Element {
   }
 
   // 启动时预加载所有 GIF —— 让后续 onLoad 几乎同步触发（cache 命中），避免第一次切换
-  // 时还要等 ~50ms 网络/磁盘解码
+  // 时还要等 ~50ms 网络/磁盘解码。M8 加 sleepingGif（PetState 'sleep'）
   useEffect(() => {
-    const all = [...IDLE_POOL, ...Object.values(ACTIVITY_GIF), thinkingGif, happyGif, errorGif]
+    const all = [
+      ...IDLE_POOL,
+      ...Object.values(ACTIVITY_GIF),
+      thinkingGif,
+      happyGif,
+      errorGif,
+      sleepingGif
+    ]
     all.forEach((url) => {
       const img = new Image()
       img.src = url
