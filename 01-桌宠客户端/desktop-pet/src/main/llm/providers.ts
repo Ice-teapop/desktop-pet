@@ -42,9 +42,15 @@ function instantiateModel(
       return createXai({ apiKey }).languageModel(modelId)
     case 'deepseek': {
       const baseModel = createDeepSeek({ apiKey }).languageModel(modelId)
-      // M7-6 wave 6: DeepSeek-R1 reasoner 返回 <think>...</think> block
-      // 在主 content 里。用 extractReasoningMiddleware 把 reasoning 单独提到
-      // ReasoningPart 让上层（renderer）能区分显示推理过程 vs 最终答案。
+      // M7-6 wave 6: DeepSeek-R1 reasoner 把 <think>...</think> block 内联到主
+      // content 里。用 extractReasoningMiddleware 把这段 reasoning 从 textStream
+      // 剥离到 SDK 的 fullStream reasoning-delta event 通道 —— 防 <think>...
+      // 直接 leak 到桌宠对话气泡里污染 UI。
+      //
+      // **实际效果**：renderer 的 onChunk handler 只收到最终答案（reasoning 静默
+      // 被 SDK 收走）。要让 user 看到推理过程需要 future wave：让 llm-client.ts
+      // 改用 result.fullStream 分发 text-delta vs reasoning-delta 两种 part 给上层。
+      // 当前实现 = 防泄漏 + 干净答案；reasoning 可见性留待后续。
       // V3 (deepseek-chat) 不是 reasoning model，不包 middleware。
       if (modelId === 'deepseek-reasoner') {
         return wrapLanguageModel({

@@ -787,6 +787,16 @@ async function resetKey(): Promise<void> {
   setKeyInMemory(null)
   chatHistory.length = 0
   chatTurnToken++
+  // Wave 6 follow-up (Officer A 💡): 跟非-anthropic provider-key:reset 分支对称推
+  // 3 个状态恢复 event 让 renderer UI 看到一致行为（之前 anthropic resetKey 只靠
+  // chatTurnToken++ 屏蔽 callback，renderer 看不到 chat:done 可能挂 "thinking"）
+  if (isWinAlive()) {
+    petWindow!.webContents.send('chat:done', { inputTokens: 0, outputTokens: 0 })
+    petWindow!.webContents.send('chat:history-cleared')
+  }
+  if (!stateMachine.transition('idle')) {
+    stateMachine.scheduleReturnToIdle(PET_STATES.thinking.minMs)
+  }
   // cr B1: classifier cache 跨 key 身份不该残留 —— 上一个 key 用 LLM 分类出来的结果可能
   // 是错的（Anthropic 偶发抽风），如果不清，重设 key 后那个错误分类会永久命中缓存
   clearClassifyCache()
