@@ -46,6 +46,8 @@ import {
 } from '../shared/chat-types'
 import {
   DEFAULT_SELECTED_MODEL,
+  PROVIDER_ORDER,
+  type Provider,
   type SelectedModel
 } from '../shared/provider-types'
 import {
@@ -61,7 +63,14 @@ import {
   warmupClassifier,
   type AppIdentity
 } from './llm/activity-classifier'
-import { clearApiKey, loadApiKey, saveApiKey } from './storage/credentials'
+// loadApiKey 已不再使用 —— resolveStartupKey 走 currentProviderKeys.get('anthropic')
+// 派生 legacy currentApiKey。clearApiKey / saveApiKey 仍由老 key:submit / key:reset
+// IPC handler 在用（wave 4.4 统一切到 provider key API 后可整体删除）。
+import { clearApiKey, saveApiKey } from './storage/credentials'
+import {
+  migrateLegacyCredentials,
+  resolveProviderKey
+} from './storage/provider-keys'
 import { loadPreferences, savePreferences, type Preferences } from './storage/preferences'
 import { migrateLegacyUserData } from './storage/migration'
 import { loadTheme } from './storage/theme'
@@ -192,6 +201,19 @@ let currentModel: ModelId = DEFAULT_MODEL
  * 切 provider 在 wave 4 通过新 IPC 入口 setSelectedModel 改）。
  */
 let currentSelectedModel: SelectedModel = DEFAULT_SELECTED_MODEL
+/**
+ * M7-4 multi-provider key map：6 个 provider 各自的解密 key（null = 未配置）。
+ *
+ * 启动时加载（migrateLegacyCredentials 之后 + 跟 loadPreferences 同阶段）。
+ * 每个 provider 独立 entry —— 互不影响（任一 key 旋转 / 损坏不连带）。
+ *
+ * Wave 4.1（本 step）：只填数据，不接 chat:submit；wave 4.2 才让 chat:submit 用
+ *   `currentProviderKeys.get(currentSelectedModel.provider)` 取 key + 实例化
+ *   LlmClient 替代旧 AnthropicLlmClient。
+ *
+ * 不暴露明文 key 给 renderer（只 IPC boolean status）。
+ */
+const currentProviderKeys = new Map<Provider, string | null>()
 let llmClient: AnthropicLlmClient | null = null
 // 活动识别（M3-3）：detector 推的状态独立于 PetState，渲染层组合两者决定 SVG
 let currentActivity: ActivityState = 'idle'
@@ -492,7 +514,13 @@ async function resolveStartupKey(): Promise<void> {
       '[startup] ANTHROPIC_API_KEY env 格式不像 Anthropic key，忽略，走加密文件 / missing'
     )
   }
-  const fromDisk = await loadApiKey()
+  // M7-4: 改用 currentProviderKeys map（启动时已经由 resolveProviderKey 加载）
+  // 而非旧 loadApiKey()。原因：migrateLegacyCredentials() 跑过后 credentials.bin
+  // 已经被搬到 anthropic-key.bin + unlink 老文件 —— loadApiKey 读旧文件名永远 ENOENT。
+  // map 已经覆盖 env + 老 credentials.bin（被 migration 搬过）+ 新 anthropic-key.bin
+  // 三个来源，是正确的 single source。
+  // 注意：调用方必须保证 currentProviderKeys 已经被填充（启动序列里 for-loop 之后）。
+  const fromDisk = currentProviderKeys.get('anthropic') ?? null
   setKeyInMemory(fromDisk)
 }
 
@@ -1243,6 +1271,26 @@ app.whenReady().then(async () => {
   // loadApiKey / loadPreferences 之前，否则首次启动找不到旧 key 走迎宾流。
   await migrateLegacyUserData()
 
+  // M7-4: 把单 Anthropic 时代的 credentials.bin 迁移到新格式 anthropic-key.bin。
+  // 必须在 6-key load + resolveStartupKey 之前 —— 保证 anthropic-key.bin 存在再被读。
+  // 失败时静默保留老文件下次启动再试。
+  await migrateLegacyCredentials()
+
+  // M7-4: 加载 6 个 provider 的 key 到 currentProviderKeys map。
+  // 顺序加载 6 个 safeStorage decrypt ~5ms 总，启动开销可忽略。
+  // 必须在 resolveStartupKey 之前 —— resolveStartupKey 从 map 取 anthropic key 派生
+  // legacy currentApiKey（避免 loadApiKey 读已被 migration 删除的 credentials.bin）。
+  for (const provider of PROVIDER_ORDER) {
+    currentProviderKeys.set(provider, await resolveProviderKey(provider))
+  }
+  const loadedProviders = PROVIDER_ORDER.filter((p) => currentProviderKeys.get(p) !== null)
+  console.log(
+    `[startup] provider keys loaded: ${loadedProviders.length}/${PROVIDER_ORDER.length}` +
+      (loadedProviders.length > 0 ? ` (${loadedProviders.join(', ')})` : '')
+  )
+
+  // M7-4: resolveStartupKey 现在从 currentProviderKeys.get('anthropic') 派生 legacy
+  // currentApiKey —— 取代老 loadApiKey 路径（被 migration unlink 后永远 ENOENT 的 bug fix）。
   await resolveStartupKey()
   // M1-2：加载当前主题元数据（仅 log + 验证 schema，不做 renderer 注入）
   const theme = await loadTheme()
