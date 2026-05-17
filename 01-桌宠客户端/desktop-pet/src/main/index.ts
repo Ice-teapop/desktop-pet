@@ -346,42 +346,62 @@ function broadcastPetMode(): void {
  * Sub-wave A: 直接 setBounds（无 animate），无抛物线 —— C 阶段加 60Hz JS 插值。
  * Mini mode 时强制 stopCursorPoll（cursor poll 只服务 full+idle eye tracking）。
  */
-function setPetMode(mode: PetMode): void {
-  if (petMode === mode) return
-  if (!petWindow || petWindow.isDestroyed()) return
-  petMode = mode
-  let display = screen.getDisplayMatching(petWindow.getBounds())
+/**
+ * M9-5b B-1: 纯函数算 mode 对应窗口 bounds（无副作用）—— 拆出来给 sub-wave C 抛物线
+ * 动画用：动画期间需要 60Hz setBounds 但不动 module state petMode / rebuildTrayMenu /
+ * broadcastPetMode。setPetMode 是 "状态切换 + 应用 bounds"，applyModeBounds 是 "光算 bounds"。
+ *
+ * 接受可选 currentBounds 参数（决定 display）—— 无参数时用 primary display.
+ */
+function computeModeBounds(
+  mode: PetMode,
+  currentBounds?: Electron.Rectangle
+): Electron.Rectangle {
+  let display = currentBounds
+    ? screen.getDisplayMatching(currentBounds)
+    : screen.getPrimaryDisplay()
   let wa = display.workArea
   // 防御: fullscreen Space / 退化 display config 时 workArea 可能塌缩到极小值（macOS
   // 部分版本 + Spaces 转换边缘），直接 setBounds 会把窗口扔到屏外。落主屏的 bounds 兜底。
   if (wa.width < 200 || wa.height < 200) {
-    console.warn('[setPetMode] degenerate workArea, fallback to primary display:', wa)
+    console.warn('[computeModeBounds] degenerate workArea, fallback to primary display:', wa)
     display = screen.getPrimaryDisplay()
     wa = display.workArea.width < 200 ? display.bounds : display.workArea
   }
   if (mode === 'mini') {
     // 大部分藏在 workArea 右边外 —— 仅 MINI_VISIBLE_PX 露出
-    petWindow.setBounds({
+    return {
       x: wa.x + wa.width - MINI_VISIBLE_PX,
       y: wa.y + Math.round((wa.height - MINI_WIN_HEIGHT) / 2),
       width: MINI_WIN_WIDTH,
       height: MINI_WIN_HEIGHT
-    })
+    }
+  }
+  // full mode 默认位置（右下角 + margin）
+  return {
+    x: wa.x + wa.width - WIN_WIDTH_COMPACT - MARGIN_FROM_EDGE,
+    y: wa.y + wa.height - WIN_HEIGHT - MARGIN_FROM_EDGE,
+    width: WIN_WIDTH_COMPACT,
+    height: WIN_HEIGHT
+  }
+}
+
+function setPetMode(mode: PetMode): void {
+  if (petMode === mode) return
+  if (!petWindow || petWindow.isDestroyed()) return
+  petMode = mode
+  petWindow.setBounds(computeModeBounds(mode, petWindow.getBounds()))
+  if (mode === 'mini') {
     // Mini 时 cursor poll 无意义（eye-following 仅 full mode），强制停
     stopCursorPoll()
   } else {
-    // 回到 full mode 默认位置（右下角 + margin）
-    petWindow.setBounds({
-      x: wa.x + wa.width - WIN_WIDTH_COMPACT - MARGIN_FROM_EDGE,
-      y: wa.y + wa.height - WIN_HEIGHT - MARGIN_FROM_EDGE,
-      width: WIN_WIDTH_COMPACT,
-      height: WIN_HEIGHT
-    })
     // 回 full 后视情况重启 cursor poll（如果 state=idle+activity=idle）
     updateCursorPoll()
   }
   rebuildTrayMenu()
   broadcastPetMode()
+  // M9-5b B-1: 持久化 petMode（用户上次退出时是 mini → 下次启动恢复 mini）
+  schedulePrefsSave(currentPrefsSnapshot())
 }
 
 /**
@@ -556,7 +576,8 @@ function currentPrefsSnapshot(): Preferences {
     followFrontApp,
     useFastPath,
     visionEnabled: visionEnabledPref,
-    visionConsented: visionConsentedPref
+    visionConsented: visionConsentedPref,
+    petMode
   }
 }
 
@@ -618,14 +639,7 @@ function setUseFastPath(on: boolean): void {
   // 切换 fast-path 时清 classifier cache —— 防止 LLM 错误结果污染新策略
   clearClassifyCache()
   rebuildTrayMenu()
-  schedulePrefsSave({
-    modelId: currentModel,
-    selectedModel: currentSelectedModel,
-    followFrontApp,
-    useFastPath,
-    visionEnabled: visionEnabledPref,
-    visionConsented: visionConsentedPref
-  })
+  schedulePrefsSave(currentPrefsSnapshot())
 }
 
 function setFollowFrontApp(on: boolean): void {
@@ -637,14 +651,7 @@ function setFollowFrontApp(on: boolean): void {
     activeAppMonitor.stop() // stop 内部会推一次 'idle' 回到闲态
   }
   rebuildTrayMenu()
-  schedulePrefsSave({
-    modelId: currentModel,
-    selectedModel: currentSelectedModel,
-    followFrontApp,
-    useFastPath,
-    visionEnabled: visionEnabledPref,
-    visionConsented: visionConsentedPref
-  })
+  schedulePrefsSave(currentPrefsSnapshot())
 }
 
 function setKeyInMemory(key: string | null): void {
@@ -744,14 +751,7 @@ function setModel(id: ModelId): void {
   currentStreamHandle = null
   chatTurnToken++
   rebuildTrayMenu()
-  schedulePrefsSave({
-    modelId: id,
-    selectedModel: currentSelectedModel,
-    followFrontApp,
-    useFastPath,
-    visionEnabled: visionEnabledPref,
-    visionConsented: visionConsentedPref
-  })
+  schedulePrefsSave(currentPrefsSnapshot())
 }
 
 function trimChatHistory(): void {
@@ -1476,14 +1476,7 @@ function registerIpc(): void {
 
     llmClient = null
     rebuildTrayMenu()
-    schedulePrefsSave({
-      modelId: currentModel,
-      selectedModel: currentSelectedModel,
-      followFrontApp,
-      useFastPath,
-      visionEnabled: visionEnabledPref,
-      visionConsented: visionConsentedPref
-    })
+    schedulePrefsSave(currentPrefsSnapshot())
     broadcastSelectedModelState()
   })
 
@@ -1897,6 +1890,10 @@ app.whenReady().then(async () => {
   useFastPath = prefs.useFastPath
   visionEnabledPref = prefs.visionEnabled
   visionConsentedPref = prefs.visionConsented
+  // M9-5b B-1: 启动 seed petMode（createPetWindow 之后才能 setBounds，所以这里仅 seed
+  // module state；窗口创建后若 petMode === 'mini' 立即应用 mini bounds —— 在
+  // createPetWindow() 调用后做，见下面 startup sequence）
+  petMode = prefs.petMode
 
   // 边缘情况：visionEnabled=true 但 consent=false（异常状态，理论不会发生）
   // 自动 disable 防止意外开了功能
@@ -1943,6 +1940,12 @@ app.whenReady().then(async () => {
 
   registerIpc()
   createPetWindow()
+  // M9-5b B-1: 若 prefs 上次存的是 mini，立即套用 mini bounds. 用 computeModeBounds 直接
+  // setBounds，不走 setPetMode (那里有 petMode === mode 早 return guard，prefs seed 完已经
+  // === 'mini'，setPetMode('mini') 会 no-op). createTray 在下面，会按 petMode 起 checkbox state.
+  if (petMode === 'mini' && petWindow) {
+    petWindow.setBounds(computeModeBounds('mini', petWindow.getBounds()))
+  }
   // 让 approval.ts 拿到 petWindow 引用，requestApproval 才能发 IPC
   setApprovalPetWindow(petWindow)
   createTray()

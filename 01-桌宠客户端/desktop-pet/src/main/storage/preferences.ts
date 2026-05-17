@@ -21,6 +21,7 @@ import {
   isValidSelectedModel,
   type SelectedModel
 } from '../../shared/provider-types'
+import { DEFAULT_PET_MODE, isPetMode, type PetMode } from '../../shared/pet-mode'
 
 const FILE_NAME = 'preferences.json'
 
@@ -40,6 +41,8 @@ export interface Preferences {
   visionEnabled: boolean
   /** 用户是否同意过隐私 modal（截图发 LLM provider）—— 一次性，consent 后才能 enable */
   visionConsented: boolean
+  /** M9-5: 顶层 pet 呈现 mode —— 'full' 完整 240×240 / 'mini' 80×80 藏边. 默认 full */
+  petMode: PetMode
 }
 
 const DEFAULT_PREFS: Preferences = {
@@ -48,7 +51,8 @@ const DEFAULT_PREFS: Preferences = {
   followFrontApp: true,
   useFastPath: true,
   visionEnabled: false,
-  visionConsented: false
+  visionConsented: false,
+  petMode: DEFAULT_PET_MODE
 }
 
 function prefsPath(): string {
@@ -67,6 +71,7 @@ export async function loadPreferences(): Promise<Preferences> {
         useFastPath?: unknown
         visionEnabled?: unknown
         visionConsented?: unknown
+        petMode?: unknown
       }
       const modelId = isValidModelId(obj.modelId) ? obj.modelId : DEFAULT_PREFS.modelId
       // M7-3 forward-compat migration:
@@ -103,13 +108,18 @@ export async function loadPreferences(): Promise<Preferences> {
         typeof obj.visionConsented === 'boolean'
           ? obj.visionConsented
           : DEFAULT_PREFS.visionConsented
+      const petMode =
+        typeof obj.petMode === 'string' && isPetMode(obj.petMode)
+          ? obj.petMode
+          : DEFAULT_PREFS.petMode
       return {
         modelId: reconciledModelId,
         selectedModel,
         followFrontApp,
         useFastPath,
         visionEnabled,
-        visionConsented
+        visionConsented,
+        petMode
       }
     }
   } catch (err) {
@@ -140,6 +150,9 @@ export async function savePreferences(prefs: Preferences): Promise<void> {
   }
   if (typeof prefs.visionConsented !== 'boolean') {
     throw new Error(`[prefs] visionConsented must be boolean`)
+  }
+  if (!isPetMode(prefs.petMode)) {
+    throw new Error(`[prefs] refuse to save invalid petMode: ${String(prefs.petMode)}`)
   }
   const data = JSON.stringify(prefs, null, 2)
   await fs.writeFile(prefsPath(), data, { mode: 0o600 })
