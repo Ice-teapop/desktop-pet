@@ -60,7 +60,7 @@ if [[ -n "${GH_TOKEN:-}" ]]; then
   info "使用 GH_TOKEN 访问 API（适用于 private repo）"
 fi
 
-RELEASE_JSON=$(curl -fsSL "${AUTH_HEADER[@]}" "$API_URL" 2>/dev/null || true)
+RELEASE_JSON=$(curl -fsSL ${AUTH_HEADER[@]+"${AUTH_HEADER[@]}"} "$API_URL" 2>/dev/null || true)
 if [[ -z "$RELEASE_JSON" ]]; then
   err "无法获取 release 信息。可能原因："
   err "  1. repo 是 private —— 需要 export GH_TOKEN=<your-token> 后重跑"
@@ -101,7 +101,7 @@ info "下载 URL：${ZIP_URL}"
 # —— Step 3：下载 ——
 ZIP_FILE="$TMP_DIR/deskpet.zip"
 info "下载中..."
-curl -fL --progress-bar "${AUTH_HEADER[@]}" -o "$ZIP_FILE" "$ZIP_URL"
+curl -fL --progress-bar ${AUTH_HEADER[@]+"${AUTH_HEADER[@]}"} -o "$ZIP_FILE" "$ZIP_URL"
 ok "下载完成 ($(du -h "$ZIP_FILE" | cut -f1))"
 
 # —— Step 4：解压 ——
