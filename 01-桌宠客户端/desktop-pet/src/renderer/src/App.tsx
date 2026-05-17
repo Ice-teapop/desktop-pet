@@ -22,6 +22,8 @@ import type { ActivityState, ChatError, KeyState } from '../../shared/chat-types
 import type { VisionState } from '../../shared/vision-types'
 import type { ApprovalDecision, ApprovalRequest } from '../../shared/approval-types'
 import type { TavilyState } from '../../shared/tavily-types'
+import type { PetMode } from '../../shared/pet-mode'
+import { DEFAULT_PET_MODE } from '../../shared/pet-mode'
 // idle 池 6 种"无聊时的小动作"，闲态随机切
 import idleGif from '@themes/clawd-dev/clawd-idle.gif'
 import idleReadingGif from '@themes/clawd-dev/clawd-idle-reading.gif'
@@ -40,6 +42,8 @@ import collapsingSvg from '@themes/clawd-dev/clawd-idle-collapse.svg'
 import wakingSvg from '@themes/clawd-dev/clawd-wake.svg'
 // M9-4 eye tracking: inline SVG component（?react suffix triggers vite-plugin-svgr）
 import IdleFollowSvg from '@themes/clawd-dev/clawd-idle-follow.svg?react'
+// M9-5a mini mode (sub-wave A 只用 idle；后续 hover/alert 在 sub-wave B 加)
+import miniIdleGif from '@themes/clawd-dev/clawd-mini-idle.gif'
 // activity → GIF 映射：识别到不同活动时桌宠"陪你做同样的事"
 import typingGif from '@themes/clawd-dev/clawd-typing.gif'
 import debuggerGif from '@themes/clawd-dev/clawd-debugger.gif'
@@ -181,6 +185,8 @@ function App(): React.JSX.Element {
   const [keyState, setKeyState] = useState<KeyState | null>(null)
   // 活动识别状态：默认 idle，主进程 detector 通过 pet:activity 推
   const [activity, setActivity] = useState<ActivityState>('idle')
+  // M9-5a: 顶层 petMode（full 完整 240×240 vs mini 80×80 藏边）
+  const [petMode, setPetMode] = useState<PetMode>(DEFAULT_PET_MODE)
   // idle 6 变体池索引（仅 stateMachine=idle + activity=idle 时玩）
   const [idleVariantIdx, setIdleVariantIdx] = useState(0)
   // 双层 <img> cross-fade：两个 absolute 叠加，frontIdx 指当前显示的那层
@@ -264,6 +270,19 @@ function App(): React.JSX.Element {
     return off
   }, [])
 
+  // M9-5a: 订阅 petMode + 启动 race 防御 (pull request-state)
+  // 进 mini 时主进程已 stopCursorPoll → 进 full 前 cursorRef 是 stale；这里 reset
+  // 到 (0,0)，避免切回 full 第一帧用过期 dx/dy 把 eyes/body/shadow 转到错的方向
+  // （CSS transition 会平滑追上，但视觉上会"先看错再回来"）。
+  useEffect(() => {
+    const off = window.api.onPetMode((m) => {
+      cursorRef.current = { dx: 0, dy: 0 }
+      setPetMode(m)
+    })
+    window.api.requestPetModeState()
+    return off
+  }, [])
+
   // idle 子调度器：state=idle && activity=idle 时按 pickNextIdle 完全随机切（不重复 current）。
   // 姿态硬跳由 fade 透明度过渡掩盖。reading "喝茶动作" 一次性 7s 后切走（GIF 一个 loop 时长）。
   // 加 idleVariantIdx 到依赖：每次切了 variant 重 schedule，让 reading 用短 delay。
@@ -322,7 +341,7 @@ function App(): React.JSX.Element {
     const tick = (): void => {
       // 非 idle-follow 模式 skip mutation（SVG 不可见，无意义的 style write）
       // 当前 inline check 比把 state 进 deps 触发 rAF 重启更简单
-      if (state === 'idle' && activity === 'idle') {
+      if (petMode === 'full' && state === 'idle' && activity === 'idle') {
         const { dx, dy } = cursorRef.current
         const normX = Math.max(-1, Math.min(1, dx / SENSE_RANGE_PX))
         const normY = Math.max(-1, Math.min(1, dy / SENSE_RANGE_PX))
@@ -340,8 +359,9 @@ function App(): React.JSX.Element {
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-    // state + activity 进 deps —— gate inline 判断需要拿最新值，重启 rAF 更稳
-  }, [state, activity])
+    // state + activity + petMode 进 deps —— gate inline 判断需要拿最新值，重启 rAF 更稳。
+    // mini mode 时 SVG opacity=0 不可见 → 不必每帧 write 3 个 invisible style.transform
+  }, [state, activity, petMode])
 
   // —— vision state 订阅 + 启动主动拉一次（同 keyState 防 race 模式）——
   useEffect(() => {
@@ -520,8 +540,21 @@ function App(): React.JSX.Element {
     if (!ref || e.pointerId !== ref.pointerId) return
     dragRef.current = null
     // pointerup 自动 release capture（不需要显式 releasePointerCapture）
-    if (ref.moved) return
-    // 没移过 = click → M9-2 走 click burst 累计
+    // M9-5a Officer #2 / Architect W3 / Tester B1+B2 fix:
+    // mini 模式下 pointerup **永远**走 setPetMode('full') —— 不论 ref.moved.
+    // 之前的 bug: ref.moved=true 走 windowDragEnd → main 看 petMode='mini' early return
+    // → mini panel 拖到屏中央就卡死、手抖 5px+ 单击也 silent dead。统一行为：
+    // mini 模式下 click 也好、drag 也好都 → 回 full（drag 路径的"snap"语义在 mini→full
+    // 不存在，永远应该回 full）。
+    if (petMode === 'mini') {
+      window.api.setPetMode('full')
+      return
+    }
+    if (ref.moved) {
+      // full 模式下 drag end 通知 main 检测是否拖到右边 → snap to mini
+      window.api.windowDragEnd()
+      return
+    }
     handleClickBurst()
   }
 
@@ -1052,13 +1085,24 @@ function App(): React.JSX.Element {
       )}
       <div
         ref={petRef}
-        className="pet"
+        className={petMode === 'mini' ? 'pet pet-mini' : 'pet'}
         data-state={state}
+        data-mode={petMode}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
       >
+        {/* M9-5a Mini mode：单 img 渲染 mini-idle.gif。Sub-wave B 加 hover peek / mini
+            state→gif 映射。Mini 模式下完全独立于下方 IdleFollow + dual-img 体系。 */}
+        {petMode === 'mini' && (
+          <img
+            src={miniIdleGif}
+            alt=""
+            draggable={false}
+            style={{ opacity: 1 }}
+          />
+        )}
         {/* M9-4 IdleFollow inline SVG layer —— state=idle && activity=idle 时显示，
             内部 `#eyes-js`/`#body-js`/`#shadow-js` group 由 rAF loop 直接 mutate
             transform 实现 eye tracking + body lean + shadow stretch。
@@ -1066,7 +1110,8 @@ function App(): React.JSX.Element {
         <IdleFollowSvg
           ref={idleFollowSvgRef}
           style={{
-            opacity: state === 'idle' && activity === 'idle' ? 1 : 0,
+            opacity:
+              petMode === 'full' && state === 'idle' && activity === 'idle' ? 1 : 0,
             transition: `opacity ${FADE_HALF_MS}ms ${FADE_EASING}`
           }}
         />
@@ -1082,7 +1127,13 @@ function App(): React.JSX.Element {
           onLoad={handleImgLoad(0)}
           style={{
             opacity:
-              state === 'idle' && activity === 'idle' ? 0 : frontIdx === 0 ? 1 : 0,
+              petMode === 'mini'
+                ? 0
+                : state === 'idle' && activity === 'idle'
+                  ? 0
+                  : frontIdx === 0
+                    ? 1
+                    : 0,
             transition: `opacity ${FADE_HALF_MS}ms ${FADE_EASING}`
           }}
         />
@@ -1093,7 +1144,13 @@ function App(): React.JSX.Element {
           onLoad={handleImgLoad(1)}
           style={{
             opacity:
-              state === 'idle' && activity === 'idle' ? 0 : frontIdx === 1 ? 1 : 0,
+              petMode === 'mini'
+                ? 0
+                : state === 'idle' && activity === 'idle'
+                  ? 0
+                  : frontIdx === 1
+                    ? 1
+                    : 0,
             transition: `opacity ${FADE_HALF_MS}ms ${FADE_EASING}`
           }}
         />

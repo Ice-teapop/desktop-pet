@@ -12,6 +12,7 @@ import type {
 } from '../shared/provider-types'
 import type { IpcResult, PrefsState, TrustedDirsState } from '../shared/settings-types'
 import type { UserProfile } from '../shared/user-profile-types'
+import type { PetMode } from '../shared/pet-mode'
 
 export type { PetState, ActivityState, ChatError, ChatUsage, KeyState }
 export type { VisionState }
@@ -20,6 +21,7 @@ export type { TavilyState }
 export type { ModelId, IpcResult, PrefsState, TrustedDirsState }
 export type { Provider, ProviderKeyStates, SelectedModel }
 export type { UserProfile }
+export type { PetMode }
 
 export interface DeskPetAPI {
   windowMoveDelta(dx: number, dy: number): void
@@ -30,11 +32,15 @@ export interface DeskPetAPI {
   onChatDone(listener: (usage: ChatUsage) => void): () => void
   onChatError(listener: (err: ChatError) => void): () => void
   setChatOpen(open: boolean): void
-  // M9-2 click reactions + M9-3 wake hook + M9-4 eye tracking
+  // M9-2 click reactions + M9-3 wake hook + M9-4 eye tracking + M9-5 mini mode
   petPoke(): void
   petStartled(): void
   petWake(): void
   onPetCursor(listener: (cursor: { dx: number; dy: number }) => void): () => void
+  setPetMode(mode: PetMode): void
+  requestPetModeState(): void
+  onPetMode(listener: (mode: PetMode) => void): () => void
+  windowDragEnd(): void
   onChatWindowReady(listener: () => void): () => void
   onKeyState(listener: (state: KeyState) => void): () => void
   submitKey(key: string): void

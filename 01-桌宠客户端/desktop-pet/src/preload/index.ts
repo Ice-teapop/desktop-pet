@@ -17,6 +17,7 @@ import type {
 } from '../shared/provider-types'
 import type { IpcResult, PrefsState, TrustedDirsState } from '../shared/settings-types'
 import type { UserProfile } from '../shared/user-profile-types'
+import type { PetMode } from '../shared/pet-mode'
 
 const api = {
   /** 渲染层接管鼠标后，把 dx/dy 增量发给主进程，由主进程移动窗口。 */
@@ -95,6 +96,25 @@ const api = {
     ): void => listener(cursor)
     ipcRenderer.on('pet:cursor', handler)
     return () => ipcRenderer.off('pet:cursor', handler)
+  },
+  // —— M9-5a Pet mode (full / mini) IPC ——
+  /** 切换 pet mode（mini 藏屏幕边缘；full 正常大小） */
+  setPetMode(mode: PetMode): void {
+    ipcRenderer.send('pet:set-mode', mode)
+  },
+  /** Mount 后主动拉一次 petMode 状态（防启动 race） */
+  requestPetModeState(): void {
+    ipcRenderer.send('pet:request-mode-state')
+  },
+  /** 订阅 petMode 推送 */
+  onPetMode(listener: (mode: PetMode) => void): () => void {
+    const handler = (_event: IpcRendererEvent, mode: PetMode): void => listener(mode)
+    ipcRenderer.on('pet:mode', handler)
+    return () => ipcRenderer.off('pet:mode', handler)
+  },
+  /** drag 结束 → main 检测是否需要 snap to mini */
+  windowDragEnd(): void {
+    ipcRenderer.send('window:drag-end')
   },
   /**
    * 订阅主进程通知"窗口扩展完成"事件 —— 用于渲染层等窗口动画完才 fade-in 对话 UI，

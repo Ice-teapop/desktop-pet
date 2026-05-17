@@ -40,6 +40,15 @@ import {
   type PetAnimation
 } from '../shared/pet-state'
 import {
+  DEFAULT_PET_MODE,
+  MINI_SNAP_THRESHOLD_PX,
+  MINI_VISIBLE_PX,
+  MINI_WIN_HEIGHT,
+  MINI_WIN_WIDTH,
+  isPetMode,
+  type PetMode
+} from '../shared/pet-mode'
+import {
   ACTIVITY_INFO,
   AVAILABLE_MODELS,
   DEFAULT_MODEL,
@@ -316,6 +325,66 @@ function stopCursorPoll(): void {
 }
 
 /**
+ * M9-5a: 顶层 petMode 状态 —— 'full' (240×240 normal) vs 'mini' (80×80 藏边).
+ * 跟 PetState 正交：mini mode 下 state 仍是 idle/sleep/thinking，但 renderer
+ * 走不同 render path（只用 mini-* GIF）。切换通过 setPetMode(mode)。
+ */
+let petMode: PetMode = DEFAULT_PET_MODE
+
+function broadcastPetMode(): void {
+  // 单播给 petWindow（跟 pet:state / pet:cursor 拓扑对齐；settings 等其它 window 不需要这条 channel）
+  if (petWindow && !petWindow.isDestroyed()) {
+    petWindow.webContents.send('pet:mode', petMode)
+  }
+}
+
+/**
+ * 切换 pet mode 并 resize/reposition window。
+ * - mini: 80×80, 藏在 workArea 右边（只露 MINI_VISIBLE_PX = 24px）
+ * - full: 260×280, 回到右下角 MARGIN_FROM_EDGE
+ *
+ * Sub-wave A: 直接 setBounds（无 animate），无抛物线 —— C 阶段加 60Hz JS 插值。
+ * Mini mode 时强制 stopCursorPoll（cursor poll 只服务 full+idle eye tracking）。
+ */
+function setPetMode(mode: PetMode): void {
+  if (petMode === mode) return
+  if (!petWindow || petWindow.isDestroyed()) return
+  petMode = mode
+  let display = screen.getDisplayMatching(petWindow.getBounds())
+  let wa = display.workArea
+  // 防御: fullscreen Space / 退化 display config 时 workArea 可能塌缩到极小值（macOS
+  // 部分版本 + Spaces 转换边缘），直接 setBounds 会把窗口扔到屏外。落主屏的 bounds 兜底。
+  if (wa.width < 200 || wa.height < 200) {
+    console.warn('[setPetMode] degenerate workArea, fallback to primary display:', wa)
+    display = screen.getPrimaryDisplay()
+    wa = display.workArea.width < 200 ? display.bounds : display.workArea
+  }
+  if (mode === 'mini') {
+    // 大部分藏在 workArea 右边外 —— 仅 MINI_VISIBLE_PX 露出
+    petWindow.setBounds({
+      x: wa.x + wa.width - MINI_VISIBLE_PX,
+      y: wa.y + Math.round((wa.height - MINI_WIN_HEIGHT) / 2),
+      width: MINI_WIN_WIDTH,
+      height: MINI_WIN_HEIGHT
+    })
+    // Mini 时 cursor poll 无意义（eye-following 仅 full mode），强制停
+    stopCursorPoll()
+  } else {
+    // 回到 full mode 默认位置（右下角 + margin）
+    petWindow.setBounds({
+      x: wa.x + wa.width - WIN_WIDTH_COMPACT - MARGIN_FROM_EDGE,
+      y: wa.y + wa.height - WIN_HEIGHT - MARGIN_FROM_EDGE,
+      width: WIN_WIDTH_COMPACT,
+      height: WIN_HEIGHT
+    })
+    // 回 full 后视情况重启 cursor poll（如果 state=idle+activity=idle）
+    updateCursorPoll()
+  }
+  rebuildTrayMenu()
+  broadcastPetMode()
+}
+
+/**
  * M9-4 (Officer B ⚠️ #3 fix): state-gated cursor poll —— 仅 state=idle &&
  * activity=idle 时启动；其它时刻 stop，避免持续 30Hz IPC 在 non-idle 期间
  * 唤醒 renderer 影响 LLM stream 调度 + 笔记本待机 battery。
@@ -324,8 +393,14 @@ function stopCursorPoll(): void {
  * + startup 初始化一次（currentActivity 默认 'idle'）。
  */
 function updateCursorPoll(): void {
+  // M9-5a Architect B1 fix: 必须加 petMode === 'full' gate。
+  // 没有这一层，mini 模式下任何 stateMachine.notify (e.g. scheduleReturnToIdle 把 state
+  // 切回 idle) 都会让 30Hz cursor poll IPC **悄悄复活**，跟 mini 模式 stopCursorPoll
+  // 承诺直接冲突，prod 跑久了累积无效 IPC.
   const shouldPoll =
-    stateMachine.getState() === 'idle' && currentActivity === 'idle'
+    petMode === 'full' &&
+    stateMachine.getState() === 'idle' &&
+    currentActivity === 'idle'
   if (shouldPoll) {
     startCursorPoll()
   } else {
@@ -801,6 +876,15 @@ function stopVisibilityWatchdog(): void {
 
 function setChatOpen(open: boolean): void {
   if (!petWindow || petWindow.isDestroyed()) return
+  // M9-5a Officer C #1 fix: mini 模式时打开 chat 必须先回 full，否则 setBounds(width=540)
+  // 用 mini panel 当前的右边缘位置（x ≈ workArea.right - 24）→ 540 宽往右扯 → 把
+  // chat 框炸到屏外 470px，用户看到一条无 chat input 的窗口卡在屏右缝里。
+  // 走 setPetMode('full') 先把窗口 setBounds 到右下角默认位置，下面 chat resize 才能正确算 newX。
+  // 关闭路径在 mini 下无意义（mini 不显示 chat DOM）→ silently bail。
+  if (petMode === 'mini') {
+    if (!open) return
+    setPetMode('full')
+  }
   const newW = open ? WIN_WIDTH_FULL : WIN_WIDTH_COMPACT
   const [oldW] = petWindow.getSize()
   if (oldW === newW) return
@@ -985,6 +1069,13 @@ function buildTrayMenu(): Menu {
       click: togglePetVisibility
     },
     { label: '重置位置（右下角）', click: resetPetPosition },
+    {
+      // M9-5a 极简模式 toggle
+      label: '极简模式（藏屏幕边缘）',
+      type: 'checkbox',
+      checked: petMode === 'mini',
+      click: (item) => setPetMode(item.checked ? 'mini' : 'full')
+    },
     { type: 'separator' },
     { label: activityLabel, enabled: false }, // readonly 状态显示
     {
@@ -1081,6 +1172,42 @@ function registerIpc(): void {
     win.setPosition(x + Math.round(dx), y + Math.round(dy))
     // M8: 拖拽 pet = user 主动 interaction → wake from sleep
     stateMachine.wakeFromSleep()
+  })
+
+  // —— M9-5a Pet mode IPC（mini ↔ full 切换 + snap-to-edge detection）——
+
+  ipcMain.on('pet:set-mode', (_event, rawMode: unknown) => {
+    if (typeof rawMode !== 'string' || !isPetMode(rawMode)) {
+      console.warn('[pet:set-mode] invalid mode, ignored:', rawMode)
+      return
+    }
+    setPetMode(rawMode)
+  })
+
+  ipcMain.on('pet:request-mode-state', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    win?.webContents.send('pet:mode', petMode)
+  })
+
+  /**
+   * M9-5a: drag 结束时 renderer 发 'window:drag-end'，main 检测 panel 当前位置
+   * 是否离右边 workArea.right 在 MINI_SNAP_THRESHOLD_PX (40px) 内 →
+   * 触发 setPetMode('mini')。
+   *
+   * 在 main 做 snap 判定的原因：renderer 只跟 dx/dy delta，main 才知道绝对
+   * window position。drag 通过 window:move-delta 累计 setPosition，最终位置
+   * = win.getPosition()。
+   */
+  ipcMain.on('window:drag-end', () => {
+    if (!petWindow || petWindow.isDestroyed()) return
+    if (petMode === 'mini') return // 已经 mini，drag 在 mini 内不重新 snap
+    const bounds = petWindow.getBounds()
+    const display = screen.getDisplayMatching(bounds)
+    const wa = display.workArea
+    const rightEdge = bounds.x + bounds.width
+    if (rightEdge >= wa.x + wa.width - MINI_SNAP_THRESHOLD_PX) {
+      setPetMode('mini')
+    }
   })
 
   ipcMain.on('window:ignore-mouse', (event, ignore: boolean) => {

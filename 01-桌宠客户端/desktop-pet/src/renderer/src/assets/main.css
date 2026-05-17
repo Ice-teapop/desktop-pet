@@ -110,6 +110,18 @@ body,
   cursor: grabbing;
 }
 
+/* M9-5a Mini mode：窗口缩到 100×100，pet body 占满（取消 240×240 默认 + padding）
+ * 关键：必须 override 上面 .pet 的 right/bottom/width/height/padding，否则 240×240
+ * 容器锚在 bottom-right of a 100×100 viewport → origin 跑到 (-154,-154)，
+ * mini gif 几乎全裁出窗外。 */
+.pet.pet-mini {
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+}
+
 .pet svg,
 .pet img {
   width: 100%;
