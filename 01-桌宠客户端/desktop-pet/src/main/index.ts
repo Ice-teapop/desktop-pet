@@ -50,10 +50,6 @@ import {
   type Provider,
   type SelectedModel
 } from '../shared/provider-types'
-// anthropic.ts 残留 import：getApiKeyFromEnv / looksLikeApiKey 仍由 resolveStartupKey
-// 跟 key:submit IPC 用（legacy Anthropic 单 key 时代 helper）。AnthropicLlmClient /
-// StreamHandle 已 wave 4.2 切换到 LlmClient —— 整个 anthropic.ts 文件 wave 4.3 删除。
-import { getApiKeyFromEnv, looksLikeApiKey } from './llm/anthropic'
 import { LlmClient, type StreamHandle } from './llm/llm-client'
 import { instantiateModelSync } from './llm/providers'
 import {
@@ -514,6 +510,23 @@ async function refreshUserProfile(): Promise<void> {
   } catch (err) {
     console.warn('[user-profile] refresh failed:', err)
   }
+}
+
+/**
+ * Anthropic key env var 后门（dev 用）—— 让本地调试不用反复粘 key 到 UI。
+ *
+ * Wave 4.3: 原本在 anthropic.ts（已删）。inline 到这里因为只有 resolveStartupKey
+ * 一处用 + 是 Anthropic 单 provider 时代遗留 helper。Wave 4.4 unify provider key
+ * API 后会被 provider-keys.ts 的 getProviderKeyFromEnv('anthropic') 取代。
+ */
+function getApiKeyFromEnv(): string | null {
+  const raw = process.env.ANTHROPIC_API_KEY?.trim()
+  return raw && raw.length > 0 ? raw : null
+}
+
+/** 粗判一段文本是不是 Anthropic key。 */
+function looksLikeApiKey(text: string): boolean {
+  return /^sk-ant-[\w-]{20,200}$/.test(text.trim())
 }
 
 /**
