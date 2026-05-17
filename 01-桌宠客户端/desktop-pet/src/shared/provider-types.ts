@@ -55,6 +55,7 @@ export const PROVIDERS: Readonly<Record<Provider, ProviderInfo>> = {
   google: {
     id: 'google',
     label: 'Google Gemini',
+    keyPattern: /^AIza[\w-]{30,40}$/,
     registrationUrl: 'https://aistudio.google.com/apikey',
     defaultModel: 'gemini-2.5-flash',
     envVar: 'GOOGLE_GENERATIVE_AI_API_KEY',
@@ -81,6 +82,7 @@ export const PROVIDERS: Readonly<Record<Provider, ProviderInfo>> = {
   bytedance: {
     id: 'bytedance',
     label: '字节豆包',
+    keyPattern: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
     registrationUrl: 'https://console.volcengine.com/ark',
     defaultModel: 'doubao-pro-32k',
     envVar: 'ARK_API_KEY',

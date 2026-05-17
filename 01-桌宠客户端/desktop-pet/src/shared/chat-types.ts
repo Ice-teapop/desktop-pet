@@ -22,6 +22,12 @@ export type ChatError =
   | { kind: 'key-not-persisted' }
   // 提交的 key 不符合 sk-ant-[\w-]{20,200} 格式（renderer 跟 main 校验不一致时 main 兜底）
   | { kind: 'key-format-invalid' }
+  // streamText 跑完但 textStream 0 chunk + finishReason !== stop —— 多见于:
+  //   (a) Anthropic strict tool schema 拒绝整 request 但 SDK 把它当 success 走完
+  //   (b) adaptive thinking 把 budget 全花在 reasoning, 没 text output
+  //   (c) max_tokens=0 / 模型 silent 拒
+  // 给用户一个具体的 hint, 别让 SDK 默认错误吞掉
+  | { kind: 'empty-response'; finishReason: string }
 
 export interface ChatUsage {
   inputTokens: number

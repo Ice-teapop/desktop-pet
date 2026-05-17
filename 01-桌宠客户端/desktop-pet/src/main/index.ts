@@ -72,6 +72,7 @@ import {
 import {
   DEFAULT_SELECTED_MODEL,
   PROVIDER_ORDER,
+  defaultModelForProvider,
   isValidProvider,
   isValidSelectedModel,
   type Provider,
@@ -1579,6 +1580,28 @@ function registerIpc(): void {
         if (rawProvider === currentSelectedModel.provider) {
           llmClient = null
         }
+      }
+      // **关键修**: 自动切 selectedModel 到刚配 key 的 provider, 如果当前选中 provider
+      // 还没 key —— 防止 onboarding 后果"key 设了但 model 还选 Claude → chat 仍 no-api-key".
+      // 用户分场景:
+      //  - 第一次跑: keyState=missing, currentSelectedModel.provider=anthropic 但 anthropic key 没配 →
+      //    用户配 OpenAI key → 自动切 model 到 gpt-4o-mini.
+      //  - 已配过 Anthropic key 的用户在 settings 又加 OpenAI key → currentSelectedModel.provider=anthropic
+      //    + anthropic key 有 → 保留用户当前 model 不切.
+      const selectedHasKey = !!currentProviderKeys.get(currentSelectedModel.provider)
+      if (!selectedHasKey && rawProvider !== currentSelectedModel.provider) {
+        currentSelectedModel = defaultModelForProvider(rawProvider)
+        // legacy currentModel 仅 anthropic 有意义；其它 provider 保留旧 ModelId 值
+        // (selectedModel 才是新权威字段)
+        if (rawProvider === 'anthropic' && isValidModelId(currentSelectedModel.modelId)) {
+          currentModel = currentSelectedModel.modelId
+        }
+        llmClient = null
+        rebuildTrayMenu()
+        broadcastSelectedModelState()
+        void savePreferences(currentPrefsSnapshot()).catch((err) => {
+          console.warn('[provider-key:submit] auto-switch model savePrefs failed:', err)
+        })
       }
       broadcastProviderKeyStates()
     }

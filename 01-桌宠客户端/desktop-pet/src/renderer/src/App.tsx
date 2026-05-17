@@ -24,6 +24,8 @@ import type { ApprovalDecision, ApprovalRequest } from '../../shared/approval-ty
 import type { TavilyState } from '../../shared/tavily-types'
 import type { PetMode } from '../../shared/pet-mode'
 import { DEFAULT_PET_MODE } from '../../shared/pet-mode'
+import { detectProvider } from '../../shared/key-detect'
+import { PROVIDERS } from '../../shared/provider-types'
 // idle 池 6 种"无聊时的小动作"，闲态随机切
 import idleGif from '@themes/clawd-dev/clawd-idle.gif'
 import idleReadingGif from '@themes/clawd-dev/clawd-idle-reading.gif'
@@ -118,30 +120,16 @@ const ACTIVITY_GIF: Readonly<Record<Exclude<ActivityState, 'idle'>, string>> = {
 }
 
 const GREETING_TEXT =
-  '嗨，第一次见面 🦀 我是 Claw。要跟我聊天得先有把 Anthropic API key —— 把它（sk-ant- 开头那串长字符串）粘到下面发给我，我会本地加密保存，不会发到任何地方。'
+  '嗨，第一次见面 🦀 我是 Claw。要跟我聊天得先有把 API key —— 任意 provider 都行 (Anthropic / OpenAI / Google / xAI / DeepSeek / 字节豆包)，把 key 粘到下面发给我，我会自动识别 + 本地加密保存。'
 
 // 中性文案 —— 不暗示「已加密存好」，因为 Linux 无 keyring 时存盘会失败但内存仍可用，
 // 后续 'key-not-persisted' 错误气泡会单独说明「下次启动会丢」，两条不互相打脸
 const KEY_STORED_TEXT = '钥匙记下了，咱们可以聊了 🦀'
 
-const KEY_RESET_PROMPT = '🔑 钥匙没了或被拒了 —— 再贴一个 sk-ant-... 给我？'
+const KEY_RESET_PROMPT = '🔑 钥匙没了或被拒了 —— 再贴一个 API key 给我？'
 
 const NOT_KEY_HINT =
-  '🤔 这看着不像 Anthropic API key（要 sk-ant- 开头的长字符串）。去 console.anthropic.com 拿到 key 再贴过来～'
-
-/**
- * 渲染层校验 —— 跟 main 端 looksLikeApiKey 同样规则（{20,200}），避免 renderer 通过
- * 但 main 拒导致用户卡在「🔑 已提交」气泡（cr W1 修复）。
- *
- * M7-5 注：本函数仅 Anthropic 单 provider 时代 chat-paste 后门用 —— first-time
- * onboarding 让 user 直接粘 sk-ant-... 到对话框激活桌宠。其它 5 个 provider
- * （OpenAI / Google / xAI / DeepSeek / ByteDance）的 key 走 Settings 面板
- * (`⌘+,`) 的 submitProviderKey IPC —— chat-paste 不识别那些前缀。这是有意保留的
- * Anthropic-优先 onboarding UX；多 provider 用户应当用 Settings。
- */
-function looksLikeApiKey(text: string): boolean {
-  return /^sk-ant-[\w-]{20,200}$/.test(text.trim())
-}
+  '🤔 这看着不像 API key (我认 Anthropic sk-ant- / OpenAI sk- 或 sk-proj- / Google AIza / xAI xai- / 字节豆包 UUID)。复制时检查下别带空格。'
 
 interface ChatMessage {
   id: number
@@ -165,7 +153,14 @@ function chatErrorText(err: ChatError): string {
     case 'key-not-persisted':
       return '⚠️ 系统没装加密后端，这次能聊但下次启动 key 会丢（Linux 装个 libsecret / gnome-keyring 就好）'
     case 'key-format-invalid':
-      return '⚠️ 这个 key 格式不对（要 sk-ant- 开头，长度 20-200 字符），检查下复制有没有带空格 / 多余字符'
+      return '⚠️ 这个 key 格式不对，检查下复制有没有带空格 / 多余字符'
+    case 'empty-response':
+      return (
+        `⚠️ AI 这次没产生输出 (finishReason=${err.finishReason})。可能原因:\n` +
+        `• 切到 Opus/Sonnet + 复杂 prompt 时全花在思考没 text output → 重试或换 Haiku\n` +
+        `• 工具 schema 被 provider 拒绝 → 关掉视觉/Tavily 重试\n` +
+        `• Key 跟 provider 不匹配 → 去设置 (⌘+,) 检查 model 跟 key 是同一家`
+      )
     case 'api':
       return `⚠️ ${err.message}`
     default:
@@ -637,21 +632,34 @@ function App(): React.JSX.Element {
     if (!text) return
 
     if (keyState === 'missing') {
-      if (looksLikeApiKey(text)) {
+      const detect = detectProvider(text)
+      if (detect.kind === 'detected' || detect.kind === 'ambiguous') {
+        const provider =
+          detect.kind === 'detected' ? detect.provider : detect.defaultPick
+        const providerLabel = PROVIDERS[provider].label
+        const ambiguousNote =
+          detect.kind === 'ambiguous'
+            ? `（sk- 前缀在 ${detect.candidates
+                .map((p) => PROVIDERS[p].label)
+                .join(' / ')} 都用，默认按 ${providerLabel} 试；如果是另一个去设置 ⌘+, 改 provider）`
+            : ''
         setMessages((prev) => [
           ...prev,
           {
             id: msgIdRef.current++,
             role: 'user',
-            text: '🔑 (已提交 API key，加密保存中…)',
+            text: `🔑 (识别为 ${providerLabel}, 加密保存中…)${ambiguousNote}`,
             status: 'done'
           }
         ])
-        window.api.submitKey(text)
+        // **关键**: 走 submitProviderKey 不走 legacy submitKey (后者写死 anthropic).
+        // main 端会自动 setSelectedModel(defaultModelForProvider(provider)) 防止
+        // "key 配了但 model 还选 Claude → no-api-key" 经典坑.
+        window.api.submitProviderKey(provider, text.trim())
       } else {
-        // 不是有效 key —— user 消息照常 push（含遮罩 / 明文），但 NOT_KEY_HINT 末尾去重
+        // unknown —— user 消息照常 push（含遮罩 / 明文），但 NOT_KEY_HINT 末尾去重
         // 避免用户连输几条非 key 文本时同一句 hint 刷屏
-        const isPartialKey = text.includes('sk-ant-')
+        const isPartialKey = /sk-|xai-|AIza/.test(text)
         const userText = isPartialKey ? '🔑 (输入像 API key 但格式不完整)' : text
         setMessages((prev) => {
           const last = prev[prev.length - 1]
@@ -863,7 +871,7 @@ function App(): React.JSX.Element {
       : isWaitingForReply
         ? 'Claw 正在回复…'
         : keyState === 'missing'
-          ? '粘 API key 到这里 (sk-ant-...)'
+          ? '粘任意 provider 的 API key (sk-ant-/sk-/AIza/xai-/UUID)'
           : '对桌宠说点啥...'
 
   return (

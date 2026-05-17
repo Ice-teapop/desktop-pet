@@ -319,12 +319,27 @@ export class LlmClient {
         })
 
         // drain textStream —— 把 model 输出的每个 text delta 推给上层
+        let textChunkCount = 0
         for await (const textChunk of result.textStream) {
           if (aborted) return
+          textChunkCount++
           handler.onChunk(textChunk)
         }
 
         if (aborted) return
+        // **关键修**: streamText 跑完但 0 chunk + finishReason !== 'stop'/'tool-calls' 时
+        // SDK 不抛 error → 上层 handler.onDone 正常调 → 用户收到 "No output generated"
+        // generic 错. 这里改 emit 显式 ChatError 让 renderer 出更可操作 hint.
+        // 用户报: 切到 Opus 4.7 / Sonnet 4.6 + adaptive thinking 偶发触发 (无 text output,
+        // 全在 thinking budget); 或新 doc tool 嵌套 schema 被 Anthropic strict mode 拒
+        // 整 request 但 stream 走完 0 chunk.
+        if (textChunkCount === 0) {
+          const finishReason = await result.finishReason
+          if (finishReason !== 'stop' && finishReason !== 'tool-calls') {
+            handler.onError({ kind: 'empty-response', finishReason: String(finishReason) })
+            return
+          }
+        }
         // 用 totalUsage（多步 tool loop 全 step 累加），不是 .usage（只是 last step）。
         // 老 anthropic.ts 也是手撸跨 iter 累加 input/output token —— 等价行为。
         const usage = await result.totalUsage
