@@ -41,6 +41,12 @@ import {
 } from '../shared/pet-state'
 import {
   DEFAULT_PET_MODE,
+  MINI_PEEK_ENTER_DIST,
+  MINI_PEEK_LEAVE_DIST,
+  MINI_PEEK_LERP,
+  MINI_PEEK_POLL_MS,
+  MINI_PEEK_SNAP_PX,
+  MINI_PEEK_VISIBLE_PX,
   MINI_SNAP_THRESHOLD_PX,
   MINI_VISIBLE_PX,
   MINI_WIN_HEIGHT,
@@ -398,11 +404,19 @@ function setPetMode(mode: PetMode): void {
       petWindow.webContents.send('pet:chat-force-close')
     }
   }
+  // M9-5b B-4: 切 full 前必须先停 peek watcher —— 否则 setBounds(full bounds) 后下一 tick
+  // peek watcher 还认为 petMode 是新值（已经 = 'full'）就早返回 OK，但有 1 帧 race window
+  // 这里早停安全
+  if (mode === 'full') {
+    stopMiniPeekWatcher()
+  }
   petMode = mode
   petWindow.setBounds(computeModeBounds(mode, petWindow.getBounds()))
   if (mode === 'mini') {
     // Mini 时 cursor poll 无意义（eye-following 仅 full mode），强制停
     stopCursorPoll()
+    // M9-5b B-4: 进 mini 起 peek watcher（cursor 靠近时滑出 peek，离开收回 retract）
+    startMiniPeekWatcher()
   } else {
     // 回 full 后视情况重启 cursor poll（如果 state=idle+activity=idle）
     updateCursorPoll()
@@ -411,6 +425,58 @@ function setPetMode(mode: PetMode): void {
   broadcastPetMode()
   // M9-5b B-1: 持久化 petMode（用户上次退出时是 mini → 下次启动恢复 mini）
   schedulePrefsSave(currentPrefsSnapshot())
+}
+
+// —— M9-5b B-4 Hover peek watcher —————————————————————————————————
+// mini 模式下 cursor 靠近 mini panel 时面板平滑滑出（露 64px vs retract 24px）。
+// hysteresis 防抖：ENTER_DIST < LEAVE_DIST，cursor 在阈值附近震荡不会触发反复切。
+// 设计上跟 cursorPollTimer 解耦 —— 那个服务 full mode eye tracking，这个仅服务 mini peek.
+let miniPeekTimer: NodeJS.Timeout | null = null
+let miniPeeking = false
+
+function startMiniPeekWatcher(): void {
+  if (miniPeekTimer) return
+  miniPeeking = false
+  miniPeekTimer = setInterval(() => {
+    if (!petWindow || petWindow.isDestroyed() || petMode !== 'mini') return
+    const cursor = screen.getCursorScreenPoint()
+    const bounds = petWindow.getBounds()
+    const display = screen.getDisplayMatching(bounds)
+    const wa = display.workArea
+    // mini panel 在 workArea 右边缘 vertical center —— cursor 距离用 (right-edge x, center y)
+    const panelCenterY = wa.y + Math.round(wa.height / 2)
+    const dyToCenter = cursor.y - panelCenterY
+    const dxFromRight = wa.x + wa.width - cursor.x
+    const dist = Math.sqrt(dxFromRight * dxFromRight + dyToCenter * dyToCenter)
+    // Hysteresis 状态转移
+    if (miniPeeking) {
+      if (dist > MINI_PEEK_LEAVE_DIST) miniPeeking = false
+    } else {
+      if (dist < MINI_PEEK_ENTER_DIST) miniPeeking = true
+    }
+    const targetX = miniPeeking
+      ? wa.x + wa.width - MINI_PEEK_VISIBLE_PX
+      : wa.x + wa.width - MINI_VISIBLE_PX
+    // 平滑 lerp 朝 target，距 ≤1px 直接 snap
+    const currentX = bounds.x
+    const delta = targetX - currentX
+    if (Math.abs(delta) < MINI_PEEK_SNAP_PX) {
+      if (currentX !== targetX) petWindow.setBounds({ ...bounds, x: targetX })
+      return
+    }
+    const newX = Math.round(currentX + delta * MINI_PEEK_LERP)
+    if (newX !== currentX) {
+      petWindow.setBounds({ ...bounds, x: newX })
+    }
+  }, MINI_PEEK_POLL_MS)
+}
+
+function stopMiniPeekWatcher(): void {
+  if (miniPeekTimer) {
+    clearInterval(miniPeekTimer)
+    miniPeekTimer = null
+  }
+  miniPeeking = false
 }
 
 /**
@@ -1177,6 +1243,10 @@ function registerIpc(): void {
   ipcMain.on('window:move-delta', (event, dx: number, dy: number) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return
+    // M9-5b B-4: mini 模式禁 drag —— mini drag 最终走 setPetMode('full') restore，
+    // 过程中 win.setPosition 跟 peek watcher 的 lerp setBounds 会在 x 轴打架。
+    // renderer 端 handlePointerUp 已确保 mini pointerup === setPetMode('full')。
+    if (petMode === 'mini') return
     const [x, y] = win.getPosition()
     win.setPosition(x + Math.round(dx), y + Math.round(dy))
     // M8: 拖拽 pet = user 主动 interaction → wake from sleep
@@ -1954,6 +2024,9 @@ app.whenReady().then(async () => {
   // === 'mini'，setPetMode('mini') 会 no-op). createTray 在下面，会按 petMode 起 checkbox state.
   if (petMode === 'mini' && petWindow) {
     petWindow.setBounds(computeModeBounds('mini', petWindow.getBounds()))
+    // M9-5b B-4: 启动时已是 mini → 同样要起 peek watcher（setPetMode 走不到，因为 prefs
+    // seed 完 petMode 已 === 'mini'，setPetMode('mini') 早 return guard）
+    startMiniPeekWatcher()
   }
   // 让 approval.ts 拿到 petWindow 引用，requestApproval 才能发 IPC
   setApprovalPetWindow(petWindow)
@@ -1978,6 +2051,7 @@ app.whenReady().then(async () => {
 app.on('before-quit', () => {
   stopVisibilityWatchdog()
   stopCursorPoll()
+  stopMiniPeekWatcher()
   activeAppMonitor.stop()
   // M5-2：强制 flush debounced 对话历史 —— 防退出前最后一条 chat:done 还在
   // 计时器里没落盘
