@@ -1,0 +1,4 @@
+# Drop demo.gif here.
+#
+# README.md references ./docs/assets/demo.gif.
+# Any .gif file at that exact path will render in the README hero section.
