@@ -140,10 +140,19 @@ export const VIEW_SCREEN: ToolDef = {
   name: 'view_screen',
   description:
     "Capture the user's current screen as a PNG image. " +
-    "ONLY call when the user's question explicitly references " +
-    'their screen, a visible window, displayed content, or a UI element ' +
-    'they can see. DO NOT call for general questions, math, jokes, or topics ' +
-    'unrelated to what is currently on their screen.',
+    'Call PROACTIVELY when the user message contains ANY of:\n' +
+    '  (1) Explicit screen reference — "screen", "window", "this UI", "屏幕上", "这个窗口"\n' +
+    '  (2) Ambiguous deixis without context — "this", "that", "here", "这是什么", "看看", ' +
+    '"帮我看一下", "怎么样", "你觉得呢" when prior chat does not explain the reference\n' +
+    '  (3) Question about user activity — "我在干什么", "what am I doing", ' +
+    '"我在做什么", "在忙啥"\n' +
+    '  (4) Problem report without pasted context — "这个 bug 怎么解决", ' +
+    '"什么意思", "为什么这样", with no code/screenshot/error already in chat\n' +
+    '  (5) Request for opinion/feedback on something unspecified visually\n' +
+    'When in doubt for vision-adjacent ambiguous prompts → CALL. Cost is low, ' +
+    "user explicitly enabled vision because they want you to look proactively.\n" +
+    'DO NOT call for: pure math, jokes, your own nature, general world knowledge, ' +
+    'or messages with explicit full context (long code paste, well-formed question with all info).',
   input_schema: { type: 'object', properties: {}, required: [] }
 }
 
