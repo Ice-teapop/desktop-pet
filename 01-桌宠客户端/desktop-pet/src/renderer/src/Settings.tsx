@@ -1,13 +1,22 @@
 /**
- * 设置面板（M5）—— 独立 BrowserWindow（hash=#settings 路由进入）。
+ * 设置面板（M5 + M7-5 多 provider 改造）—— 独立 BrowserWindow（hash=#settings 路由）。
  *
- * 单一事实来源在 main 进程；这里订阅 5 个 state stream（key / vision / tavily /
- * prefs / trusted-dirs），任何变更通过 IPC 推给 main 再广播回所有 webContents。
- * 不读取 / 不缓存任何 key 实际值 —— 仅 "configured / not"。
+ * 单一事实来源在 main 进程；这里订阅 7 个 state stream（provider-key / selected-model
+ * / vision / tavily / prefs / trusted-dirs / user-profile），任何变更通过 IPC
+ * 推给 main 再广播回所有 webContents。
+ *
+ * 隐私：**不读取 / 不缓存任何 key 实际值** —— 仅订阅 `ProviderKeyStates` boolean map。
  */
 import { useEffect, useState } from 'react'
-import { AVAILABLE_MODELS } from '../../shared/chat-types'
-import type { KeyState, ModelId } from '../../shared/chat-types'
+import {
+  PROVIDERS,
+  PROVIDER_ORDER,
+  modelsForProvider,
+  defaultModelForProvider,
+  type Provider,
+  type ProviderKeyStates,
+  type SelectedModel
+} from '../../shared/provider-types'
 import type { VisionState } from '../../shared/vision-types'
 import type { TavilyState } from '../../shared/tavily-types'
 import type { PrefsState, TrustedDirsState } from '../../shared/settings-types'
@@ -18,16 +27,32 @@ import {
 } from '../../shared/user-profile-types'
 import './assets/settings.css'
 
+/**
+ * 从 keyPattern 正则提取前缀提示，用作 input placeholder。
+ * 例：/^sk-ant-[\w-]{20,200}$/ → "sk-ant-..."
+ * 没 keyPattern 的 provider（如 Google / ByteDance）→ "paste key"
+ */
+function placeholderFromKeyPattern(pattern: RegExp | undefined): string {
+  if (!pattern) return 'paste key'
+  const src = pattern.source
+  const match = src.match(/^\^?([\w-]+?)(?:\[|$)/)
+  return match ? `${match[1]}...` : 'paste key'
+}
+
 function Settings(): React.JSX.Element {
   // —— State 订阅 ——
-  const [keyState, setKeyState] = useState<KeyState | null>(null)
+  const [providerKeyStates, setProviderKeyStates] = useState<ProviderKeyStates | null>(null)
+  const [selectedModel, setSelectedModel] = useState<SelectedModel | null>(null)
   const [tavilyState, setTavilyState] = useState<TavilyState | null>(null)
   const [visionState, setVisionState] = useState<VisionState | null>(null)
   const [prefs, setPrefs] = useState<PrefsState | null>(null)
   const [trustedDirs, setTrustedDirs] = useState<TrustedDirsState | null>(null)
 
-  // —— Inline key 编辑 ——
-  const [anthropicKeyDraft, setAnthropicKeyDraft] = useState('')
+  // —— Per-provider inline key 编辑 drafts ——
+  // 用 Record<Provider, string> 让 6 个 provider 各自独立 input draft，互不干扰。
+  const [providerKeyDrafts, setProviderKeyDrafts] = useState<
+    Partial<Record<Provider, string>>
+  >({})
   const [tavilyKeyDraft, setTavilyKeyDraft] = useState('')
 
   // —— M5-2 Memory 编辑 ——
@@ -48,7 +73,10 @@ function Settings(): React.JSX.Element {
   }
 
   useEffect(() => {
-    const offKey = window.api.onKeyState((s) => setKeyState(s))
+    const offProviderKeyStates = window.api.onProviderKeyStates((s) =>
+      setProviderKeyStates(s)
+    )
+    const offSelectedModel = window.api.onSelectedModelState((s) => setSelectedModel(s))
     const offTavily = window.api.onTavilyState((s) => setTavilyState(s))
     const offVision = window.api.onVisionState((s) => setVisionState(s))
     const offPrefs = window.api.onPrefsState((s) => setPrefs(s))
@@ -57,14 +85,16 @@ function Settings(): React.JSX.Element {
       // 服务端 push 进来时，如果 user 没在改（dirty），直接覆盖；改了别打断
       setProfile((cur) => (profileDirty && cur ? cur : p))
     })
-    window.api.requestKeyState()
+    window.api.requestProviderKeyStates()
+    window.api.requestSelectedModelState()
     window.api.requestTavilyState()
     window.api.requestVisionState()
     window.api.requestPrefsState()
     window.api.requestTrustedDirsState()
     window.api.requestUserProfileState()
     return () => {
-      offKey()
+      offProviderKeyStates()
+      offSelectedModel()
       offTavily()
       offVision()
       offPrefs()
@@ -75,21 +105,36 @@ function Settings(): React.JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // —— Anthropic key actions（inline） ——
-  const handleAnthropicSubmit = (): void => {
-    const trimmed = anthropicKeyDraft.trim()
-    if (!trimmed) return
-    window.api.submitKey(trimmed)
-    setAnthropicKeyDraft('')
-    showToast('Anthropic key 已加密保存')
+  // —— Provider key actions（generic，6 provider 共用） ——
+  const updateProviderKeyDraft = (provider: Provider, value: string): void => {
+    setProviderKeyDrafts((prev) => ({ ...prev, [provider]: value }))
   }
-  const handleAnthropicReset = (): void => {
-    window.api.resetKey()
-    setAnthropicKeyDraft('')
-    showToast('Anthropic key 已清除')
+  const handleProviderSubmit = (provider: Provider): void => {
+    const trimmed = (providerKeyDrafts[provider] || '').trim()
+    if (!trimmed) return
+    window.api.submitProviderKey(provider, trimmed)
+    setProviderKeyDrafts((prev) => ({ ...prev, [provider]: '' }))
+    showToast(`${PROVIDERS[provider].label} key 已加密保存`)
+  }
+  const handleProviderReset = (provider: Provider): void => {
+    window.api.resetProviderKey(provider)
+    setProviderKeyDrafts((prev) => ({ ...prev, [provider]: '' }))
+    showToast(`${PROVIDERS[provider].label} key 已清除`)
   }
 
-  // —— Tavily key actions（inline） ——
+  // —— Selected model actions ——
+  const handleProviderChange = (newProvider: Provider): void => {
+    if (!selectedModel || selectedModel.provider === newProvider) return
+    const defaultSel = defaultModelForProvider(newProvider)
+    window.api.setSelectedModel(defaultSel)
+    showToast(`已切到 ${PROVIDERS[newProvider].label}（跨 provider 自动开新对话）`)
+  }
+  const handleModelChange = (newModelId: string): void => {
+    if (!selectedModel || selectedModel.modelId === newModelId) return
+    window.api.setSelectedModel({ provider: selectedModel.provider, modelId: newModelId })
+  }
+
+  // —— Tavily key actions（inline，单独 card） ——
   const handleTavilySubmit = (): void => {
     const trimmed = tavilyKeyDraft.trim()
     if (!trimmed) return
@@ -200,8 +245,7 @@ function Settings(): React.JSX.Element {
     showToast('会话信任目录已清空')
   }
 
-  // —— Prefs setters ——
-  const handleSetModel = (modelId: ModelId): void => window.api.setModel(modelId)
+  // —— Prefs setters（非 model 类，model 走 setSelectedModel） ——
   const handleSetFollow = (v: boolean): void => window.api.setFollowFrontApp(v)
   const handleSetFastPath = (v: boolean): void => window.api.setUseFastPath(v)
 
@@ -210,111 +254,168 @@ function Settings(): React.JSX.Element {
     <div className="settings-app">
       <h1>DeskPet 设置</h1>
 
-      {/* —— 1. API Keys —— */}
+      {/* —— 1. API Keys (M7-5 multi-provider) —— */}
       <section>
         <h2>API Keys</h2>
-        <div className="row">
-          <label>Anthropic（对话引擎，必需）</label>
-          <span className={`badge ${keyState === 'ready' ? 'badge-ok' : 'badge-warn'}`}>
-            {keyState === 'ready' ? '已配置' : keyState === 'missing' ? '未配置' : '...'}
-          </span>
-        </div>
-        <div className="row">
-          <input
-            type="password"
-            className="profile-input"
-            placeholder={
-              keyState === 'ready' ? '粘贴新 key 覆盖（留空不动）' : 'sk-ant-...'
-            }
-            value={anthropicKeyDraft}
-            onChange={(e) => setAnthropicKeyDraft(e.target.value)}
-          />
-          <button
-            onClick={handleAnthropicSubmit}
-            disabled={!anthropicKeyDraft.trim()}
-            className="primary"
-          >
-            保存
-          </button>
-          <button
-            onClick={handleAnthropicReset}
-            disabled={keyState !== 'ready'}
-            className="danger"
-          >
-            清除
-          </button>
-        </div>
         <p className="hint">
-          注册：<code>console.anthropic.com</code> → Settings → API Keys。格式 sk-ant-...
+          至少配一个 LLM provider 让桌宠开口对话。所有 key 用 Electron safeStorage
+          （macOS Keychain backed AES-256）加密落盘，绝不上传任何位置。
         </p>
 
-        <div className="row" style={{ marginTop: 16 }}>
-          <label>Tavily 搜索（可选 —— AI 联网）</label>
-          <span
-            className={`badge ${tavilyState?.kind === 'configured' ? 'badge-ok' : 'badge-muted'}`}
-          >
-            {tavilyState?.kind === 'configured' ? '已配置' : '未配置'}
-          </span>
-        </div>
-        <div className="row">
-          <input
-            type="password"
-            className="profile-input"
-            placeholder={
-              tavilyState?.kind === 'configured'
-                ? '粘贴新 key 覆盖（留空不动）'
-                : 'tvly-...'
-            }
-            value={tavilyKeyDraft}
-            onChange={(e) => setTavilyKeyDraft(e.target.value)}
-          />
-          <button
-            onClick={handleTavilySubmit}
-            disabled={!tavilyKeyDraft.trim()}
-            className="primary"
-          >
-            保存
-          </button>
-          <button
-            onClick={handleTavilyReset}
-            disabled={tavilyState?.kind !== 'configured'}
-            className="danger"
-          >
-            清除
-          </button>
-        </div>
-        <p className="hint">
-          注册：<code>tavily.com</code>（免费 1000 次/月）。设了之后 AI 可调用
-          web_search tool 联网查询。
-        </p>
+        {PROVIDER_ORDER.map((providerId) => {
+          const info = PROVIDERS[providerId]
+          const configured = providerKeyStates?.[providerId] ?? false
+          const draft = providerKeyDrafts[providerId] || ''
+          return (
+            <div key={providerId} className="provider-card">
+              <div className="row">
+                <label>{info.label}</label>
+                <span className={`badge ${configured ? 'badge-ok' : 'badge-muted'}`}>
+                  {configured ? '已配置' : '未配置'}
+                </span>
+              </div>
+              <p className="hint">{info.description}</p>
+              <div className="row">
+                <input
+                  type="password"
+                  className="profile-input"
+                  placeholder={
+                    configured
+                      ? '粘贴新 key 覆盖（留空不动）'
+                      : placeholderFromKeyPattern(info.keyPattern)
+                  }
+                  value={draft}
+                  onChange={(e) => updateProviderKeyDraft(providerId, e.target.value)}
+                />
+                <button
+                  onClick={() => handleProviderSubmit(providerId)}
+                  disabled={!draft.trim()}
+                  className="primary"
+                >
+                  保存
+                </button>
+                <button
+                  onClick={() => handleProviderReset(providerId)}
+                  disabled={!configured}
+                  className="danger"
+                >
+                  清除
+                </button>
+              </div>
+              <p className="hint">
+                注册：<code>{info.registrationUrl}</code>
+              </p>
+            </div>
+          )
+        })}
 
-        <p className="hint" style={{ marginTop: 10 }}>
-          所有 key 用 Electron safeStorage（macOS Keychain backed AES-256）加密落盘，
-          不上传任何位置。
-        </p>
+        {/* —— Tavily 联网搜索（不是 LLM provider，单独 card） —— */}
+        <div className="provider-card" style={{ marginTop: 16 }}>
+          <div className="row">
+            <label>Tavily 联网搜索（可选）</label>
+            <span
+              className={`badge ${tavilyState?.kind === 'configured' ? 'badge-ok' : 'badge-muted'}`}
+            >
+              {tavilyState?.kind === 'configured' ? '已配置' : '未配置'}
+            </span>
+          </div>
+          <p className="hint">
+            设了之后 AI 可调 web_search tool 联网查询（免费 1000 次/月）。隐私：
+            query 发 api.tavily.com。
+          </p>
+          <div className="row">
+            <input
+              type="password"
+              className="profile-input"
+              placeholder={
+                tavilyState?.kind === 'configured'
+                  ? '粘贴新 key 覆盖（留空不动）'
+                  : 'tvly-...'
+              }
+              value={tavilyKeyDraft}
+              onChange={(e) => setTavilyKeyDraft(e.target.value)}
+            />
+            <button
+              onClick={handleTavilySubmit}
+              disabled={!tavilyKeyDraft.trim()}
+              className="primary"
+            >
+              保存
+            </button>
+            <button
+              onClick={handleTavilyReset}
+              disabled={tavilyState?.kind !== 'configured'}
+              className="danger"
+            >
+              清除
+            </button>
+          </div>
+          <p className="hint">
+            注册：<code>tavily.com</code>
+          </p>
+        </div>
       </section>
 
-      {/* —— 2. Pet Behavior —— */}
+      {/* —— 2. Pet Behavior（M7-5 provider + model cascade） —— */}
       <section>
         <h2>桌宠行为</h2>
-        <div className="row">
-          <label>对话模型</label>
-          <div className="model-radios">
-            {AVAILABLE_MODELS.map((m) => (
-              <label key={m.id} className="radio-item">
-                <input
-                  type="radio"
-                  name="model"
-                  checked={prefs?.modelId === m.id}
-                  onChange={() => handleSetModel(m.id)}
-                  disabled={!prefs}
-                />
-                <span>{m.label}</span>
-              </label>
-            ))}
-          </div>
-        </div>
-        <div className="row">
+
+        {selectedModel ? (
+          <>
+            <div className="row">
+              <label>当前 provider</label>
+              <select
+                value={selectedModel.provider}
+                onChange={(e) => handleProviderChange(e.target.value as Provider)}
+                className="profile-input"
+              >
+                {PROVIDER_ORDER.map((p) => {
+                  const configured = providerKeyStates?.[p] ?? false
+                  return (
+                    <option key={p} value={p}>
+                      {PROVIDERS[p].label}
+                      {!configured ? '（未配 key）' : ''}
+                    </option>
+                  )
+                })}
+              </select>
+            </div>
+
+            <div className="row">
+              <label>对话模型</label>
+              <select
+                value={selectedModel.modelId}
+                onChange={(e) => handleModelChange(e.target.value)}
+                className="profile-input"
+              >
+                {modelsForProvider(selectedModel.provider).map((m) => {
+                  const tags: string[] = []
+                  if (m.isReasoning) tags.push('推理')
+                  if (!m.supportsTools) tags.push('无 tool')
+                  if (!m.supportsVision) tags.push('无 vision')
+                  return (
+                    <option key={m.id} value={m.id}>
+                      {m.label}
+                      {tags.length > 0 ? `（${tags.join(' / ')}）` : ''}
+                    </option>
+                  )
+                })}
+              </select>
+            </div>
+          </>
+        ) : (
+          // 启动 race window —— selectedModel IPC 还没到达。显示 loading 而不是 dropdown
+          // fallback 'anthropic'（误导：user 真实选可能是 OpenAI 等）。disabled 也防点击
+          // 在 main 处理完前提交。Officer A + B 都 flag 过 fallback 误导问题。
+          <p className="hint">加载 provider/model 状态中...</p>
+        )}
+
+        <p className="hint">
+          切 provider 自动开新对话（tool 调用历史跨 provider 不兼容）。切同 provider
+          不同 model 保留对话历史。
+        </p>
+
+        <div className="row" style={{ marginTop: 14 }}>
           <label>
             <input
               type="checkbox"
@@ -336,6 +437,10 @@ function Settings(): React.JSX.Element {
             <span>严格 LLM 识别（关 fast-path bundleID 白名单）</span>
           </label>
         </div>
+        <p className="hint">
+          活动分类用 Anthropic Claude Haiku 4.5 hardcoded（cost/speed 最优）——
+          不跟随上面 provider 选择切换。
+        </p>
       </section>
 
       {/* —— 3. Agentic Tools —— */}
@@ -587,7 +692,7 @@ function Settings(): React.JSX.Element {
       {/* —— 7. About —— */}
       <section>
         <h2>关于</h2>
-        <p>DeskPet 智能桌宠助手 · 透明置顶桌宠 + 多模态 AI</p>
+        <p>DeskPet 智能桌宠助手 · 透明置顶桌宠 + 多模态 AI（6 provider 多家选）</p>
         <p className="hint">
           快捷键：<code>⌘+,</code> 打开本面板 · <code>⌘+⇧+P</code> 显示/隐藏桌宠 · <code>⌘+Q</code> 退出
         </p>

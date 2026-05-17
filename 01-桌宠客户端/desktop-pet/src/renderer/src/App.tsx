@@ -97,8 +97,16 @@ const KEY_RESET_PROMPT = '🔑 钥匙没了或被拒了 —— 再贴一个 sk-a
 const NOT_KEY_HINT =
   '🤔 这看着不像 Anthropic API key（要 sk-ant- 开头的长字符串）。去 console.anthropic.com 拿到 key 再贴过来～'
 
-/** 渲染层校验 —— 跟 main 端 looksLikeApiKey 同样规则（{20,200}），避免 renderer 通过
- *  但 main 拒导致用户卡在「🔑 已提交」气泡（cr W1 修复）。 */
+/**
+ * 渲染层校验 —— 跟 main 端 looksLikeApiKey 同样规则（{20,200}），避免 renderer 通过
+ * 但 main 拒导致用户卡在「🔑 已提交」气泡（cr W1 修复）。
+ *
+ * M7-5 注：本函数仅 Anthropic 单 provider 时代 chat-paste 后门用 —— first-time
+ * onboarding 让 user 直接粘 sk-ant-... 到对话框激活桌宠。其它 5 个 provider
+ * （OpenAI / Google / xAI / DeepSeek / ByteDance）的 key 走 Settings 面板
+ * (`⌘+,`) 的 submitProviderKey IPC —— chat-paste 不识别那些前缀。这是有意保留的
+ * Anthropic-优先 onboarding UX；多 provider 用户应当用 Settings。
+ */
 function looksLikeApiKey(text: string): boolean {
   return /^sk-ant-[\w-]{20,200}$/.test(text.trim())
 }

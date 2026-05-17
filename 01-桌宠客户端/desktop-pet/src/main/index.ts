@@ -432,6 +432,13 @@ function setKeyInMemory(key: string | null): void {
   // 重置缓存 client —— 下次 getLlmClient 会用新 key 重建
   llmClient = null
   keyState = key ? 'ready' : 'missing'
+  // M7-5: 内嵌 notifyKeyState —— 让每个 setKeyInMemory caller 自动广播 key:state。
+  // 之前 wave 4.4 provider-key:submit 走 anthropic 分支调 setKeyInMemory 但**没**调
+  // notifyKeyState，App.tsx onKeyState 收不到 'ready'，user 在 Settings 配完
+  // Anthropic key 回桌宠仍看到"粘 API key 到这里"placeholder（Officer A 发现）。
+  // resetKey / legacy key:submit 也都调 setKeyInMemory，重复 notifyKeyState 无害
+  // （webContents.send 幂等）。
+  notifyKeyState()
 }
 
 /**
