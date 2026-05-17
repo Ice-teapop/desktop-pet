@@ -122,6 +122,12 @@ const api = {
     ipcRenderer.on('pet:chat-force-close', handler)
     return () => ipcRenderer.off('pet:chat-force-close', handler)
   },
+  /** vision-simplify: tray 屏幕感知 toggle 在 no-consent 时让 renderer 弹 modal */
+  onVisionRequestConsentModal(listener: () => void): () => void {
+    const handler = (): void => listener()
+    ipcRenderer.on('vision:request-consent-modal', handler)
+    return () => ipcRenderer.off('vision:request-consent-modal', handler)
+  },
   /**
    * 订阅主进程通知"窗口扩展完成"事件 —— 用于渲染层等窗口动画完才 fade-in 对话 UI，
    * 避免 conversation 在 260px 窗口内右侧被裁的半渲染期。返回取消订阅函数。

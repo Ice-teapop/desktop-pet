@@ -42,6 +42,7 @@ export interface DeskPetAPI {
   onPetMode(listener: (mode: PetMode) => void): () => void
   windowDragEnd(): void
   onChatForceClose(listener: () => void): () => void
+  onVisionRequestConsentModal(listener: () => void): () => void
   onChatWindowReady(listener: () => void): () => void
   onKeyState(listener: (state: KeyState) => void): () => void
   submitKey(key: string): void

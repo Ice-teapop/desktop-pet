@@ -293,6 +293,14 @@ function App(): React.JSX.Element {
     return off
   }, [])
 
+  // vision-simplify: tray 点 "屏幕感知" toggle 但用户没 consent → main 通知 renderer 弹 modal.
+  useEffect(() => {
+    const off = window.api.onVisionRequestConsentModal(() => {
+      setVisionModalOpen(true)
+    })
+    return off
+  }, [])
+
   // idle 子调度器：state=idle && activity=idle 时按 pickNextIdle 完全随机切（不重复 current）。
   // 姿态硬跳由 fade 透明度过渡掩盖。reading "喝茶动作" 一次性 7s 后切走（GIF 一个 loop 时长）。
   // 加 idleVariantIdx 到依赖：每次切了 variant 重 schedule，让 reading 用短 delay。
@@ -929,18 +937,12 @@ function App(): React.JSX.Element {
       {visionModalOpen && (
         <div className="vision-modal-overlay" onClick={handleVisionModalCancel}>
           <div className="vision-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="vision-modal-title">启用屏幕感知</div>
+            <div className="vision-modal-title">启用屏幕感知?</div>
             <div className="vision-modal-body">
-              <p>每次你发消息时，DeskPet 会截当前屏幕一张全屏图，跟你的消息一起发给：</p>
-              <p className="vision-modal-endpoint">Anthropic Claude（带 vision 能力的多模态 AI）</p>
-              <p>AI 直接看图回答你的问题。</p>
-              <ul>
-                <li>截屏 → 仅内存 → base64 编码 → HTTPS 发 Anthropic API</li>
-                <li>桌宠自己可能出现在截图里 —— AI 会忽略它</li>
-                <li>本地不存截图字节；Anthropic 30 天审核保留期请参考其隐私政策</li>
-                <li>不再走自托管 OCR 服务（M4-A-2 pivot）</li>
-              </ul>
-              <p>可随时关闭；图像 token 计费走你已配置的 Anthropic API key。</p>
+              <p>AI 看你屏幕回答"屏幕上有啥"、"看看我在干啥"等问题。</p>
+              <p className="vision-modal-endpoint">
+                截图发往 Anthropic，本地不存，可随时关。
+              </p>
             </div>
             <div className="vision-modal-actions">
               <button type="button" className="vision-modal-btn-cancel" onClick={handleVisionModalCancel}>
@@ -951,7 +953,7 @@ function App(): React.JSX.Element {
                 className="vision-modal-btn-ok"
                 onClick={handleVisionEnableConfirm}
               >
-                我已了解，启用
+                启用
               </button>
             </div>
           </div>

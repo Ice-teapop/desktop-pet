@@ -675,6 +675,39 @@ function notifyVisionState(): void {
   if (isWinAlive()) petWindow!.webContents.send('vision:state', visionState())
 }
 
+/**
+ * vision-simplify: tray 屏幕感知 checkbox 的 click handler.
+ *
+ * 三种情况:
+ *  1. 没 consent + 用户想开 → 需 modal. 若 petMode='mini' 先 setPetMode('full')
+ *     (modal 在 100×100 mini 窗口装不下), 然后发 IPC 让 renderer 弹 consent modal.
+ *  2. 没 consent + 用户想关 → no-op (本来就是关的)
+ *  3. 已 consent → 直接 setVisionEnabled(checked), 不再弹任何 modal.
+ *
+ * 复用 vision:set-enabled / vision:accept-consent-and-enable 已有 IPC, 只是从 tray
+ * 端预先决定走哪条路, 减少 modal 出现频率.
+ */
+function handleTrayVisionToggle(checked: boolean): void {
+  if (!visionConsentedPref) {
+    if (!checked) return // 想关本来就关着 → no-op
+    // 第一次开 → 弹 consent modal. mini 模式先切 full (modal 需要全窗口空间)
+    if (petMode === 'mini') {
+      setPetMode('full')
+    }
+    if (isWinAlive()) {
+      petWindow!.webContents.send('vision:request-consent-modal')
+    }
+    return
+  }
+  // 已 consent: 直接 toggle, 复用 set-enabled 路径
+  visionEnabledPref = checked
+  notifyVisionState()
+  rebuildTrayMenu()
+  void savePreferences(currentPrefsSnapshot()).catch((err) => {
+    console.warn('[handleTrayVisionToggle] savePreferences failed:', err)
+  })
+}
+
 /** Tavily key 状态：暴露 "有 / 无" 给 renderer，绝不暴露真实 key 值。 */
 function tavilyState(): TavilyState {
   return currentTavilyApiKey ? { kind: 'configured' } : { kind: 'no-key' }
@@ -1233,6 +1266,15 @@ function buildTrayMenu(): Menu {
       checked: petMode === 'mini',
       click: (item) => setPetMode(item.checked ? 'mini' : 'full')
     },
+    {
+      // vision-simplify: 屏幕感知 tray toggle —— 跳过"开 chat 框 → 找按钮"流程
+      // 第一次需 consent 时主动弹 modal (mini 模式先切 full 让 modal 装得下).
+      // 已 consent 后是 1 click 直接 toggle.
+      label: '屏幕感知（AI 看屏）',
+      type: 'checkbox',
+      checked: visionEnabledPref && visionConsentedPref,
+      click: (item) => handleTrayVisionToggle(item.checked)
+    },
     { type: 'separator' },
     { label: activityLabel, enabled: false }, // readonly 状态显示
     {
@@ -1423,6 +1465,7 @@ function registerIpc(): void {
     visionConsentedPref = true
     visionEnabledPref = true
     notifyVisionState()
+    rebuildTrayMenu() // 让 tray 屏幕感知 checkbox 反映新状态
     try {
       // M7-4 wave 4.5: 用 currentPrefsSnapshot 替代 loadPreferences + spread
       // ——消除 200ms debounce 窗口内磁盘旧值覆盖 mirror 新值的 race。
@@ -1441,6 +1484,7 @@ function registerIpc(): void {
     }
     visionEnabledPref = enabled
     notifyVisionState()
+    rebuildTrayMenu()
     try {
       await savePreferences(currentPrefsSnapshot())
     } catch (err) {
@@ -1453,6 +1497,7 @@ function registerIpc(): void {
     visionConsentedPref = false
     visionEnabledPref = false
     notifyVisionState()
+    rebuildTrayMenu()
     try {
       await savePreferences(currentPrefsSnapshot())
     } catch (err) {
