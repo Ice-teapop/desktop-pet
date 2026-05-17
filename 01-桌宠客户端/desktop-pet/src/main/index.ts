@@ -1998,22 +1998,27 @@ function watchScreenEvents(): void {
   screen.on('display-removed', trigger)
 }
 
-// M9-5b-fix1 (P0): single-instance lock —— 防止 dev 模式 hot-restart / 用户双击 dock /
-// Spotlight 启第二次 → 两个独立 main process 各持一个 BrowserWindow = 真分身 (审核官员
-// 5⭐ 根因). 拿不到 lock = 已有实例在跑 → 立即 quit 让另一个进程处理；second-instance event
-// 让旧进程把 pet 拉到前面.
-const singleInstanceLock = app.requestSingleInstanceLock()
-if (!singleInstanceLock) {
-  app.quit()
-} else {
-  app.on('second-instance', () => {
-    // 第二次启动尝试 → 在已有实例里把 pet 拉到前面
-    if (petWindow && !petWindow.isDestroyed()) {
-      if (petWindow.isMinimized()) petWindow.restore()
-      petWindow.show()
-      petWindow.focus()
-    }
-  })
+// M9-5b-fix1 (P0): single-instance lock —— prod 模式防止用户双击 dock / Spotlight 启
+// 第二次 → 两个独立 main process 各持一个 BrowserWindow = 真分身 (审核官员 5⭐ 根因).
+// 拿不到 lock = 已有实例在跑 → 立即 quit; second-instance event 让旧进程把 pet 拉前.
+//
+// **跳过 dev 模式**: electron-vite hot-restart 会先 spawn 新 Electron 再 kill 旧的，期间
+// 短暂重叠 + 用户 Cmd-Q 在 macOS dev 下不一定真退（window-all-closed 在 darwin 不 quit），
+// lock 会阻止新 dev 启动 (实测 v5 死在这). dev 期间 overlap 风险 acceptable —— prod 才严格.
+if (!is.dev) {
+  const singleInstanceLock = app.requestSingleInstanceLock()
+  if (!singleInstanceLock) {
+    app.quit()
+  } else {
+    app.on('second-instance', () => {
+      // 第二次启动尝试 → 在已有实例里把 pet 拉到前面
+      if (petWindow && !petWindow.isDestroyed()) {
+        if (petWindow.isMinimized()) petWindow.restore()
+        petWindow.show()
+        petWindow.focus()
+      }
+    })
+  }
 }
 
 app.whenReady().then(async () => {
