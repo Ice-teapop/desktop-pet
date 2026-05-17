@@ -67,6 +67,15 @@ const api = {
   setChatOpen(open: boolean): void {
     ipcRenderer.send('chat:set-open', open)
   },
+  // —— M9-2 click reactions ——
+  /** 双击/3 连击 pet → 触发 poked 反应（react-double-jump 动画） */
+  petPoke(): void {
+    ipcRenderer.send('pet:poke')
+  },
+  /** 1.5s 内 4 连击 pet → 触发 looking_around 反应（react-annoyed 动画） */
+  petStartled(): void {
+    ipcRenderer.send('pet:startled')
+  },
   /**
    * 订阅主进程通知"窗口扩展完成"事件 —— 用于渲染层等窗口动画完才 fade-in 对话 UI，
    * 避免 conversation 在 260px 窗口内右侧被裁的半渲染期。返回取消订阅函数。

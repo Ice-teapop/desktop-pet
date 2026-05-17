@@ -30,6 +30,9 @@ import jugglingGif from '@themes/clawd-dev/clawd-juggling.gif'
 import buildingGif from '@themes/clawd-dev/clawd-building.gif'
 import conductingGif from '@themes/clawd-dev/clawd-conducting.gif'
 import sleepingGif from '@themes/clawd-dev/clawd-sleeping.gif'
+// M9-2 click reactions
+import reactDoubleJumpGif from '@themes/clawd-dev/clawd-react-double-jump.gif'
+import reactAnnoyedGif from '@themes/clawd-dev/clawd-react-annoyed.gif'
 // activity → GIF 映射：识别到不同活动时桌宠"陪你做同样的事"
 import typingGif from '@themes/clawd-dev/clawd-typing.gif'
 import debuggerGif from '@themes/clawd-dev/clawd-debugger.gif'
@@ -40,6 +43,13 @@ import happyGif from '@themes/clawd-dev/clawd-happy.gif'
 import errorGif from '@themes/clawd-dev/clawd-error.gif'
 
 const DRAG_THRESHOLD_PX = 5
+
+// M9-2 click burst 时间常量：
+//   POKE_DETECT_MS = 单击 burst window；250ms 内没新 click → fire burst action
+//     trade-off：单击 toggle chat 现在延迟 250ms（必须等是否第 2 击决定意图）
+//   STARTLED_BURST_MS = 4 连击窗口；within 1.5s 累 4 击立即 startled
+const POKE_DETECT_MS = 250
+const STARTLED_BURST_MS = 1500
 
 // idle 节奏：15–30s 比之前 8–15s 慢一倍 —— 桌宠是周边视野，频繁切=多动症，缓节奏 = 陪伴感
 const IDLE_VARIANT_MIN_MS = 15000
@@ -192,6 +202,19 @@ function App(): React.JSX.Element {
     lastX: number
     lastY: number
     moved: boolean
+  } | null>(null)
+
+  /**
+   * M9-2 click reactions: 累计 burst click 数决定单击 / 双击 / 4 连击 action。
+   * - 单击 (count=1 + 250ms idle) → toggle chat
+   * - 2-3 连击 → poke 反应 (react-double-jump)
+   * - 4+ 连击 (within 1.5s) → 立即 startled 反应 (react-annoyed)
+   * 250ms delay 单击 toggle chat 是 trade-off：必须等是否有第 2 击决定意图。
+   */
+  const clickRef = useRef<{
+    count: number
+    firstAt: number
+    timer: ReturnType<typeof setTimeout> | null
   } | null>(null)
 
   const isConvMounted = chatPhase === 'open' || chatPhase === 'closing'
@@ -414,15 +437,45 @@ function App(): React.JSX.Element {
     dragRef.current = null
     // pointerup 自动 release capture（不需要显式 releasePointerCapture）
     if (ref.moved) return
-    // 没移过 = click → toggle chat。chatPhaseRef 直读最新 phase 避免 closure stale
-    const current = chatPhaseRef.current
-    if (current === 'closed') {
-      setChatPhase('open')
-      window.api.setChatOpen(true)
-    } else if (current === 'open') {
-      setChatPhase('closing')
-      // closing 动画完成后 handleConvAnimEnd 调 setChatOpen(false) 缩窗口
+    // 没移过 = click → M9-2 走 click burst 累计
+    handleClickBurst()
+  }
+
+  /**
+   * M9-2: 累计 click burst 决定 action（单击 toggle chat / 双击 poke / 4+ startled）
+   */
+  const handleClickBurst = (): void => {
+    const now = Date.now()
+    const click = clickRef.current
+    // 4+ 连击 within burst window → 立即 startled，不等 timer
+    if (click && now - click.firstAt < STARTLED_BURST_MS && click.count + 1 >= 4) {
+      if (click.timer) clearTimeout(click.timer)
+      clickRef.current = null
+      window.api.petStartled()
+      return
     }
+    // 计入当前 burst 或开新 burst
+    const burstFirstAt = click && now - click.firstAt < STARTLED_BURST_MS ? click.firstAt : now
+    const count = click && now - click.firstAt < STARTLED_BURST_MS ? click.count + 1 : 1
+    if (click?.timer) clearTimeout(click.timer)
+    const timer = setTimeout(() => {
+      clickRef.current = null
+      if (count === 1) {
+        // 单击 → toggle chat (250ms 后才执行 —— 是 trade-off 让双击判定可行)
+        const current = chatPhaseRef.current
+        if (current === 'closed') {
+          setChatPhase('open')
+          window.api.setChatOpen(true)
+        } else if (current === 'open') {
+          setChatPhase('closing')
+          // closing 动画完成后 handleConvAnimEnd 调 setChatOpen(false) 缩窗口
+        }
+      } else {
+        // 2-3 连击 → poke
+        window.api.petPoke()
+      }
+    }, POKE_DETECT_MS)
+    clickRef.current = { count, firstAt: burstFirstAt, timer }
   }
 
   /** Pointer 被系统抢走（如系统弹 dialog） → 当 cancel 处理，丢弃 dragRef */
@@ -518,6 +571,10 @@ function App(): React.JSX.Element {
     gifUrl = headphonesGif
   } else if (state === 'celebrating') {
     gifUrl = happyGif
+  } else if (state === 'poked') {
+    gifUrl = reactDoubleJumpGif
+  } else if (state === 'looking_around') {
+    gifUrl = reactAnnoyedGif
   } else if (state === 'thinking') {
     gifUrl = thinkingGif
   } else if (state === 'success') {
@@ -539,7 +596,9 @@ function App(): React.JSX.Element {
       thinkingGif,
       happyGif,
       errorGif,
-      sleepingGif
+      sleepingGif,
+      reactDoubleJumpGif,
+      reactAnnoyedGif
     ]
     all.forEach((url) => {
       const img = new Image()

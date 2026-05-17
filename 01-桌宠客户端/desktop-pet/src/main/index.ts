@@ -949,6 +949,19 @@ function createTray(): void {
 }
 
 function registerIpc(): void {
+  // —— M9-2 click reactions —— react to user double/quad click on pet body
+  ipcMain.on('pet:poke', () => {
+    if (stateMachine.transition('poked')) {
+      stateMachine.scheduleReturnToIdle(PET_STATES.poked.minMs)
+    }
+  })
+
+  ipcMain.on('pet:startled', () => {
+    if (stateMachine.transition('looking_around')) {
+      stateMachine.scheduleReturnToIdle(PET_STATES.looking_around.minMs)
+    }
+  })
+
   ipcMain.on('window:move-delta', (event, dx: number, dy: number) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return

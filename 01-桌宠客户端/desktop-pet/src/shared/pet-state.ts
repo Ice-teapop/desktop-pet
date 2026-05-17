@@ -38,6 +38,11 @@ export const PET_STATES = {
   conducting: { priority: 5, minMs: 3500 },
   grooving: { priority: 5, minMs: 3500 },
   celebrating: { priority: 5, minMs: 2000 },
+  // —— M9-2 瞬态点击反应 ——
+  // priority 4（同 success）= 高于 idle/sleep/thinking，低于 multitask 等执行类
+  // 不打断 AI 动画但能从 sleep / idle 拉醒；minMs 1200ms 让动画播完。
+  poked: { priority: 4, minMs: 1200 },
+  looking_around: { priority: 4, minMs: 1500 },
   error: { priority: 6, minMs: 1200 },
   awaiting: { priority: 7, minMs: 0 }
 } as const

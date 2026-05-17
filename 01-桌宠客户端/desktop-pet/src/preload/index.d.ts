@@ -30,6 +30,9 @@ export interface DeskPetAPI {
   onChatDone(listener: (usage: ChatUsage) => void): () => void
   onChatError(listener: (err: ChatError) => void): () => void
   setChatOpen(open: boolean): void
+  // M9-2 click reactions
+  petPoke(): void
+  petStartled(): void
   onChatWindowReady(listener: () => void): () => void
   onKeyState(listener: (state: KeyState) => void): () => void
   submitKey(key: string): void
