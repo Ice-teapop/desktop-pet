@@ -183,6 +183,10 @@ function App(): React.JSX.Element {
   // closure 内的 needOpenChat 赋值不可靠 —— React 18+ native event batching 路径）
   const chatPhaseRef = useRef<ChatPhase>('closed')
   const dragRef = useRef<{
+    /** M9-1: Pointer Events 的 pointerId —— setPointerCapture 后所有 event 都
+     * forward 到 capture target 不管 cursor 在屏幕哪。move/up 时校验 pointerId
+     * 匹配防多指 / 重入。 */
+    pointerId: number
     startX: number
     startY: number
     lastX: number
@@ -364,9 +368,23 @@ function App(): React.JSX.Element {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const handleMouseDown = (e: React.MouseEvent): void => {
+  /**
+   * M9-1: Pointer Capture drag —— 取代旧 window-level mousemove/mouseup listener。
+   *
+   * 旧问题：window 监听只在 pet panel 收到 mouseevent 时 fire。我们的 panel 是
+   * frameless transparent BrowserWindow（非 NSPanel —— 见 main/index.ts），
+   * user 快甩 cursor 出 panel 边界 → window 收不到 mousemove → dragRef.lastX/Y
+   * 不更新 → pet 不再 follow cursor → 视觉上"甩丢了"。
+   *
+   * 新方案：onPointerDown 时调 setPointerCapture(pointerId) 把该 pointerId 的
+   * 后续所有 event 强制 route 到 pet 元素（不管 cursor 在屏幕哪个角落）。capture
+   * 在 pointerup / pointercancel 时自动释放。
+   */
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>): void => {
     if (e.button !== 0) return
+    e.currentTarget.setPointerCapture(e.pointerId)
     dragRef.current = {
+      pointerId: e.pointerId,
       startX: e.screenX,
       startY: e.screenY,
       lastX: e.screenX,
@@ -375,48 +393,44 @@ function App(): React.JSX.Element {
     }
   }
 
-  useEffect(() => {
-    // renderer 不再做 hit-test 切 setIgnoreMouse —— 主进程 cursorWatcher 用 panel
-    // bounds 整体粒度控制。原因：NSPanel non-activating 在别的 app 前台时收不到
-    // mousemove forward，原来的精细 hit-test 失灵，导致"VS Code 前台时点桌宠点不开"。
-    // trade-off：panel 透明区域 click 不再穿透到底层 app，但区域小（< 12% 面积）。
-    const onMove = (ev: MouseEvent): void => {
-      if (!dragRef.current) return
-      const ref = dragRef.current
-      const total = Math.hypot(ev.screenX - ref.startX, ev.screenY - ref.startY)
-      if (total < DRAG_THRESHOLD_PX) return
-      ref.moved = true
-      const dx = ev.screenX - ref.lastX
-      const dy = ev.screenY - ref.lastY
-      if (dx !== 0 || dy !== 0) {
-        window.api.windowMoveDelta(dx, dy)
-        ref.lastX = ev.screenX
-        ref.lastY = ev.screenY
-      }
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>): void => {
+    const ref = dragRef.current
+    if (!ref || e.pointerId !== ref.pointerId) return
+    const total = Math.hypot(e.screenX - ref.startX, e.screenY - ref.startY)
+    if (total < DRAG_THRESHOLD_PX) return
+    ref.moved = true
+    const dx = e.screenX - ref.lastX
+    const dy = e.screenY - ref.lastY
+    if (dx !== 0 || dy !== 0) {
+      window.api.windowMoveDelta(dx, dy)
+      ref.lastX = e.screenX
+      ref.lastY = e.screenY
     }
+  }
 
-    const onUp = (): void => {
-      const ref = dragRef.current
-      dragRef.current = null
-      if (!ref || ref.moved) return
-      // 用 chatPhaseRef 直读最新 phase，避免 functional setter 路径的 closure 赋值 mystery
-      const current = chatPhaseRef.current
-      if (current === 'closed') {
-        setChatPhase('open')
-        window.api.setChatOpen(true)
-      } else if (current === 'open') {
-        setChatPhase('closing')
-        // closing 动画完成后 handleConvAnimEnd 会调 setChatOpen(false) 缩窗口
-      }
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>): void => {
+    const ref = dragRef.current
+    if (!ref || e.pointerId !== ref.pointerId) return
+    dragRef.current = null
+    // pointerup 自动 release capture（不需要显式 releasePointerCapture）
+    if (ref.moved) return
+    // 没移过 = click → toggle chat。chatPhaseRef 直读最新 phase 避免 closure stale
+    const current = chatPhaseRef.current
+    if (current === 'closed') {
+      setChatPhase('open')
+      window.api.setChatOpen(true)
+    } else if (current === 'open') {
+      setChatPhase('closing')
+      // closing 动画完成后 handleConvAnimEnd 调 setChatOpen(false) 缩窗口
     }
+  }
 
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
-    return () => {
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
-    }
-  }, [])
+  /** Pointer 被系统抢走（如系统弹 dialog） → 当 cancel 处理，丢弃 dragRef */
+  const handlePointerCancel = (e: React.PointerEvent<HTMLDivElement>): void => {
+    const ref = dragRef.current
+    if (!ref || e.pointerId !== ref.pointerId) return
+    dragRef.current = null
+  }
 
   const handleConvAnimEnd = (e: React.AnimationEvent): void => {
     if (e.animationName !== 'conv-fade-out') return
@@ -881,7 +895,15 @@ function App(): React.JSX.Element {
           </div>
         </div>
       )}
-      <div ref={petRef} className="pet" data-state={state} onMouseDown={handleMouseDown}>
+      <div
+        ref={petRef}
+        className="pet"
+        data-state={state}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerCancel}
+      >
         {/* 双层 cross-fade：两个 absolute 叠加，opacity 互补 ramp。
             会同时跑 0→1 和 1→0，旧 GIF 在 fade-out 期间继续 paint 旧帧（不会突然透明）。
             onLoad 驱动 swap：新 GIF decode 完才 ramp，消除 Chromium <img src> 重置的 1-2 帧透明窗口。

@@ -96,11 +96,14 @@ body,
    *  3. z-index 大值：在 .conversation 同级时确保叠在最上，hit-test 优先命中
    *  4. -webkit-app-region: no-drag：防御 Electron frameless 把整窗当 drag region
    *     的退化场景（默认应该是 no-drag 但显式更稳）
+   *  5. M9-1: touch-action: none —— Pointer Capture drag 标配，防 browser 把
+   *     pointer 当 scroll/pan 提前 pre-claim 触发 pointercancel
    */
   background: rgba(0, 0, 0, 0.004);
   pointer-events: auto;
   z-index: 10;
   -webkit-app-region: no-drag;
+  touch-action: none;
 }
 
 .pet:active {
