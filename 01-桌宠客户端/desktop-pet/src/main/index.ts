@@ -310,7 +310,7 @@ async function resolveActivity(app: AppIdentity | null): Promise<ActivityState> 
   // 没 key 时 LLM 不可用 → fallback idle
   if (!currentApiKey) return 'idle'
   try {
-    return await classifyApp(app, currentApiKey, currentModel)
+    return await classifyApp(app, currentApiKey)
   } catch (err) {
     console.warn('[activity] classify threw, fallback idle:', err)
     return 'idle'
@@ -1314,7 +1314,7 @@ app.whenReady().then(async () => {
   if (followFrontApp) activeAppMonitor.start()
   // 预热 Anthropic TLS pool：让首次真实 classify 从 ~1000ms 降到 ~250ms（A 根因 1）
   if (currentApiKey) {
-    void warmupClassifier(currentApiKey, currentModel)
+    void warmupClassifier(currentApiKey)
   }
 
   app.on('activate', () => {
