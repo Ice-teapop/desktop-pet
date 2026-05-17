@@ -50,12 +50,12 @@ import {
   type Provider,
   type SelectedModel
 } from '../shared/provider-types'
-import {
-  AnthropicLlmClient,
-  getApiKeyFromEnv,
-  looksLikeApiKey,
-  type StreamHandle
-} from './llm/anthropic'
+// anthropic.ts 残留 import：getApiKeyFromEnv / looksLikeApiKey 仍由 resolveStartupKey
+// 跟 key:submit IPC 用（legacy Anthropic 单 key 时代 helper）。AnthropicLlmClient /
+// StreamHandle 已 wave 4.2 切换到 LlmClient —— 整个 anthropic.ts 文件 wave 4.3 删除。
+import { getApiKeyFromEnv, looksLikeApiKey } from './llm/anthropic'
+import { LlmClient, type StreamHandle } from './llm/llm-client'
+import { instantiateModelSync } from './llm/providers'
 import {
   classifyApp,
   clearClassifyCache,
@@ -76,7 +76,10 @@ import { migrateLegacyUserData } from './storage/migration'
 import { loadTheme } from './storage/theme'
 import { ActiveAppMonitor } from './services/active-app'
 import { createSettingsWindow } from './services/settings-window'
-import { buildToolsForContext, executeTool as runTool, type ToolDef } from './llm/tools'
+// M7-4: llm/tools 老 ToolDef + buildToolsForContext + executeTool 路径已被
+// llm-client.ts 内部 buildToolSetForContext (AI SDK ToolSet) 取代 —— chat:submit
+// handler 只传 toolContext 给 LlmClient，SDK 自己跑 tool loop。tools.ts 老 export
+// 仍保留供 tool-defs.ts 共享 description 字符串跟 ToolContext type（wave 4.3+ 收尾）。
 import {
   getTrustedDirsSnapshot,
   loadPersistentTrustedDirs,
@@ -214,7 +217,7 @@ let currentSelectedModel: SelectedModel = DEFAULT_SELECTED_MODEL
  * 不暴露明文 key 给 renderer（只 IPC boolean status）。
  */
 const currentProviderKeys = new Map<Provider, string | null>()
-let llmClient: AnthropicLlmClient | null = null
+let llmClient: LlmClient | null = null
 // 活动识别（M3-3）：detector 推的状态独立于 PetState，渲染层组合两者决定 SVG
 let currentActivity: ActivityState = 'idle'
 let followFrontApp = true
@@ -376,15 +379,32 @@ function setFollowFrontApp(on: boolean): void {
 
 function setKeyInMemory(key: string | null): void {
   currentApiKey = key
+  // M7-4: 同步 currentProviderKeys map —— 老 key:submit IPC 走 saveApiKey 写
+  // credentials.bin，但 getLlmClient 现在从 currentProviderKeys 取 key 实例化。
+  // 不同步的话 user 输完新 key 后这一 session 走老 client（401）直到下次启动 migration。
+  // wave 4.4 unify IPC 后 setKeyInMemory 整个删除。
+  currentProviderKeys.set('anthropic', key)
   // 重置缓存 client —— 下次 getLlmClient 会用新 key 重建
   llmClient = null
   keyState = key ? 'ready' : 'missing'
 }
 
-function getLlmClient(): AnthropicLlmClient | null {
+/**
+ * 拿当前 LlmClient（按 currentSelectedModel.provider/modelId 跟 currentProviderKeys
+ * 派生）。currentProviderKeys map 里对应 provider 没 key → null（chat:submit 走
+ * 'no-api-key' error）。Cached 直到 setKeyInMemory/setModel/setSelectedModel
+ * 把 llmClient = null 让下次重建。
+ */
+function getLlmClient(): LlmClient | null {
   if (llmClient) return llmClient
-  if (!currentApiKey) return null
-  llmClient = new AnthropicLlmClient(currentApiKey, currentModel)
+  const apiKey = currentProviderKeys.get(currentSelectedModel.provider)
+  if (!apiKey) return null
+  const model = instantiateModelSync(
+    currentSelectedModel.provider,
+    apiKey,
+    currentSelectedModel.modelId
+  )
+  llmClient = new LlmClient(model)
   return llmClient
 }
 
@@ -1159,7 +1179,9 @@ function registerIpc(): void {
     // 上一个 stream 还在跑就 abort（用户连点 submit 时不烧两份 token）
     currentStreamHandle?.abort()
 
-    // —— M4-B/C/D agentic tools —— AI 通过 tool_use 自主决定调用哪些 local tool。
+    // —— M4-B/C/D agentic tools —— M7-4 切 AI SDK ToolSet：
+    // chat:submit 只准备 toolCtx，LlmClient 内部用 buildToolSetForContext(ctx)
+    // 把 tool 池跟每个 tool 的 execute 函数自动包装好；SDK 跑 tool loop。
     // tools 池由 ToolContext 动态构建（如 tavilyApiKey 缺则 web_search 不暴露）。
     const agenticEnabled = visionEnabledPref && visionConsentedPref
     const toolCtx = {
@@ -1169,13 +1191,6 @@ function registerIpc(): void {
       currentAppBundleId,
       tavilyApiKey: currentTavilyApiKey
     }
-    const tools: readonly ToolDef[] = agenticEnabled
-      ? buildToolsForContext(toolCtx)
-      : []
-    const executeTool = agenticEnabled
-      ? (name: string, input: unknown): ReturnType<typeof runTool> =>
-          runTool(name, input, toolCtx)
-      : undefined
 
     chatHistory.push({ role: 'user', content: cleaned })
     trimChatHistory()
@@ -1217,15 +1232,26 @@ function registerIpc(): void {
           win.webContents.send('chat:error', err)
           stateMachine.transition('error')
           stateMachine.scheduleReturnToIdle(ERROR_HOLD_MS)
-          // 401 invalid-api-key → 自动清掉坏 key，引导用户重设
+          // 401 invalid-api-key → 自动清掉坏 key，引导用户重设。
+          // M7-4: provider-aware —— 老 resetKey() 只清 Anthropic credentials.bin
+          // + setKeyInMemory hardcode 清 anthropic slot；wave 4.2 user 切 OpenAI
+          // 输错 key 401 不能误清 anthropic slot。
           if (err.kind === 'invalid-api-key') {
-            void resetKey()
+            if (currentSelectedModel.provider === 'anthropic') {
+              void resetKey()
+            } else {
+              // 仅清内存里坏掉的 provider key + 让 llmClient 重建（下次还没新 key
+              // 会再次走 'no-api-key' 引导）。盘上文件 cleanup 留 wave 4.4 新 IPC
+              // resetProviderKey(provider) 统一处理。user 可立即切回 anthropic 或
+              // 换 provider 继续工作。
+              currentProviderKeys.set(currentSelectedModel.provider, null)
+              llmClient = null
+            }
           }
         }
       },
       {
-        tools,
-        executeTool,
+        toolContext: agenticEnabled ? toolCtx : undefined,
         memory: petMemoryCache,
         userProfile: userProfileCache
       }
