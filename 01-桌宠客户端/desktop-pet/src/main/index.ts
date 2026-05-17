@@ -318,6 +318,25 @@ function broadcastSelectedModelState(): void {
   }
 }
 
+/**
+ * 从当前内存状态构造完整 Preferences object —— 单一事实来源。
+ *
+ * 取代各 IPC handler 里"先 await loadPreferences() 再 spread {...prefs, X}"模式
+ * （Officer A wave 3.1 observation）：因为 prefs 来自磁盘，但 schedulePrefsSave
+ * 200ms debounce 期间 mirror 内存领先磁盘，spread 会把磁盘旧值（如 selectedModel）
+ * 写回，覆盖 mirror。直接用 module-scope 内存值消除 race + 省一次磁盘 IO。
+ */
+function currentPrefsSnapshot(): Preferences {
+  return {
+    modelId: currentModel,
+    selectedModel: currentSelectedModel,
+    followFrontApp,
+    useFastPath,
+    visionEnabled: visionEnabledPref,
+    visionConsented: visionConsentedPref
+  }
+}
+
 function notifyTavilyState(): void {
   if (isWinAlive()) petWindow!.webContents.send('tavily:state', tavilyState())
 }
@@ -925,12 +944,9 @@ function registerIpc(): void {
     visionEnabledPref = true
     notifyVisionState()
     try {
-      const prefs = await loadPreferences()
-      await savePreferences({
-        ...prefs,
-        visionConsented: true,
-        visionEnabled: true
-      })
+      // M7-4 wave 4.5: 用 currentPrefsSnapshot 替代 loadPreferences + spread
+      // ——消除 200ms debounce 窗口内磁盘旧值覆盖 mirror 新值的 race。
+      await savePreferences(currentPrefsSnapshot())
     } catch (err) {
       console.warn('[vision:accept-consent-and-enable] savePreferences failed:', err)
     }
@@ -946,8 +962,7 @@ function registerIpc(): void {
     visionEnabledPref = enabled
     notifyVisionState()
     try {
-      const prefs = await loadPreferences()
-      await savePreferences({ ...prefs, visionEnabled: enabled })
+      await savePreferences(currentPrefsSnapshot())
     } catch (err) {
       console.warn('[vision:set-enabled] savePreferences failed:', err)
     }
@@ -959,8 +974,7 @@ function registerIpc(): void {
     visionEnabledPref = false
     notifyVisionState()
     try {
-      const prefs = await loadPreferences()
-      await savePreferences({ ...prefs, visionConsented: false, visionEnabled: false })
+      await savePreferences(currentPrefsSnapshot())
     } catch (err) {
       console.warn('[vision:revoke-consent] savePreferences failed:', err)
     }
@@ -1528,7 +1542,9 @@ app.whenReady().then(async () => {
   // 自动 disable 防止意外开了功能
   if (visionEnabledPref && !visionConsentedPref) {
     visionEnabledPref = false
-    void savePreferences({ ...prefs, visionEnabled: false }).catch((e) =>
+    // M7-4 wave 4.5: 用 currentPrefsSnapshot 而非 spread 老 prefs —— 跟其它 vision
+    // handler 一致；启动期本身无 schedulePrefsSave race 但保持 pattern 统一。
+    void savePreferences(currentPrefsSnapshot()).catch((e) =>
       console.warn('[startup] reset visionEnabled=false failed:', e)
     )
   }
