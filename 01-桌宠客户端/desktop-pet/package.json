@@ -35,7 +35,11 @@
     "@ai-sdk/xai": "^3.0.91",
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
+    "@types/pdfkit": "^0.17.6",
     "ai": "^6.0.184",
+    "docx": "^9.6.1",
+    "exceljs": "^4.4.0",
+    "pdfkit": "^0.18.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

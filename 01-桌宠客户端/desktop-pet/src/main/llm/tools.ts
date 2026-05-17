@@ -18,6 +18,9 @@ import { promises as fs } from 'fs'
 import { promisify } from 'util'
 import { lookup } from 'dns/promises'
 import { isIP } from 'net'
+import { Document, HeadingLevel, Packer, Paragraph, TextRun } from 'docx'
+import ExcelJS from 'exceljs'
+import PDFDocument from 'pdfkit'
 import type { ActivityState } from '../../shared/chat-types'
 import type { SelectedModel } from '../../shared/provider-types'
 import {
@@ -63,13 +66,24 @@ function safeChildEnv(): Record<string, string> {
   return out
 }
 
-/** LLM-agnostic Tool 定义 —— 用 JSON Schema input_schema 兼容 Anthropic / OpenAI / MCP */
+/** LLM-agnostic Tool 定义 —— 用 JSON Schema input_schema 兼容 Anthropic / OpenAI / MCP
+ *  Property 类型支持嵌套（array items / object properties），让 write_docx /
+ *  write_xlsx 这类结构化 tool 能描述 sections / sheets 的内部 shape. */
+export interface JsonSchemaProperty {
+  type?: string | string[]
+  description?: string
+  enum?: (string | number)[]
+  items?: JsonSchemaProperty
+  properties?: Record<string, JsonSchemaProperty>
+  required?: string[]
+}
+
 export interface ToolDef {
   name: string
   description: string
   input_schema: {
     type: 'object'
-    properties: Record<string, { type: string; description: string; enum?: string[] }>
+    properties: Record<string, JsonSchemaProperty>
     required: string[]
   }
 }
@@ -351,6 +365,111 @@ export const WRITE_FILE: ToolDef = {
   }
 }
 
+export const WRITE_DOCX: ToolDef = {
+  name: 'write_docx',
+  description:
+    'Generate a Microsoft Word .docx document with title + sections. ' +
+    "Use when user asks for 'Word 文档' / '报告' / '简历' / '合同' or wants " +
+    'structured prose that needs typography. NOT for plain notes (use write_file .md). ' +
+    'Each section optionally has a heading (level 1/2/3) and a list of paragraphs. ' +
+    'Total paragraph text ≤ 100k chars per call. Same path safety as write_file. ' +
+    'Returns confirmation with bytes written.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      path: {
+        type: 'string',
+        description: 'Absolute or ~/-relative path ending in .docx'
+      },
+      title: { type: 'string', description: 'Document title (rendered as H1 at top)' },
+      sections: {
+        type: 'array',
+        description: 'Ordered sections. Empty array allowed if only title needed.',
+        items: {
+          type: 'object',
+          properties: {
+            heading: { type: 'string', description: 'Section heading text' },
+            level: { type: 'number', enum: [1, 2, 3], description: 'Heading level (default 2)' },
+            paragraphs: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Body paragraphs under this section'
+            }
+          },
+          required: ['paragraphs']
+        }
+      }
+    },
+    required: ['path', 'sections']
+  }
+}
+
+export const WRITE_PDF: ToolDef = {
+  name: 'write_pdf',
+  description:
+    'Generate a .pdf document with title + paragraphs (final-delivery, non-editable). ' +
+    'Use when user wants 最终交付 / 不可编辑 / 多页排版 / "导出 PDF". ' +
+    'NOT for editable docs (use write_docx) or tables (use write_xlsx). ' +
+    'Supports Chinese via macOS system CJK fonts (Hiragino Sans GB / STHeiti / Songti). ' +
+    'Total paragraph text ≤ 50k chars per call. Same path safety as write_file. ' +
+    'Returns confirmation with bytes written.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      path: { type: 'string', description: 'Absolute or ~/-relative path ending in .pdf' },
+      title: { type: 'string', description: 'Document title (rendered as large heading at top)' },
+      paragraphs: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Body paragraphs in order'
+      },
+      fontSize: { type: 'number', description: 'Body font size in pt (default 12)' }
+    },
+    required: ['path', 'paragraphs']
+  }
+}
+
+export const WRITE_XLSX: ToolDef = {
+  name: 'write_xlsx',
+  description:
+    'Generate a Microsoft Excel .xlsx workbook with one or more sheets. ' +
+    'Use for tabular data / 财务 / 清单 / data exports. NOT for prose (use write_docx). ' +
+    'Each sheet has a name + optional headers row + rows (string|number cells). ' +
+    'Limits: ≤ 5000 rows per sheet, ≤ 2000 chars per cell. Same path safety as write_file. ' +
+    'Returns confirmation with bytes written.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      path: {
+        type: 'string',
+        description: 'Absolute or ~/-relative path ending in .xlsx'
+      },
+      sheets: {
+        type: 'array',
+        description: 'At least one sheet required.',
+        items: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', description: 'Sheet tab name' },
+            headers: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Optional header row (rendered bold)'
+            },
+            rows: {
+              type: 'array',
+              description: '2D array — each inner array is a row of cells (string or number)',
+              items: { type: 'array', items: {} }
+            }
+          },
+          required: ['name', 'rows']
+        }
+      }
+    },
+    required: ['path', 'sheets']
+  }
+}
+
 export const CREATE_DIRECTORY: ToolDef = {
   name: 'create_directory',
   description:
@@ -580,6 +699,9 @@ const CORE_TOOLS = [
   READ_FILE,
   LIST_DIRECTORY,
   WRITE_FILE,
+  WRITE_DOCX,
+  WRITE_XLSX,
+  WRITE_PDF,
   CREATE_DIRECTORY,
   FIND_FILES,
   DELETE_FILE,
@@ -637,6 +759,12 @@ export async function executeTool(
       return await execListDirectory(input)
     case 'write_file':
       return await execWriteFile(input)
+    case 'write_docx':
+      return await execWriteDocx(input)
+    case 'write_xlsx':
+      return await execWriteXlsx(input)
+    case 'write_pdf':
+      return await execWritePdf(input)
     case 'create_directory':
       return await execCreateDirectory(input)
     case 'find_files':
@@ -1039,6 +1167,356 @@ async function execWriteFile(input: unknown): Promise<ToolResult> {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     return { ok: false, error: `writeFile failed: ${msg}` }
+  }
+}
+
+// —— write_docx / write_xlsx —— Microsoft Office 二进制格式 ————————————————
+// 跟 write_file 共用 requestPathApprovalWithPreview (audit log 自动记录).
+
+const WRITE_DOCX_MAX_CHARS = 100_000 // 全 sections paragraphs 字符总和上限
+const WRITE_XLSX_MAX_ROWS = 5_000 // 单 sheet 行上限
+const WRITE_XLSX_MAX_CELL_CHARS = 2_000 // 单 cell 字符上限
+
+function headingLevelFromInt(n: number | undefined): (typeof HeadingLevel)[keyof typeof HeadingLevel] {
+  // default level 2 (H2); 1/2/3 映射 HEADING_1/2/3
+  if (n === 1) return HeadingLevel.HEADING_1
+  if (n === 3) return HeadingLevel.HEADING_3
+  return HeadingLevel.HEADING_2
+}
+
+async function execWriteDocx(input: unknown): Promise<ToolResult> {
+  if (typeof input !== 'object' || input === null) {
+    return { ok: false, error: 'input must be { path, title?, sections: [...] }' }
+  }
+  const obj = input as { path?: unknown; title?: unknown; sections?: unknown }
+  if (typeof obj.path !== 'string') {
+    return { ok: false, error: 'path must be a string' }
+  }
+  if (!Array.isArray(obj.sections)) {
+    return { ok: false, error: 'sections must be an array' }
+  }
+  // 校验 sections + 计字符总数
+  type SectionIn = { heading?: string; level?: number; paragraphs: string[] }
+  const sections: SectionIn[] = []
+  let totalChars = 0
+  for (let i = 0; i < obj.sections.length; i++) {
+    const raw = obj.sections[i]
+    if (typeof raw !== 'object' || raw === null) {
+      return { ok: false, error: `sections[${i}] must be an object` }
+    }
+    const s = raw as { heading?: unknown; level?: unknown; paragraphs?: unknown }
+    if (!Array.isArray(s.paragraphs)) {
+      return { ok: false, error: `sections[${i}].paragraphs must be an array of strings` }
+    }
+    const paragraphs: string[] = []
+    for (let j = 0; j < s.paragraphs.length; j++) {
+      const p = s.paragraphs[j]
+      if (typeof p !== 'string') {
+        return { ok: false, error: `sections[${i}].paragraphs[${j}] must be a string` }
+      }
+      totalChars += p.length
+      paragraphs.push(p)
+    }
+    if (s.heading !== undefined && typeof s.heading !== 'string') {
+      return { ok: false, error: `sections[${i}].heading must be a string` }
+    }
+    if (s.level !== undefined && ![1, 2, 3].includes(s.level as number)) {
+      return { ok: false, error: `sections[${i}].level must be 1, 2, or 3` }
+    }
+    if (s.heading) totalChars += (s.heading as string).length
+    sections.push({
+      heading: s.heading as string | undefined,
+      level: s.level as number | undefined,
+      paragraphs
+    })
+  }
+  const title = typeof obj.title === 'string' ? obj.title : undefined
+  if (title) totalChars += title.length
+  if (totalChars > WRITE_DOCX_MAX_CHARS) {
+    return {
+      ok: false,
+      error: `docx text too long: ${totalChars} > ${WRITE_DOCX_MAX_CHARS} chars. Split into multiple files.`
+    }
+  }
+  // 路径审批（写盘前）
+  const previewBits: string[] = []
+  if (title) previewBits.push(title)
+  if (sections[0]?.heading) previewBits.push(sections[0].heading)
+  if (sections[0]?.paragraphs[0]) previewBits.push(sections[0].paragraphs[0])
+  const gate = await requestPathApprovalWithPreview(
+    obj.path,
+    'write_docx',
+    '写 Word 文档',
+    previewBits.join(' · ').slice(0, 200)
+  )
+  if (!gate.ok) return gate
+  // 构 docx
+  const children: Paragraph[] = []
+  if (title) {
+    children.push(
+      new Paragraph({
+        children: [new TextRun({ text: title, bold: true, size: 36 })],
+        heading: HeadingLevel.TITLE
+      })
+    )
+  }
+  for (const s of sections) {
+    if (s.heading) {
+      children.push(
+        new Paragraph({
+          children: [new TextRun({ text: s.heading, bold: true })],
+          heading: headingLevelFromInt(s.level)
+        })
+      )
+    }
+    for (const p of s.paragraphs) {
+      children.push(new Paragraph({ children: [new TextRun(p)] }))
+    }
+  }
+  try {
+    const doc = new Document({ sections: [{ children }] })
+    const buffer = await Packer.toBuffer(doc)
+    await fs.writeFile(gate.absPath, buffer, { mode: 0o644 })
+    return {
+      ok: true,
+      content: `Wrote ${buffer.length} bytes (.docx, ${sections.length} sections, ${totalChars} chars) to ${gate.absPath}`
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return { ok: false, error: `生成 docx 失败: ${msg}` }
+  }
+}
+
+async function execWriteXlsx(input: unknown): Promise<ToolResult> {
+  if (typeof input !== 'object' || input === null) {
+    return { ok: false, error: 'input must be { path, sheets: [...] }' }
+  }
+  const obj = input as { path?: unknown; sheets?: unknown }
+  if (typeof obj.path !== 'string') {
+    return { ok: false, error: 'path must be a string' }
+  }
+  if (!Array.isArray(obj.sheets) || obj.sheets.length === 0) {
+    return { ok: false, error: 'sheets must be a non-empty array' }
+  }
+  // 校验 sheets
+  type SheetIn = { name: string; headers?: string[]; rows: (string | number)[][] }
+  const sheets: SheetIn[] = []
+  for (let i = 0; i < obj.sheets.length; i++) {
+    const raw = obj.sheets[i]
+    if (typeof raw !== 'object' || raw === null) {
+      return { ok: false, error: `sheets[${i}] must be an object` }
+    }
+    const s = raw as { name?: unknown; headers?: unknown; rows?: unknown }
+    if (typeof s.name !== 'string' || !s.name) {
+      return { ok: false, error: `sheets[${i}].name must be a non-empty string` }
+    }
+    if (!Array.isArray(s.rows)) {
+      return { ok: false, error: `sheets[${i}].rows must be an array` }
+    }
+    if (s.rows.length > WRITE_XLSX_MAX_ROWS) {
+      return {
+        ok: false,
+        error: `sheets[${i}] has ${s.rows.length} rows, max ${WRITE_XLSX_MAX_ROWS}. Split into multiple sheets/files.`
+      }
+    }
+    const rows: (string | number)[][] = []
+    for (let j = 0; j < s.rows.length; j++) {
+      const row = s.rows[j]
+      if (!Array.isArray(row)) {
+        return { ok: false, error: `sheets[${i}].rows[${j}] must be an array` }
+      }
+      const cells: (string | number)[] = []
+      for (let k = 0; k < row.length; k++) {
+        const cell = row[k]
+        if (typeof cell === 'string') {
+          if (cell.length > WRITE_XLSX_MAX_CELL_CHARS) {
+            return {
+              ok: false,
+              error: `sheets[${i}].rows[${j}][${k}] cell too long: ${cell.length} > ${WRITE_XLSX_MAX_CELL_CHARS} chars`
+            }
+          }
+          cells.push(cell)
+        } else if (typeof cell === 'number') {
+          cells.push(cell)
+        } else {
+          return {
+            ok: false,
+            error: `sheets[${i}].rows[${j}][${k}] must be string or number, got ${typeof cell}`
+          }
+        }
+      }
+      rows.push(cells)
+    }
+    let headers: string[] | undefined
+    if (s.headers !== undefined) {
+      if (!Array.isArray(s.headers)) {
+        return { ok: false, error: `sheets[${i}].headers must be an array of strings` }
+      }
+      headers = []
+      for (let h = 0; h < s.headers.length; h++) {
+        const v = s.headers[h]
+        if (typeof v !== 'string') {
+          return { ok: false, error: `sheets[${i}].headers[${h}] must be a string` }
+        }
+        headers.push(v)
+      }
+    }
+    sheets.push({ name: s.name, headers, rows })
+  }
+  // 路径审批（写盘前）
+  const previewBits: string[] = []
+  for (const s of sheets) {
+    previewBits.push(s.name + ` (${s.rows.length} rows)`)
+    if (previewBits.length >= 3) break
+  }
+  const gate = await requestPathApprovalWithPreview(
+    obj.path,
+    'write_xlsx',
+    '写 Excel 表格',
+    previewBits.join(' · ').slice(0, 200)
+  )
+  if (!gate.ok) return gate
+  try {
+    const wb = new ExcelJS.Workbook()
+    let totalRows = 0
+    for (const s of sheets) {
+      const ws = wb.addWorksheet(s.name)
+      if (s.headers) {
+        const row = ws.addRow(s.headers)
+        row.font = { bold: true }
+      }
+      for (const cells of s.rows) {
+        ws.addRow(cells)
+        totalRows++
+      }
+    }
+    const buffer = await wb.xlsx.writeBuffer()
+    await fs.writeFile(gate.absPath, Buffer.from(buffer), { mode: 0o644 })
+    return {
+      ok: true,
+      content: `Wrote ${buffer.byteLength} bytes (.xlsx, ${sheets.length} sheets, ${totalRows} rows) to ${gate.absPath}`
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return { ok: false, error: `生成 xlsx 失败: ${msg}` }
+  }
+}
+
+// —— write_pdf —— PDF via pdfkit + macOS 系统 CJK 字体 ————————————————————
+
+const WRITE_PDF_MAX_CHARS = 50_000
+
+// 候选 CJK 字体 (file path + face family name). pdfkit 用 fontkit 支持 .ttc；
+// 必须提供 face name 否则取 default face 可能不含中文。按 macOS 通用度排序，
+// 第一个能加载成功的用. 都不行 → 退 Helvetica + ASCII-only.
+const CJK_FONT_CANDIDATES: ReadonlyArray<readonly [string, string]> = [
+  ['/System/Library/Fonts/PingFang.ttc', 'PingFangSC-Regular'],
+  ['/System/Library/Fonts/Hiragino Sans GB.ttc', 'HiraginoSansGB-W3'],
+  ['/System/Library/Fonts/STHeiti Medium.ttc', 'STHeitiSC-Medium'],
+  ['/System/Library/Fonts/STHeiti Light.ttc', 'STHeitiSC-Light'],
+  ['/System/Library/Fonts/Supplemental/Songti.ttc', 'STSongti-SC-Regular']
+] as const
+
+function containsCjk(s: string): boolean {
+  // CJK Unified Ideographs + 扩展 + 常用全角标点
+  return /[　-〿㐀-䶿一-鿿豈-﫿＀-￯]/.test(s)
+}
+
+async function execWritePdf(input: unknown): Promise<ToolResult> {
+  if (typeof input !== 'object' || input === null) {
+    return { ok: false, error: 'input must be { path, title?, paragraphs: [...], fontSize? }' }
+  }
+  const obj = input as {
+    path?: unknown
+    title?: unknown
+    paragraphs?: unknown
+    fontSize?: unknown
+  }
+  if (typeof obj.path !== 'string') {
+    return { ok: false, error: 'path must be a string' }
+  }
+  if (!Array.isArray(obj.paragraphs)) {
+    return { ok: false, error: 'paragraphs must be an array of strings' }
+  }
+  const paragraphs: string[] = []
+  let totalChars = 0
+  for (let i = 0; i < obj.paragraphs.length; i++) {
+    const p = obj.paragraphs[i]
+    if (typeof p !== 'string') {
+      return { ok: false, error: `paragraphs[${i}] must be a string` }
+    }
+    paragraphs.push(p)
+    totalChars += p.length
+  }
+  const title = typeof obj.title === 'string' ? obj.title : undefined
+  if (title) totalChars += title.length
+  if (totalChars > WRITE_PDF_MAX_CHARS) {
+    return {
+      ok: false,
+      error: `pdf text too long: ${totalChars} > ${WRITE_PDF_MAX_CHARS} chars. Split into multiple files.`
+    }
+  }
+  const fontSize = typeof obj.fontSize === 'number' && obj.fontSize >= 6 && obj.fontSize <= 72
+    ? obj.fontSize
+    : 12
+  // 内容含中文? 决定是否必须 CJK font
+  const needCjk = (title && containsCjk(title)) || paragraphs.some(containsCjk)
+  // 路径审批
+  const preview = (title ?? paragraphs[0] ?? '(empty pdf)').slice(0, 200)
+  const gate = await requestPathApprovalWithPreview(
+    obj.path,
+    'write_pdf',
+    '写 PDF 文档',
+    preview
+  )
+  if (!gate.ok) return gate
+  try {
+    const doc = new PDFDocument({ size: 'A4', margin: 56 })
+    // 注册 CJK 字体（按候选顺序尝试，第一个成功的用）
+    let cjkFontRegistered: string | null = null
+    for (const [file, face] of CJK_FONT_CANDIDATES) {
+      try {
+        await fs.access(file)
+        doc.registerFont('CJK', file, face)
+        cjkFontRegistered = file
+        break
+      } catch {
+        // try next
+      }
+    }
+    if (needCjk && !cjkFontRegistered) {
+      return {
+        ok: false,
+        error: '内容含中文但系统找不到 CJK 字体 (PingFang/Hiragino/STHeiti/Songti 都没装). 用 write_docx 代替.'
+      }
+    }
+    // collect chunks → buffer
+    const chunks: Buffer[] = []
+    doc.on('data', (chunk: Buffer) => chunks.push(chunk))
+    const done = new Promise<Buffer>((resolve, reject) => {
+      doc.on('end', () => resolve(Buffer.concat(chunks)))
+      doc.on('error', reject)
+    })
+    const bodyFont = cjkFontRegistered ? 'CJK' : 'Helvetica'
+    if (title) {
+      doc.font(bodyFont).fontSize(fontSize * 1.8).text(title, { align: 'center' })
+      doc.moveDown(1.2)
+    }
+    doc.font(bodyFont).fontSize(fontSize)
+    for (const p of paragraphs) {
+      doc.text(p, { align: 'left', lineGap: 4 })
+      doc.moveDown(0.6)
+    }
+    doc.end()
+    const buffer = await done
+    await fs.writeFile(gate.absPath, buffer, { mode: 0o644 })
+    return {
+      ok: true,
+      content: `Wrote ${buffer.length} bytes (.pdf, ${paragraphs.length} paragraphs, ${totalChars} chars${cjkFontRegistered ? `, CJK font: ${cjkFontRegistered.split('/').pop()}` : ', ASCII only'}) to ${gate.absPath}`
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return { ok: false, error: `生成 pdf 失败: ${msg}` }
   }
 }
 
