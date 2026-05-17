@@ -25,8 +25,9 @@ export function isPetMode(s: string): s is PetMode {
 /** Mini mode 窗口尺寸（CSS `.pet-mini` 让 pet body 撑满 100×100 window，无 padding） */
 export const MINI_WIN_WIDTH = 100
 export const MINI_WIN_HEIGHT = 100
-/** Mini mode 露出屏外多少 px（80 - 24 = 56px 藏在屏外） */
-export const MINI_VISIBLE_PX = 24
+/** Mini mode 默认露出多少 px（设计师 v2: 24→32，露半只钳 + 部分眼睛，用户余光可见
+ *  仍明确"贴边" + hit-test 横向 32px 远高于 Fitts 安全线 12px。100 - 32 = 68px 藏屏外） */
+export const MINI_VISIBLE_PX = 32
 /** Drag end 检测：右边离 workArea.right 这个距离内 → 触发 snap to mini。
  *  60px 比 40 宽容 —— pointerup 时 pet 通常离右边 30-80px（rendererDelta 末帧 +
  *  setPosition latency），主观"我拖到边了"该触发，40px 太严容易 miss. */

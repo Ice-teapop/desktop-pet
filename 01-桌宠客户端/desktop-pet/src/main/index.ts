@@ -996,6 +996,15 @@ function setChatOpen(open: boolean): void {
 }
 
 function createPetWindow(): void {
+  // M9-5b-fix1: single-instance guard（防御未来 regression + 误调用）。审核官员发现
+  // 此函数无 self-guard，理论上同 process 内重入 = 真分身。正常路径只在 whenReady ×1 + activate
+  // 且 BrowserWindow.length===0 触发，但加一层防御为零回归代价。
+  if (petWindow && !petWindow.isDestroyed()) {
+    console.warn('[createPetWindow] called but petWindow already alive — focusing existing')
+    petWindow.show()
+    petWindow.focus()
+    return
+  }
   const { workArea } = screen.getPrimaryDisplay()
 
   const win = new BrowserWindow({
@@ -1918,6 +1927,24 @@ function watchScreenEvents(): void {
   screen.on('display-metrics-changed', trigger)
   screen.on('display-added', trigger)
   screen.on('display-removed', trigger)
+}
+
+// M9-5b-fix1 (P0): single-instance lock —— 防止 dev 模式 hot-restart / 用户双击 dock /
+// Spotlight 启第二次 → 两个独立 main process 各持一个 BrowserWindow = 真分身 (审核官员
+// 5⭐ 根因). 拿不到 lock = 已有实例在跑 → 立即 quit 让另一个进程处理；second-instance event
+// 让旧进程把 pet 拉到前面.
+const singleInstanceLock = app.requestSingleInstanceLock()
+if (!singleInstanceLock) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    // 第二次启动尝试 → 在已有实例里把 pet 拉到前面
+    if (petWindow && !petWindow.isDestroyed()) {
+      if (petWindow.isMinimized()) petWindow.restore()
+      petWindow.show()
+      petWindow.focus()
+    }
+  })
 }
 
 app.whenReady().then(async () => {
