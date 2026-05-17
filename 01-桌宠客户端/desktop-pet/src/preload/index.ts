@@ -10,6 +10,11 @@ import type { VisionState } from '../shared/vision-types'
 import type { ApprovalDecision, ApprovalRequest } from '../shared/approval-types'
 import type { TavilyState } from '../shared/tavily-types'
 import type { ModelId } from '../shared/chat-types'
+import type {
+  Provider,
+  ProviderKeyStates,
+  SelectedModel
+} from '../shared/provider-types'
 import type { IpcResult, PrefsState, TrustedDirsState } from '../shared/settings-types'
 import type { UserProfile } from '../shared/user-profile-types'
 
@@ -181,6 +186,40 @@ const api = {
   },
   setModel(modelId: ModelId): void {
     ipcRenderer.send('prefs:set-model', modelId)
+  },
+  // —— M7-4 multi-provider key + selected-model API ——
+  /** 提交某 provider 的 key（任 provider）。主进程 safeStorage 加密 + 推 states */
+  submitProviderKey(provider: Provider, key: string): void {
+    ipcRenderer.send('provider-key:submit', provider, key)
+  },
+  /** 清除某 provider 的 key + 推 states */
+  resetProviderKey(provider: Provider): void {
+    ipcRenderer.send('provider-key:reset', provider)
+  },
+  /** mount 后主动拉一次所有 provider 的配置状态（防启动 race） */
+  requestProviderKeyStates(): void {
+    ipcRenderer.send('provider-key:request-states')
+  },
+  /** 订阅所有 provider 的 has-key boolean map 推送（Settings UI 渲染状态灯用） */
+  onProviderKeyStates(listener: (states: ProviderKeyStates) => void): () => void {
+    const handler = (_event: IpcRendererEvent, states: ProviderKeyStates): void =>
+      listener(states)
+    ipcRenderer.on('provider-key:states', handler)
+    return () => ipcRenderer.off('provider-key:states', handler)
+  },
+  /** 切换当前选中的 provider/model 组合 */
+  setSelectedModel(sel: SelectedModel): void {
+    ipcRenderer.send('selected-model:set', sel)
+  },
+  /** mount 后主动拉一次当前 SelectedModel（防启动 race） */
+  requestSelectedModelState(): void {
+    ipcRenderer.send('selected-model:request-state')
+  },
+  /** 订阅 SelectedModel 推送（切换 / 启动时主进程推） */
+  onSelectedModelState(listener: (sel: SelectedModel) => void): () => void {
+    const handler = (_event: IpcRendererEvent, sel: SelectedModel): void => listener(sel)
+    ipcRenderer.on('selected-model:state', handler)
+    return () => ipcRenderer.off('selected-model:state', handler)
   },
   setFollowFrontApp(value: boolean): void {
     ipcRenderer.send('prefs:set-follow-front-app', value)

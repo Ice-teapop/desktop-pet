@@ -235,6 +235,12 @@ export interface SelectedModel {
   modelId: string
 }
 
+/**
+ * Provider → 是否配好 key 的 boolean map。Renderer 用来渲染 Settings UI（每张
+ * provider 卡片 status 灯）。不暴露明文 key（key 永远不出 main 进程）。
+ */
+export type ProviderKeyStates = Record<Provider, boolean>
+
 export const DEFAULT_SELECTED_MODEL: SelectedModel = {
   provider: 'anthropic',
   modelId: 'claude-haiku-4-5'

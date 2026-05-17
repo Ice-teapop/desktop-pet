@@ -5,6 +5,11 @@ import type { VisionState } from '../shared/vision-types'
 import type { ApprovalDecision, ApprovalRequest } from '../shared/approval-types'
 import type { TavilyState } from '../shared/tavily-types'
 import type { ModelId } from '../shared/chat-types'
+import type {
+  Provider,
+  ProviderKeyStates,
+  SelectedModel
+} from '../shared/provider-types'
 import type { IpcResult, PrefsState, TrustedDirsState } from '../shared/settings-types'
 import type { UserProfile } from '../shared/user-profile-types'
 
@@ -13,6 +18,7 @@ export type { VisionState }
 export type { ApprovalDecision, ApprovalRequest }
 export type { TavilyState }
 export type { ModelId, IpcResult, PrefsState, TrustedDirsState }
+export type { Provider, ProviderKeyStates, SelectedModel }
 export type { UserProfile }
 
 export interface DeskPetAPI {
@@ -49,6 +55,14 @@ export interface DeskPetAPI {
   requestPrefsState(): void
   onPrefsState(listener: (state: PrefsState) => void): () => void
   setModel(modelId: ModelId): void
+  // M7-4 multi-provider key + selected-model
+  submitProviderKey(provider: Provider, key: string): void
+  resetProviderKey(provider: Provider): void
+  requestProviderKeyStates(): void
+  onProviderKeyStates(listener: (states: ProviderKeyStates) => void): () => void
+  setSelectedModel(sel: SelectedModel): void
+  requestSelectedModelState(): void
+  onSelectedModelState(listener: (sel: SelectedModel) => void): () => void
   setFollowFrontApp(value: boolean): void
   setUseFastPath(value: boolean): void
   revealAuditLogInFinder(): void

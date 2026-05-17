@@ -104,11 +104,19 @@ export async function migrateLegacyCredentials(): Promise<void> {
       await fs.unlink(legacyPath)
       return
     }
-    // 已存在新格式 anthropic-key.bin → 跳过 migration（新值优先）
+    // 两文件并存语义（不应该常见）：
+    //   - Wave 4.4 之后 key:submit / provider-key:submit 都直接写 anthropic-key.bin，
+    //     不再写 credentials.bin —— 两文件并存只剩"用户从 wave 4.1-4.3 build 升级"
+    //     这一窄场景（那个 build 的 legacy key:submit 还在写 credentials.bin）
+    //   - 此时 anthropic-key.bin 是 wave 4 启动一次 migration 写的旧值；
+    //     credentials.bin 是 wave 4.1-4.3 build 期间 user submit 的新值
+    //   - 决策：保留 anthropic-key.bin（旧值）+ 删 credentials.bin（新值会丢）。
+    //     这是已知 data-loss window，文档化在 CR consensus (wave 4.4 commit) 里；
+    //     用户 wave 4.4 启动后再 submit 一次 key 就走新路径，不会再触发。
+    //   - 不用 mtime 比较：复杂度 vs 受影响窗口太窄不值；wave 4.4 之后窗口闭合。
     const newPath = keyPath('anthropic')
     try {
       await fs.stat(newPath)
-      // 新文件已存在 → 删除老文件（不覆盖）
       await fs.unlink(legacyPath)
       return
     } catch (err) {

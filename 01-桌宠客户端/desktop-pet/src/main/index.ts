@@ -47,7 +47,10 @@ import {
 import {
   DEFAULT_SELECTED_MODEL,
   PROVIDER_ORDER,
+  isValidProvider,
+  isValidSelectedModel,
   type Provider,
+  type ProviderKeyStates,
   type SelectedModel
 } from '../shared/provider-types'
 import { LlmClient, type StreamHandle } from './llm/llm-client'
@@ -59,13 +62,15 @@ import {
   warmupClassifier,
   type AppIdentity
 } from './llm/activity-classifier'
-// loadApiKey 已不再使用 —— resolveStartupKey 走 currentProviderKeys.get('anthropic')
-// 派生 legacy currentApiKey。clearApiKey / saveApiKey 仍由老 key:submit / key:reset
-// IPC handler 在用（wave 4.4 统一切到 provider key API 后可整体删除）。
-import { clearApiKey, saveApiKey } from './storage/credentials'
+// M7-4 wave 4.4: credentials.ts 的 saveApiKey/clearApiKey 不再使用 —— 老 key:submit /
+// key:reset IPC 改走 saveProviderKey('anthropic', key) / clearProviderKey('anthropic')
+// 直接写新格式 anthropic-key.bin（不再经过 credentials.bin → migration 二跳）。
+// credentials.ts 文件本身 wave 5 cleanup 时再删；现在只是 unused 导出。
 import {
   migrateLegacyCredentials,
-  resolveProviderKey
+  resolveProviderKey,
+  saveProviderKey,
+  clearProviderKey
 } from './storage/provider-keys'
 import { loadPreferences, savePreferences, type Preferences } from './storage/preferences'
 import { migrateLegacyUserData } from './storage/migration'
@@ -286,6 +291,31 @@ function notifyVisionState(): void {
 /** Tavily key 状态：暴露 "有 / 无" 给 renderer，绝不暴露真实 key 值。 */
 function tavilyState(): TavilyState {
   return currentTavilyApiKey ? { kind: 'configured' } : { kind: 'no-key' }
+}
+
+/**
+ * Provider key states：所有 provider 的 boolean map（true=配好；false=未配）。
+ * 暴露给 renderer 渲染 Settings UI 每张 provider 卡片状态灯，**绝不返回明文 key 值**。
+ */
+function providerKeyStatesSnapshot(): ProviderKeyStates {
+  const result = {} as ProviderKeyStates
+  for (const p of PROVIDER_ORDER) {
+    result[p] = currentProviderKeys.get(p) != null
+  }
+  return result
+}
+
+function broadcastProviderKeyStates(): void {
+  const snapshot = providerKeyStatesSnapshot()
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.send('provider-key:states', snapshot)
+  }
+}
+
+function broadcastSelectedModelState(): void {
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.send('selected-model:state', currentSelectedModel)
+  }
 }
 
 function notifyTavilyState(): void {
@@ -736,11 +766,15 @@ async function resetKey(): Promise<void> {
   clearClassifyCache()
   ensurePetVisible()
   notifyKeyState()
+  broadcastProviderKeyStates()
+  // M7-4 wave 4.4: 切到 clearProviderKey('anthropic') 写新格式 anthropic-key.bin。
+  // 老 clearApiKey() 写 credentials.bin，但 credentials.bin 在 wave 4 启动 migration
+  // 已经被搬走，新值都进 anthropic-key.bin 了 —— 这里直接清新文件。
   await queueCredentialOp(async () => {
     try {
-      await clearApiKey()
+      await clearProviderKey('anthropic')
     } catch (err) {
-      console.error('[resetKey] clearApiKey failed:', err)
+      console.error('[resetKey] clearProviderKey failed:', err)
     }
   })
 }
@@ -858,13 +892,16 @@ function registerIpc(): void {
       }
       return
     }
-    // 串行化：避免与任何 in-flight resetKey 的 clearApiKey 撞车
+    // 串行化：避免与任何 in-flight resetKey 的 clearProviderKey 撞车
     let persisted = true
     await queueCredentialOp(async () => {
       try {
-        await saveApiKey(key)
+        // M7-4 wave 4.4: 直接写新格式 anthropic-key.bin（取代旧 saveApiKey 写 credentials.bin），
+        // 避免 migration 在下次启动碰到 credentials.bin + anthropic-key.bin 共存 + 旧 newPath
+        // 赢的 bug（Officer B wave 4.1 observation）。
+        await saveProviderKey('anthropic', key)
       } catch (err) {
-        console.error('[key:submit] saveApiKey failed:', err)
+        console.error('[key:submit] saveProviderKey failed:', err)
         persisted = false
       }
     })
@@ -963,6 +1000,144 @@ function registerIpc(): void {
   ipcMain.on('tavily:request-state', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     win?.webContents.send('tavily:state', tavilyState())
+  })
+
+  // —— M7-4 multi-provider key + selected-model IPC ——
+
+  ipcMain.on(
+    'provider-key:submit',
+    async (event, rawProvider: unknown, rawKey: unknown) => {
+      if (!isValidProvider(rawProvider)) {
+        console.warn('[provider-key:submit] invalid provider, ignored:', rawProvider)
+        return
+      }
+      const key = String(rawKey ?? '').trim()
+      if (!key) {
+        console.warn(`[provider-key:submit] empty key for ${rawProvider}, ignored`)
+        return
+      }
+      let persisted = true
+      await queueCredentialOp(async () => {
+        try {
+          await saveProviderKey(rawProvider, key)
+        } catch (err) {
+          console.error(`[provider-key:submit] saveProviderKey(${rawProvider}) failed:`, err)
+          persisted = false
+        }
+      })
+      if (!persisted) {
+        const win = BrowserWindow.fromWebContents(event.sender)
+        win?.webContents.send('chat:error', { kind: 'key-not-persisted' })
+        return
+      }
+      // anthropic 走 legacy setKeyInMemory（内部同步 map + 重置 llmClient + notifyKeyState）；
+      // 其它 provider 直接 set map + invalidate llmClient（当前选才需要）。
+      // 不重复 set map 的同一 key。
+      if (rawProvider === 'anthropic') {
+        setKeyInMemory(key)
+      } else {
+        currentProviderKeys.set(rawProvider, key)
+        if (rawProvider === currentSelectedModel.provider) {
+          llmClient = null
+        }
+      }
+      broadcastProviderKeyStates()
+    }
+  )
+
+  ipcMain.on('provider-key:reset', async (_event, rawProvider: unknown) => {
+    if (!isValidProvider(rawProvider)) {
+      console.warn('[provider-key:reset] invalid provider, ignored:', rawProvider)
+      return
+    }
+    // anthropic 走 legacy resetKey（内部已含 clearProviderKey + abort stream +
+    // chatHistory clear + classifier cache clear + keyState notify +
+    // broadcastProviderKeyStates）—— await 让 handler 返回后状态已完整 settle，
+    // 不重复跑 clearProviderKey 也不双 broadcast。
+    if (rawProvider === 'anthropic') {
+      await resetKey()
+      return
+    }
+    // 非 anthropic：清盘 + 清内存 + invalidate llmClient（若是当前选的）+ 广播
+    await queueCredentialOp(async () => {
+      try {
+        await clearProviderKey(rawProvider)
+      } catch (err) {
+        console.error(`[provider-key:reset] clearProviderKey(${rawProvider}) failed:`, err)
+      }
+    })
+    currentProviderKeys.set(rawProvider, null)
+    if (rawProvider === currentSelectedModel.provider) {
+      llmClient = null
+    }
+    broadcastProviderKeyStates()
+  })
+
+  ipcMain.on('provider-key:request-states', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    win?.webContents.send('provider-key:states', providerKeyStatesSnapshot())
+  })
+
+  ipcMain.on('selected-model:set', (_event, rawSel: unknown) => {
+    if (!isValidSelectedModel(rawSel)) {
+      console.warn('[selected-model:set] invalid input, ignored:', rawSel)
+      return
+    }
+    if (
+      currentSelectedModel.provider === rawSel.provider &&
+      currentSelectedModel.modelId === rawSel.modelId
+    ) {
+      return // no-op
+    }
+    const isProviderSwitch = currentSelectedModel.provider !== rawSel.provider
+
+    // 切换前清理 in-flight stream + UI bubble + drop trailing user msg
+    if (currentStreamHandle) {
+      if (isWinAlive()) {
+        petWindow!.webContents.send('chat:done', { inputTokens: 0, outputTokens: 0 })
+      }
+      if (chatHistory[chatHistory.length - 1]?.role === 'user') {
+        chatHistory.pop()
+      }
+      if (!stateMachine.transition('idle')) {
+        stateMachine.scheduleReturnToIdle(PET_STATES.thinking.minMs)
+      }
+    }
+    currentStreamHandle?.abort()
+    currentStreamHandle = null
+    chatTurnToken++
+
+    currentSelectedModel = rawSel
+    // Anthropic 时 legacy currentModel 跟 currentSelectedModel.modelId 对齐
+    if (rawSel.provider === 'anthropic' && isValidModelId(rawSel.modelId)) {
+      currentModel = rawSel.modelId
+    }
+
+    // Cross-provider switch：tool_use_id 跨 provider 不兼容 → 自动 new conversation
+    if (isProviderSwitch) {
+      chatHistory.length = 0
+      scheduleChatHistorySave()
+      if (isWinAlive()) {
+        petWindow!.webContents.send('chat:history-cleared')
+      }
+    }
+
+    llmClient = null
+    rebuildTrayMenu()
+    schedulePrefsSave({
+      modelId: currentModel,
+      selectedModel: currentSelectedModel,
+      followFrontApp,
+      useFastPath,
+      visionEnabled: visionEnabledPref,
+      visionConsented: visionConsentedPref
+    })
+    broadcastSelectedModelState()
+  })
+
+  ipcMain.on('selected-model:request-state', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    win?.webContents.send('selected-model:state', currentSelectedModel)
   })
 
   // —— M5 settings panel IPC ——
