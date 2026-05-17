@@ -68,6 +68,13 @@ export function isPetAnimation(s: string): s is PetAnimation {
   return PET_ANIMATIONS.includes(s as PetAnimation)
 }
 
+/**
+ * M8: renderer 跨态 GIF cross-fade 单边时长（跟 App.tsx FADE_HALF_MS 对齐）。
+ * 给 main 端 scheduleReturnToIdle 加 buffer：动画 minMs 之外多留一个 fade 时长，
+ * 否则 fade-in 占用 minMs 起始 ~10% 时段，user 实际看 animation 周期略短。
+ */
+export const RENDERER_FADE_HALF_MS = 280
+
 /** 类型守卫：判断字符串是否合法状态 ID（用于 IPC 入口防御性校验） */
 export function isPetState(s: string): s is PetState {
   return Object.prototype.hasOwnProperty.call(PET_STATES, s)

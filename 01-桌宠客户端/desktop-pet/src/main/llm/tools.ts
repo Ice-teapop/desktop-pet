@@ -116,8 +116,12 @@ export interface ToolContext {
    * M8: AI 调 set_pet_animation tool 时由 main 端执行的回调 —— 把 stateMachine
    * transition 到对应 PetAnimation 状态（juggling/sweeping/conducting/...）+
    * scheduleReturnToIdle 动画播完后回 idle。executor 仅校验 enum + 调 callback。
+   *
+   * 返回 boolean: true=state 真的切了；false=被 minMs 保护或同 state no-op，
+   * executor 据此返回 tool_result is_error=true 让 AI 知道这次调用没生效
+   * （避免 AI 误以为 "ok" 但 user 看不到动画）。
    */
-  setPetAnimation: (name: PetAnimation) => void
+  setPetAnimation: (name: PetAnimation) => boolean
   /**
    * M8: 当前 pet state 名（idle/sleep/thinking/juggling/etc）—— 注入 system
    * prompt 让 AI 知道自己 currently 在干啥（"pet 要知道自己现在是什么状态"）。
@@ -663,7 +667,19 @@ function execSetPetAnimation(input: unknown, ctx: ToolContext): ToolResult {
       error: `animation must be one of: ${PET_ANIMATIONS.join(', ')}`
     }
   }
-  ctx.setPetAnimation(name)
+  // M8 cr-fix: 看 transition 返回值。如果上一次 animation 还在 minMs 保护期内，
+  // setPetAnimation 返 false → AI 看到 is_error 知道这次没生效，可以选择
+  // 等当前动画完再 retry，或者直接放弃。不返 ok 防止 AI 误以为播了实际没播。
+  const ok = ctx.setPetAnimation(name)
+  if (!ok) {
+    return {
+      ok: false,
+      error:
+        `Animation '${name}' was blocked —— 上一个动画还在 minMs 保护期内（` +
+        `2-3.5s），或者当前已经是 ${name}。等一会儿再调，或者跳过这次表演直接` +
+        `回文本响应。`
+    }
+  }
   return { ok: true, content: `Pet started ${name} animation (auto-returns to idle after one cycle).` }
 }
 

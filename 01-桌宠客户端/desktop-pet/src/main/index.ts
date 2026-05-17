@@ -33,7 +33,12 @@
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, screen, shell, Tray } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import { PET_STATES, type PetState, type PetAnimation } from '../shared/pet-state'
+import {
+  PET_STATES,
+  RENDERER_FADE_HALF_MS,
+  type PetState,
+  type PetAnimation
+} from '../shared/pet-state'
 import {
   ACTIVITY_INFO,
   AVAILABLE_MODELS,
@@ -1477,11 +1482,16 @@ function registerIpc(): void {
       // (anthropic_web_search / openai_code_interpreter / google_search 等)
       selectedProvider: currentSelectedModel.provider,
       // M8 set_pet_animation: AI 调 tool → stateMachine.transition 到对应动画
-      // state，scheduleReturnToIdle 让动画播完一个 GIF cycle 自动回 idle
-      setPetAnimation: (name: PetAnimation): void => {
-        if (stateMachine.transition(name)) {
-          stateMachine.scheduleReturnToIdle(PET_STATES[name].minMs)
+      // state，scheduleReturnToIdle 让动画播完一个 GIF cycle 自动回 idle。
+      // minMs + fade buffer：renderer 切 GIF 走 cross-fade 占用 minMs 起始的
+      // 280ms（FADE_HALF_MS），不补上的话动画实际可见周期短一帧。
+      // 返回 boolean 让 executor 知道是否被 minMs 保护吞 → tool_result is_error。
+      setPetAnimation: (name: PetAnimation): boolean => {
+        const transitioned = stateMachine.transition(name)
+        if (transitioned) {
+          stateMachine.scheduleReturnToIdle(PET_STATES[name].minMs + RENDERER_FADE_HALF_MS)
         }
+        return transitioned
       },
       // M8 让 AI 知道自己当前在干什么（"pet 要知道自己现在是什么状态"）
       currentPetState: stateMachine.getState()
