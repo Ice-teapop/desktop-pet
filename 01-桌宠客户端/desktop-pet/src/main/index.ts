@@ -1478,9 +1478,12 @@ function registerIpc(): void {
       currentAppName,
       currentAppBundleId,
       tavilyApiKey: currentTavilyApiKey,
-      // M7-6 wave 6: 让 tool-defs.ts 据此 inject 当前 provider 的 native tool
-      // (anthropic_web_search / openai_code_interpreter / google_search 等)
-      selectedProvider: currentSelectedModel.provider,
+      // M7-6 wave 6 + M8 hotfix: 让 tool-defs.ts 据此 inject 当前 model 的
+      // native tool。改传 full SelectedModel（不只 provider）让 specialized-tools
+      // 据 modelId gate —— Haiku 4.5 不在 anthropic codeExecution_20260120 +
+      // webSearch_20260209 supported model list 里，装上会让 API 拒绝整个请求
+      // → 0 step → "No output generated" SDK 错（M8 实测）。
+      selectedModel: currentSelectedModel,
       // M8 set_pet_animation: AI 调 tool → stateMachine.transition 到对应动画
       // state，scheduleReturnToIdle 让动画播完一个 GIF cycle 自动回 idle。
       // minMs + fade buffer：renderer 切 GIF 走 cross-fade 占用 minMs 起始的

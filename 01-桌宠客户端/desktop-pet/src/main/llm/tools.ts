@@ -19,7 +19,7 @@ import { promisify } from 'util'
 import { lookup } from 'dns/promises'
 import { isIP } from 'net'
 import type { ActivityState } from '../../shared/chat-types'
-import type { Provider } from '../../shared/provider-types'
+import type { SelectedModel } from '../../shared/provider-types'
 import {
   PET_ANIMATIONS,
   isPetAnimation,
@@ -106,12 +106,15 @@ export interface ToolContext {
   /** Tavily Search API key —— null = web_search tool 未启用 */
   tavilyApiKey: string | null
   /**
-   * M7-6: 当前选定 provider —— `specialized-tools.ts` 据此决定 inject 哪些
-   * provider 原生 server-side tool（anthropic_web_search / openai_code_interpreter /
-   * google_search / xai_live_search 等）。chat:submit handler 从 currentSelectedModel
-   * .provider 取值传入。
+   * M7-6 + M8 hotfix: 当前选定 model（含 provider + modelId）—— `specialized-tools.ts`
+   * 据此决定 inject 哪些 provider 原生 server-side tool。
+   *
+   * 改成 full SelectedModel（不再只是 Provider）的原因：某些 native server tool
+   * 只支持特定 model（e.g. Anthropic codeExecution_20260120 + webSearch_20260209
+   * 都不支持 Haiku 4.5 —— 装上 Haiku 会让 API 直接拒绝 0 step 报"No output
+   * generated"）。modelId 必须可见才能 gate。
    */
-  selectedProvider: Provider
+  selectedModel: SelectedModel
   /**
    * M8: AI 调 set_pet_animation tool 时由 main 端执行的回调 —— 把 stateMachine
    * transition 到对应 PetAnimation 状态（juggling/sweeping/conducting/...）+

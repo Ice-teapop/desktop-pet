@@ -318,8 +318,8 @@ export function buildToolSetForContext(ctx: ToolContext): ToolSet {
     )
   }
 
-  // M7-6 wave 6: merge 当前 provider 的 specialized server-side tool。
-  // AI 自己挑哪个最合适（譬如 Anthropic 模型用 anthropic_web_search 不走 Tavily；
-  // OpenAI 模型用 openai_code_interpreter 不走 run_command 本地跑）。
-  return { ...tools, ...buildSpecializedToolsForProvider(ctx.selectedProvider) }
+  // M7-6 wave 6 + M8 hotfix: merge 当前 model 的 specialized server-side tool。
+  // 传 full SelectedModel 让 specialized-tools 据 modelId gate（Haiku 跳过
+  // Anthropic native tool 避免 API reject）。
+  return { ...tools, ...buildSpecializedToolsForProvider(ctx.selectedModel) }
 }

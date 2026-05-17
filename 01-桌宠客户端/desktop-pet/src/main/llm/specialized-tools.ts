@@ -32,7 +32,7 @@ import { google } from '@ai-sdk/google'
 import { openai } from '@ai-sdk/openai'
 import { xaiTools } from '@ai-sdk/xai'
 import type { ToolSet } from 'ai'
-import type { Provider } from '../../shared/provider-types'
+import type { SelectedModel } from '../../shared/provider-types'
 
 /**
  * 给定 provider，返回该 provider 的 specialized server-side tool 集（dynamic
@@ -41,16 +41,20 @@ import type { Provider } from '../../shared/provider-types'
  *
  * Tool 选型原则：每家选 1-2 个 high-value 不重复的能力。完整暴露面见文件头注释。
  */
-export function buildSpecializedToolsForProvider(provider: Provider): ToolSet {
-  switch (provider) {
-    case 'anthropic':
-      return {
-        // 原生联网（比走 Tavily 经 fetch_url 更直接 + Claude trained on 这个 tool 格式）
-        // maxUses 防一轮调用爆 token
-        anthropic_web_search: anthropic.tools.webSearch_20260209({ maxUses: 5 }),
-        // Anthropic 沙箱跑 Python，不在 user 本机跑 —— 跟 run_command 隔离更安全
-        anthropic_code_execution: anthropic.tools.codeExecution_20260120({})
+export function buildSpecializedToolsForProvider(selected: SelectedModel): ToolSet {
+  switch (selected.provider) {
+    case 'anthropic': {
+      // ⚠️ Haiku 4.5 不在 codeExecution_20260120 / webSearch_20260209 的
+      // "Supported models" 列表里（仅 Opus 4.5+ / Sonnet 4.5+）。装上会让
+      // Anthropic API 拒整个请求 → 0 step → AI SDK 'No output generated'
+      // 报错（M8 hotfix 实测的 bug）。Haiku 走 18 本地 tool + Tavily 已够用。
+      const tools: ToolSet = {}
+      if (!selected.modelId.includes('haiku')) {
+        tools.anthropic_web_search = anthropic.tools.webSearch_20260209({ maxUses: 5 })
+        tools.anthropic_code_execution = anthropic.tools.codeExecution_20260120({})
       }
+      return tools
+    }
     case 'openai':
       return {
         // GPT-4o 原生 web search（webSearchPreview = stable interface）
@@ -83,7 +87,7 @@ export function buildSpecializedToolsForProvider(provider: Provider): ToolSet {
       return {}
     default: {
       // exhaustive check —— 加 provider 时 TS 强制这里加分支
-      const exhaustive: never = provider
+      const exhaustive: never = selected.provider
       throw new Error(`unhandled provider: ${String(exhaustive)}`)
     }
   }
