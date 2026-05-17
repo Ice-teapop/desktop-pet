@@ -142,8 +142,14 @@ class PetStateMachine {
   private current: PetState = 'idle'
   private enteredAt = Date.now()
   private timer: NodeJS.Timeout | null = null
+  private sleepTimer: NodeJS.Timeout | null = null
 
-  constructor(private notify: (state: PetState) => void) {}
+  constructor(private notify: (state: PetState) => void) {
+    // M8 fix (Officer A cold-start ⚠️): seed current='idle' 不走 transition()，
+    // 不会自动 armSleepTimer。冷启动后若 user 不发 chat 也不动 pet，永远停在 idle
+    // 不进 sleep —— 违反 "60s idle → sleep" 语义。constructor 显式 arm 一次。
+    this.armSleepTimer()
+  }
 
   getState(): PetState {
     return this.current
@@ -215,8 +221,6 @@ class PetStateMachine {
       this.timer = null
     }, holdMs)
   }
-
-  private sleepTimer: NodeJS.Timeout | null = null
 }
 
 /** M8: idle 多久后自动 sleep。60s 跟 clawd-on-desk 一致 */
