@@ -1016,6 +1016,12 @@ function registerIpc(): void {
     }
   })
 
+  // M9-3 fix: 单击 / pointerdown 时立即 wake from sleep chain（cursorWatcher 已删
+  // 后没 hover-wake 路径，user 直接点 sleeping pet 之前没反应）
+  ipcMain.on('pet:wake', () => {
+    stateMachine.wakeFromSleep()
+  })
+
   ipcMain.on('window:move-delta', (event, dx: number, dy: number) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return

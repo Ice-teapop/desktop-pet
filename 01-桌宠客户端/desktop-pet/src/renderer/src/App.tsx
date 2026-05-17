@@ -411,6 +411,11 @@ function App(): React.JSX.Element {
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>): void => {
     if (e.button !== 0) return
     e.currentTarget.setPointerCapture(e.pointerId)
+    // M9-3 fix: 任何 pointerdown 立即 wake from sleep（main 端 wakeFromSleep
+    // no-op when not in sleep chain，cheap 安全）。原本只有 drag/chat 唤醒，
+    // 单击 pet 时 click burst 延后 250ms 才 toggle chat，期间 pet 还显示 sleeping
+    // 让 user 困惑"点了没反应"。
+    window.api.petWake()
     dragRef.current = {
       pointerId: e.pointerId,
       startX: e.screenX,

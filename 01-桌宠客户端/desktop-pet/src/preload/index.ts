@@ -77,6 +77,13 @@ const api = {
     ipcRenderer.send('pet:startled')
   },
   /**
+   * M9-3 fix: pointerdown 时主动 wake from sleep。原本 wake 只走 drag move-delta /
+   * hover (cursorWatcher 已删) / chat:submit 自动 priority，单击没 wake 入口。
+   */
+  petWake(): void {
+    ipcRenderer.send('pet:wake')
+  },
+  /**
    * 订阅主进程通知"窗口扩展完成"事件 —— 用于渲染层等窗口动画完才 fade-in 对话 UI，
    * 避免 conversation 在 260px 窗口内右侧被裁的半渲染期。返回取消订阅函数。
    */
