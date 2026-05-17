@@ -18,6 +18,7 @@
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "start": "electron-vite preview",
+    "predev": "pkill -f 'electron-vite dev' 2>/dev/null; pkill -f 'Electron.*desktop-pet' 2>/dev/null; sleep 0.3; exit 0",
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
     "postinstall": "electron-builder install-app-deps",

@@ -26,6 +26,9 @@ import {
   RUN_COMMAND,
   OPEN_SYSTEM_SETTINGS,
   WRITE_FILE,
+  WRITE_DOCX,
+  WRITE_XLSX,
+  WRITE_PDF,
   CREATE_DIRECTORY,
   FIND_FILES,
   DELETE_FILE,
@@ -195,6 +198,65 @@ export function buildToolSetForContext(ctx: ToolContext): ToolSet {
       z.object({
         path: z.string().describe('Absolute or ~/-relative path'),
         content: z.string().describe('Full UTF-8 text content to write. Max 1MB.')
+      }),
+      ctx
+    ),
+    write_docx: wrapTool(
+      'write_docx',
+      WRITE_DOCX.description,
+      z.object({
+        path: z.string().describe('Absolute or ~/-relative path ending in .docx'),
+        title: z.string().optional().describe('Document title (rendered as H1 at top)'),
+        sections: z
+          .array(
+            z.object({
+              heading: z.string().optional().describe('Section heading text'),
+              level: z
+                .union([z.literal(1), z.literal(2), z.literal(3)])
+                .optional()
+                .describe('Heading level 1/2/3 (default 2)'),
+              paragraphs: z
+                .array(z.string())
+                .describe('Body paragraphs under this section')
+            })
+          )
+          .describe('Ordered sections. Empty array allowed if only title needed.')
+      }),
+      ctx
+    ),
+    write_xlsx: wrapTool(
+      'write_xlsx',
+      WRITE_XLSX.description,
+      z.object({
+        path: z.string().describe('Absolute or ~/-relative path ending in .xlsx'),
+        sheets: z
+          .array(
+            z.object({
+              name: z.string().describe('Sheet tab name'),
+              headers: z
+                .array(z.string())
+                .optional()
+                .describe('Optional header row (rendered bold)'),
+              rows: z
+                .array(z.array(z.union([z.string(), z.number()])))
+                .describe('2D array — each inner array is a row of cells (string or number)')
+            })
+          )
+          .describe('At least one sheet required.')
+      }),
+      ctx
+    ),
+    write_pdf: wrapTool(
+      'write_pdf',
+      WRITE_PDF.description,
+      z.object({
+        path: z.string().describe('Absolute or ~/-relative path ending in .pdf'),
+        title: z.string().optional().describe('Document title at top'),
+        paragraphs: z.array(z.string()).describe('Body paragraphs in order'),
+        fontSize: z
+          .number()
+          .optional()
+          .describe('Body font size in pt (6-72, default 12)')
       }),
       ctx
     ),
