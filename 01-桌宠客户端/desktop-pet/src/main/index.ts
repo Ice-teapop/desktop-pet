@@ -1994,7 +1994,15 @@ function registerIpc(): void {
           // 否则下次 messages 起头是 assistant，Anthropic 返回 400 invalid_messages
           if (myToken !== chatTurnToken) return
           currentStreamHandle = null
-          chatHistory.push({ role: 'assistant', content: aiText })
+          // **关键修**: AI 上一轮 0 chunk 时 aiText==='', 不能 push 空 content 进历史
+          // 否则下次 streamText 把空 text content block 发给 Anthropic → 整 request 400
+          // "messages: text content blocks must be non-empty". 0 chunk 多见于 tool-only
+          // 一轮 (assistant 只调 tool 没 text) 或 empty-response (finishReason 异常)。
+          if (aiText.length > 0) {
+            chatHistory.push({ role: 'assistant', content: aiText })
+          } else {
+            console.warn('[chat] skipping empty assistant message (0 text chunk)')
+          }
           trimChatHistory()
           // M5-2：debounce 持久化对话历史
           scheduleChatHistorySave()
@@ -2189,7 +2197,18 @@ app.whenReady().then(async () => {
   // M5-2：load 对话历史 + 长期记忆 —— 让桌宠重启后记得上次会话
   const persistedHistory = await loadChatHistory()
   if (persistedHistory.length > 0) {
-    chatHistory.push(...persistedHistory)
+    // 兜底过滤空 content message (老版本 bug 留下的污染数据). Anthropic 严格拒空 text
+    // content block, 重启后第一个 request 会 400 "messages: text content blocks must
+    // be non-empty". 过滤掉空的让用户脱离卡死状态.
+    const sanitized = persistedHistory.filter(
+      (m) => typeof m.content === 'string' && m.content.length > 0
+    )
+    if (sanitized.length !== persistedHistory.length) {
+      console.warn(
+        `[startup] filtered ${persistedHistory.length - sanitized.length} empty-content messages from chat history`
+      )
+    }
+    chatHistory.push(...sanitized)
     trimChatHistory()
     console.log(`[startup] restored ${chatHistory.length} chat messages`)
   }

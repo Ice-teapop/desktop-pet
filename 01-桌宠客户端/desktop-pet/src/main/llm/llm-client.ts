@@ -265,10 +265,14 @@ export class LlmClient {
     let aborted = false
 
     void (async () => {
-      const modelMessages: ModelMessage[] = messages.map((m) => ({
-        role: m.role,
-        content: m.content
-      }))
+      // **关键防御**: filter 掉空 content message 避免 Anthropic 400 "text content
+      // blocks must be non-empty". 即便上游 chatHistory 漏了空 push, 这里兜底.
+      const modelMessages: ModelMessage[] = messages
+        .filter((m) => typeof m.content === 'string' && m.content.length > 0)
+        .map((m) => ({
+          role: m.role,
+          content: m.content
+        }))
 
       // 动态拼 system prompt —— 每次 stream 都重新拼：user profile / memory 可能在
       // 上一轮 tool 调用里被更新（save_user_profile / remember）。
