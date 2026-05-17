@@ -34,8 +34,8 @@ export const MINI_VISIBLE_PX = 32
 export const MINI_SNAP_THRESHOLD_PX = 60
 
 // —— M9-5b B-4 Hover peek ——
-/** mini panel 露出更多以便预览：peek 状态露 64px（vs retract 24px） */
-export const MINI_PEEK_VISIBLE_PX = 64
+/** mini panel 露出更多以便预览：peek 状态露 80px（vs retract 32px / micro 64px） */
+export const MINI_PEEK_VISIBLE_PX = 80
 /** Hysteresis 进入 peek：cursor 到 mini 中心距离 < 这个值 → 触发 peek */
 export const MINI_PEEK_ENTER_DIST = 80
 /** Hysteresis 撤离 peek：cursor 到 mini 中心距离 > 这个值 → 收回 retract
@@ -49,12 +49,12 @@ export const MINI_PEEK_SNAP_PX = 1
 export const MINI_PEEK_POLL_MS = 33
 
 // —— M9-5b B-5c 周期性 micro-peek（mini panel 自己周期性探头, 即使用户不靠近也有"活着"信号）——
-/** micro-peek 露出量 —— 介于默认 32 跟 hover-peek 64 之间，每个有 16px 区分度 */
-export const MINI_MICRO_PEEK_VISIBLE_PX = 48
-/** micro-peek 周期 —— 平均每 12 秒来一次 */
-export const MINI_MICRO_PEEK_PERIOD_MS = 12000
-/** ± jitter, 防机械感 → 实际间隔 9-15 秒随机 */
-export const MINI_MICRO_PEEK_JITTER_MS = 3000
+/** micro-peek 露出量 —— 介于默认 32 跟 hover-peek 80 之间，各 16px 区分度 */
+export const MINI_MICRO_PEEK_VISIBLE_PX = 64
+/** micro-peek 周期 —— 平均每 4 秒来一次 (用户调) */
+export const MINI_MICRO_PEEK_PERIOD_MS = 4000
+/** ± jitter, 防机械感 → 实际间隔 3-5 秒随机 */
+export const MINI_MICRO_PEEK_JITTER_MS = 1000
 /** 到达 micro-peek 位置后 hold 多久才开始收回 */
 export const MINI_MICRO_PEEK_HOLD_MS = 600
 /** micro-peek 期间用的较慢 lerp（vs hover-peek 0.3）—— 0.07 给"探头犹豫"手感
