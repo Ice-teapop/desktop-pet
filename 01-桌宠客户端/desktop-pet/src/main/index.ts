@@ -30,7 +30,17 @@
  * 沿用 M1-8 的窗口策略：智能扩展方向 + 开/关屏两阶段过渡 + NSPanel + screen-saver level
  *  + reapplyMacVisibility watchdog。
  */
-import { app, BrowserWindow, ipcMain, Menu, nativeImage, screen, shell, Tray } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  Menu,
+  nativeImage,
+  powerMonitor,
+  screen,
+  shell,
+  Tray
+} from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import {
@@ -2078,6 +2088,65 @@ function watchScreenEvents(): void {
   screen.on('display-removed', trigger)
 }
 
+/**
+ * 用户报: "长时间不使用而是留在桌面上就会消失".
+ *
+ * 原因: macOS 在屏幕休眠 / 锁屏 / App Nap 之后, 即便 visibilityWatchdog 1s reapply,
+ * 系统会暂停 setInterval (App Nap) → 唤醒后 BrowserWindow 失去 alwaysOnTop /
+ * setVisibleOnAllWorkspaces 设置 + 偶发被 hidden. 监听 powerMonitor 主动 reapply.
+ *
+ * 也防 display 配置变化 (拔外接屏 / 切 Space) 让 pet bounds 落在没有的 display 上 →
+ * 看不见但实际 alive. 检查 bounds 中心点是否在任一 display.workArea 内, 不在则
+ * setBounds 回默认位置 (computeModeBounds(petMode, ...)).
+ */
+function ensurePetVisibleAfterWake(): void {
+  if (!petWindow || petWindow.isDestroyed()) return
+  reapplyMacVisibility(petWindow)
+  if (!petWindow.isVisible()) {
+    petWindow.show()
+  }
+  const bounds = petWindow.getBounds()
+  const centerX = bounds.x + bounds.width / 2
+  const centerY = bounds.y + bounds.height / 2
+  const inAnyDisplay = screen.getAllDisplays().some((d) => {
+    const wa = d.workArea
+    return (
+      centerX >= wa.x &&
+      centerX < wa.x + wa.width &&
+      centerY >= wa.y &&
+      centerY < wa.y + wa.height
+    )
+  })
+  if (!inAnyDisplay) {
+    console.warn(
+      `[wake] pet bounds (${bounds.x}, ${bounds.y}) 不在任何 display workArea 内, reset 到默认`
+    )
+    petWindow.setBounds(computeModeBounds(petMode, bounds))
+  }
+}
+
+function watchPowerEvents(): void {
+  // 系统从 sleep 唤醒 (合盖 / 离开充电 / display sleep)
+  powerMonitor.on('resume', () => {
+    console.log('[powerMonitor] resume → ensurePetVisible')
+    setTimeout(ensurePetVisibleAfterWake, 200) // 给 macOS 一点时间 restore display config
+  })
+  // 锁屏后解锁
+  powerMonitor.on('unlock-screen', () => {
+    console.log('[powerMonitor] unlock-screen → ensurePetVisible')
+    setTimeout(ensurePetVisibleAfterWake, 200)
+  })
+  // 屏幕从 off 转 on (单独 display 休眠不锁屏)
+  powerMonitor.on('on-ac', () => reapplyMacVisibility(petWindow))
+  powerMonitor.on('on-battery', () => reapplyMacVisibility(petWindow))
+  // App 从其它 app 切回前台 (用户 Cmd-Tab 回来)
+  app.on('did-become-active', () => {
+    if (petWindow && !petWindow.isDestroyed()) {
+      reapplyMacVisibility(petWindow)
+    }
+  })
+}
+
 // M9-5b-fix2: single-instance lock with **dev-friendly 反转语义** ——
 //
 // Prod 模式: 经典 "老人赢" —— 拿不到锁的新 process 立刻 quit, 老 process 在
@@ -2248,6 +2317,7 @@ app.whenReady().then(async () => {
   setApprovalPetWindow(petWindow)
   createTray()
   watchScreenEvents()
+  watchPowerEvents()
 
   // M9-4: 启动时评估 cursor poll —— state=idle + activity 默认 idle → 会启动
   updateCursorPoll()
