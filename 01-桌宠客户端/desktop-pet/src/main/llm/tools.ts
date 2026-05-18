@@ -18,6 +18,7 @@ import { promises as fs } from 'fs'
 import { promisify } from 'util'
 import { lookup } from 'dns/promises'
 import { isIP } from 'net'
+import { fetch as undiciFetch, Agent } from 'undici'
 import { Document, HeadingLevel, Packer, Paragraph, TextRun } from 'docx'
 import ExcelJS from 'exceljs'
 import PDFDocument from 'pdfkit'
@@ -2326,6 +2327,14 @@ interface TavilyResponse {
 
 const WEATHER_TIMEOUT_MS = 10_000
 
+// 强制 IPv4 dialing. Node undici 默认 IPv6-first (Happy Eyeballs), macOS 偶发场景
+// 下 IPv6 dial 失败 + IPv4 fallback 时序长 → AggregateError ETIMEDOUT. open-meteo.com
+// IPv4 实测在 macOS curl 下 1.3s 通; fetch 用 IPv4-only agent 绕开 Happy Eyeballs 坑.
+// 仅给 weather call 用 (其它 fetch 走默认 dispatcher 不影响).
+const weatherIpv4Agent = new Agent({
+  connect: { family: 4, timeout: WEATHER_TIMEOUT_MS }
+})
+
 // WMO weather code → 中文描述. 参 https://open-meteo.com/en/docs#weather_variable_documentation
 function wmoCodeToCn(code: number): string {
   const map: Record<number, string> = {
@@ -2411,7 +2420,10 @@ async function execGetWeather(input: unknown): Promise<ToolResult> {
       `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(location)}` +
       `&count=1&language=zh&format=json`
     console.log(`[get_weather] GET ${geoUrl}`)
-    const geoResp = await fetch(geoUrl, { signal: AbortSignal.timeout(WEATHER_TIMEOUT_MS) })
+    const geoResp = await undiciFetch(geoUrl, {
+      signal: AbortSignal.timeout(WEATHER_TIMEOUT_MS),
+      dispatcher: weatherIpv4Agent
+    })
     if (!geoResp.ok) {
       console.warn(`[get_weather] geocoding HTTP ${geoResp.status}`)
       return { ok: false, error: `geocoding HTTP ${geoResp.status}: 服务暂不可用，告知用户稍后再试` }
@@ -2431,8 +2443,9 @@ async function execGetWeather(input: unknown): Promise<ToolResult> {
       `https://api.open-meteo.com/v1/forecast?latitude=${place.latitude}&longitude=${place.longitude}` +
       `&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code,is_day` +
       `&hourly=temperature_2m,weather_code&forecast_days=2&timezone=auto`
-    const fcastResp = await fetch(fcastUrl, {
-      signal: AbortSignal.timeout(WEATHER_TIMEOUT_MS)
+    const fcastResp = await undiciFetch(fcastUrl, {
+      signal: AbortSignal.timeout(WEATHER_TIMEOUT_MS),
+      dispatcher: weatherIpv4Agent
     })
     if (!fcastResp.ok) {
       console.warn(`[get_weather] forecast HTTP ${fcastResp.status}`)
