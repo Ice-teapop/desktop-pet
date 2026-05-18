@@ -2041,7 +2041,9 @@ function registerIpc(): void {
               return
             }
             const canFallback =
-              (err.kind === 'overloaded' || err.kind === 'rate-limited') &&
+              (err.kind === 'overloaded' ||
+                err.kind === 'rate-limited' ||
+                err.kind === 'empty-response') &&
               !gotChunk &&
               attemptIdx + 1 < fallbackChain.length
             if (canFallback) {

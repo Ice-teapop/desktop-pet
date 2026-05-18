@@ -408,12 +408,27 @@ export class LlmClient {
         })
       } catch (err) {
         if (aborted || abortController.signal.aborted) return
-        // Debug: dump err 顶级 keys + sample 让 classifyError 失败可追
-        const errKeys = err && typeof err === 'object' ? Object.keys(err) : []
-        const errAny = err as { name?: string; message?: string; statusCode?: number; responseBody?: unknown; lastError?: { statusCode?: number; responseBody?: unknown } }
-        console.log(
-          `[llm-client] raw err keys=[${errKeys.join(',')}] name=${errAny?.name} statusCode=${errAny?.statusCode} lastError.statusCode=${errAny?.lastError?.statusCode} responseBody=${String(errAny?.responseBody ?? '').slice(0, 100)} lastError.body=${String(errAny?.lastError?.responseBody ?? '').slice(0, 100)}`
-        )
+        // Debug: walk 错误链 dump 全部层 让 classifyError 失败可追
+        let cur: unknown = err
+        const visited = new Set<unknown>()
+        for (let i = 0; i < 5 && cur && !visited.has(cur); i++) {
+          visited.add(cur)
+          const o = cur as {
+            name?: string
+            message?: string
+            statusCode?: number
+            responseBody?: unknown
+            cause?: unknown
+            lastError?: unknown
+          }
+          const keys = typeof o === 'object' ? Object.keys(o) : []
+          console.log(
+            `[llm-client] L${i}: name=${o?.name} keys=[${keys.join(',')}] statusCode=${o?.statusCode} msg=${String(o?.message ?? '').slice(0, 80)} body=${String(o?.responseBody ?? '').slice(0, 80)}`
+          )
+          if (typeof o === 'object') {
+            cur = o.cause ?? o.lastError
+          } else break
+        }
         handler.onError(classifyError(err))
       }
     })()
@@ -474,6 +489,19 @@ function classifyError(err: unknown): ChatError {
     }
     if (status === 503 || status === 529) return { kind: 'overloaded' }
     return { kind: 'api', message: err.message }
+  }
+
+  // **AI SDK NoOutputGeneratedError**: SDK 把 server 错误 (529 / 网络中断 / 等) wrap
+  // 成 generic "No output generated" 错误, **cause 字段是 undefined 不可追**.
+  // 真 APICallError 只在 SDK 内部 console 打印, 我们 catch 到时已 lost. 实测 dev log:
+  //   L0: name=AI_NoOutputGeneratedError keys=[name,cause] statusCode=undefined
+  //       msg="No output generated. Check the stream for errors."
+  // 同时 stdout 单独有 APICallError [AI_APICallError]: Overloaded 但**不在 err 对象上**.
+  // 策略: 归类 'empty-response' (我们已有 kind), fallback chain 同样接受这种.
+  for (const c of chain) {
+    if (c?.name === 'AI_NoOutputGeneratedError') {
+      return { kind: 'empty-response', finishReason: 'no-output-generated' }
+    }
   }
 
   // 链中任一层有 statusCode → 归类
