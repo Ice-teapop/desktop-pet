@@ -208,6 +208,45 @@ export interface StreamHandle {
   abort(): void
 }
 
+/**
+ * 时间观念注入: 每次 stream 前 dynamic build, 让 AI 直接答 "现在几点"/"今天周几",
+ * 或在回答里带时段感 ("这么晚了还在写代码 ~", "周末了别 burn out"). 不开 tool 是
+ * 因为时间在 streamText 每次调用前注入就够; 真要精确运算让 user 自报时间。
+ */
+function renderCurrentTimeSection(): string {
+  const now = new Date()
+  const tz =
+    Intl.DateTimeFormat().resolvedOptions().timeZone || 'unknown'
+  const weekdays = ['日', '一', '二', '三', '四', '五', '六']
+  const dateStr = `${now.getFullYear()} 年 ${now.getMonth() + 1} 月 ${now.getDate()} 日`
+  const weekday = `周${weekdays[now.getDay()]}`
+  const hh = now.getHours()
+  const mm = now.getMinutes().toString().padStart(2, '0')
+  const timeStr = `${hh}:${mm}`
+  // 时段语义 — 给 AI 用作 contextual reaction
+  let period: string
+  if (hh >= 0 && hh < 5) period = '深夜（理论上该睡了，不要主动催；除非用户说困再温和提一句）'
+  else if (hh < 8) period = '早晨'
+  else if (hh < 12) period = '上午'
+  else if (hh < 13) period = '中午（吃饭时段）'
+  else if (hh < 17) period = '下午'
+  else if (hh < 19) period = '傍晚'
+  else if (hh < 23) period = '晚上'
+  else period = '深夜'
+  const isWeekend = now.getDay() === 0 || now.getDay() === 6
+  return (
+    `\n\n# 当前时间（用户机器本地）\n\n` +
+    `- 日期: ${dateStr}, ${weekday}\n` +
+    `- 时间: ${timeStr}\n` +
+    `- 时段: ${period}\n` +
+    `- 时区: ${tz}\n` +
+    `- 周末: ${isWeekend ? '是' : '否（工作日）'}\n\n` +
+    `用户问 "现在几点"/"今天周几"/"今年几月" 这类直接用上面数据答, 不要调任何 tool. ` +
+    `也可以用时段感自然融入回答（比如深夜温和点 / 中午别打扰吃饭 / 周末别催工作）, ` +
+    `但别每条都强行提时间, 避免烦人。`
+  )
+}
+
 function renderUserProfileSection(profile: UserProfile): string {
   if (!profile.setupCompleted) {
     return `\n\n# 首次对话 setup mode
@@ -276,7 +315,9 @@ export class LlmClient {
 
       // 动态拼 system prompt —— 每次 stream 都重新拼：user profile / memory 可能在
       // 上一轮 tool 调用里被更新（save_user_profile / remember）。
-      let systemWithMemory = SYSTEM_PROMPT
+      // **当前时间**也每次 fresh 注入（用户跨多 turn 时间在变, system prompt cache 会
+      // miss 但 time-awareness 比 cache hit 重要 1 个量级）.
+      let systemWithMemory = SYSTEM_PROMPT + renderCurrentTimeSection()
       if (options.userProfile) {
         systemWithMemory += renderUserProfileSection(options.userProfile)
       }
