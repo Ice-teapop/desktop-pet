@@ -203,6 +203,10 @@ function App(): React.JSX.Element {
   // v0.4.0 S3.3 [B] 第 3 颗 pill — companion mode (跟着我做事). 暂仅 renderer state,
   // prefs IPC 拆 S3.3-impl 后续接入. 提前到 useEffect 作用域之前避免 TDZ.
   const [petCompanionEnabled, setPetCompanionEnabled] = useState(false)
+  // v0.4.0 S6.2 [D] DnD overlay: 用户拖文件到 pet 上方时显示 .pet-drop 大字
+  // S6.3-S6.5 (主进程读文件 + agentic 处理) 后续拆出, 现在仅 renderer overlay
+  const [dragOver, setDragOver] = useState(false)
+  const dragDepthRef = useRef(0) // dragenter/leave 配对计数 (子元素冒泡防抖)
   // M9-5a: 顶层 petMode（full 完整 240×240 vs mini 80×80 藏边）
   const [petMode, setPetMode] = useState<PetMode>(DEFAULT_PET_MODE)
   // idle 6 变体池索引（仅 stateMachine=idle + activity=idle 时玩）
@@ -1313,6 +1317,33 @@ function App(): React.JSX.Element {
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
+        onDragEnter={(e) => {
+          e.preventDefault()
+          dragDepthRef.current += 1
+          if (dragDepthRef.current === 1) setDragOver(true)
+        }}
+        onDragOver={(e) => {
+          // 必须 preventDefault 才能让 onDrop 触发
+          e.preventDefault()
+          e.dataTransfer.dropEffect = 'copy'
+        }}
+        onDragLeave={() => {
+          dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
+          if (dragDepthRef.current === 0) setDragOver(false)
+        }}
+        onDrop={(e) => {
+          e.preventDefault()
+          dragDepthRef.current = 0
+          setDragOver(false)
+          // S6.3 IPC: 收集 path 推 main. file.path 在 Electron renderer 直接可读 (webSecurity).
+          const paths = Array.from(e.dataTransfer.files)
+            .map((f) => (f as File & { path?: string }).path)
+            .filter((p): p is string => typeof p === 'string' && p.length > 0)
+          if (paths.length > 0) {
+            // 占位 — S6.3-impl 后通过 window.api.dropFiles(paths) 推 main
+            console.log('[v0.4.0 S6.2] drop files (S6.3 IPC pending):', paths)
+          }
+        }}
       >
         {/* v0.4.0 S4.2 [A] pet-busy-ring — AI 调 tool 时 pet 周围珊瑚虚线闪烁,
             消息流中 m.tool.status==='running' 至少 1 个就显示. Mini 模式也显示 —
@@ -1328,6 +1359,14 @@ function App(): React.JSX.Element {
         {/* v0.4.0 S4.4 [B] pet-emote-hint — activity 切换时 4s 表情气泡.
             companion mode (🎭 pill) 开启时才显示, 否则被 useEffect gate 拦住. */}
         {emoteHint && <div className="pet-emote-hint">{emoteHint}</div>}
+        {/* v0.4.0 S6.2 [D] pet-drop overlay — 用户拖文件到 pet 时弹大字提示
+            "松手喂我". 实际文件处理 S6.3-S6.5 后续接入. */}
+        {dragOver && (
+          <div className="pet-drop">
+            <div className="pet-drop-big">📂</div>
+            <div className="pet-drop-hint">松手喂我</div>
+          </div>
+        )}
         {/* M9-5a Mini mode：单 img 渲染 mini-idle.gif。Sub-wave B 加 hover peek / mini
             state→gif 映射。Mini 模式下完全独立于下方 IdleFollow + dual-img 体系。 */}
         {petMode === 'mini' && (
