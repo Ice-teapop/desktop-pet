@@ -528,6 +528,39 @@ export const DELETE_FILE: ToolDef = {
   }
 }
 
+export const MOVE_FILE: ToolDef = {
+  name: 'move_file',
+  description:
+    'Move / rename a file or directory atomically. Use for organizing user files: ' +
+    'sort Downloads by extension, batch rename, archive old files into dated folders, ' +
+    'move screenshots into project subfolders, etc. ' +
+    'Always shows a confirmation modal for both src AND dest (跟 delete_file 同安全级). ' +
+    'Safety: blacklist (~/.ssh / .aws / .env / Keychain etc) rejected; src + dest both ' +
+    'go through path safety. Atomic fs.rename within same filesystem; falls back to ' +
+    'copy + unlink across filesystems. Preserves binary content (跟 write_file 不同, ' +
+    "write_file UTF-8 写文本会破坏二进制). Use 'overwrite: true' only when user " +
+    'explicitly confirms replacing existing dest.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      src: { type: 'string', description: 'Source path (absolute or ~/-relative)' },
+      dest: {
+        type: 'string',
+        description:
+          'Destination path. Can be a different filename (rename) or different ' +
+          'directory (move). If a directory path ending in /, src filename is preserved.'
+      },
+      overwrite: {
+        type: 'string',
+        description:
+          'Optional "true" to allow overwriting existing dest. Default no-overwrite ' +
+          '(fail if dest exists). Set true only when user explicitly OKs replacement.'
+      }
+    },
+    required: ['src', 'dest']
+  }
+}
+
 export const SET_PET_ANIMATION: ToolDef = {
   name: 'set_pet_animation',
   description:
@@ -732,6 +765,7 @@ const CORE_TOOLS = [
   CREATE_DIRECTORY,
   FIND_FILES,
   DELETE_FILE,
+  MOVE_FILE,
   RUN_COMMAND,
   OPEN_SYSTEM_SETTINGS,
   READ_SYSTEM_PREFERENCE,
@@ -799,6 +833,8 @@ export async function executeTool(
       return await execFindFiles(input)
     case 'delete_file':
       return await execDeleteFile(input)
+    case 'move_file':
+      return await execMoveFile(input)
     case 'run_command':
       return await execRunCommand(input)
     case 'open_system_settings':
@@ -1714,6 +1750,101 @@ async function execDeleteFile(input: unknown): Promise<ToolResult> {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     return { ok: false, error: `delete failed: ${msg}` }
+  }
+}
+
+// —— move_file —— 移动 / 重命名 文件或目录 (跟 delete 同 modal 级别) ————————————
+
+async function execMoveFile(input: unknown): Promise<ToolResult> {
+  if (typeof input !== 'object' || input === null) {
+    return { ok: false, error: 'input must be { src: string, dest: string, overwrite?: string }' }
+  }
+  const obj = input as { src?: unknown; dest?: unknown; overwrite?: unknown }
+  if (typeof obj.src !== 'string' || !obj.src) {
+    return { ok: false, error: 'src must be a non-empty string' }
+  }
+  if (typeof obj.dest !== 'string' || !obj.dest) {
+    return { ok: false, error: 'dest must be a non-empty string' }
+  }
+  const overwrite = obj.overwrite === 'true' || obj.overwrite === true
+  // 两路径都过 path safety 黑名单
+  const srcSafety = await isPathSafe(obj.src)
+  if (!srcSafety.ok) {
+    return { ok: false, error: `src 路径被黑名单拦: ${srcSafety.reason}` }
+  }
+  const destSafety = await isPathSafe(obj.dest)
+  if (!destSafety.ok) {
+    return { ok: false, error: `dest 路径被黑名单拦: ${destSafety.reason}` }
+  }
+  // 检查 dest 是否目录形式 (尾 / 或者已存在的目录) → 自动拼 src basename
+  let finalDest = destSafety.absPath
+  try {
+    const destStat = await fs.stat(destSafety.absPath).catch(() => null)
+    if (destStat?.isDirectory() || obj.dest.endsWith('/')) {
+      const srcBasename = srcSafety.absPath.split('/').pop() ?? ''
+      finalDest = destSafety.absPath.replace(/\/+$/, '') + '/' + srcBasename
+    }
+    // 覆盖防御: dest 已存在且 user 没显式同意 overwrite
+    if (!overwrite) {
+      const finalStat = await fs.stat(finalDest).catch(() => null)
+      if (finalStat) {
+        return {
+          ok: false,
+          error: `dest 已存在 (${finalDest}). 想覆盖请显式传 overwrite="true" 且先跟用户确认.`
+        }
+      }
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return { ok: false, error: `检查 dest 失败: ${msg}` }
+  }
+  // 跟 delete 同级别: 始终弹 modal (不享受目录信任 — 移动比 write 危险, 不可一键 undo)
+  const decision = await requestApproval({
+    tool: 'move_file',
+    summary: `📦 AI 想移动:\n${srcSafety.absPath}\n  ↓\n${finalDest}${overwrite ? '\n(将覆盖已存在文件)' : ''}`,
+    path: srcSafety.absPath
+  })
+  if (decision === 'deny') {
+    await logToolAction({
+      tool: 'move_file',
+      argsSummary: `src=${srcSafety.absPath} dest=${finalDest}`,
+      result: 'denied',
+      detail: 'user denied'
+    })
+    return { ok: false, error: '用户拒绝移动' }
+  }
+  await logToolAction({
+    tool: 'move_file',
+    argsSummary: `src=${srcSafety.absPath} dest=${finalDest}`,
+    result: 'ok',
+    detail: `approved: ${decision}${overwrite ? ' overwrite' : ''}`
+  })
+  // 确保 dest 父目录存在
+  try {
+    const destParent = finalDest.substring(0, finalDest.lastIndexOf('/'))
+    if (destParent) await fs.mkdir(destParent, { recursive: true })
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return { ok: false, error: `创建 dest 父目录失败: ${msg}` }
+  }
+  // 优先 fs.rename (atomic, 同 filesystem). 跨 fs 失败 (EXDEV) 走 copy + unlink fallback.
+  try {
+    await fs.rename(srcSafety.absPath, finalDest)
+    return { ok: true, content: `Moved: ${srcSafety.absPath} → ${finalDest}` }
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException
+    if (e.code !== 'EXDEV') {
+      return { ok: false, error: `rename failed: ${e.message}` }
+    }
+    // 跨 fs (e.g., 内置硬盘 → 外接 U 盘): copy 然后 unlink
+    try {
+      await fs.cp(srcSafety.absPath, finalDest, { recursive: true, force: overwrite })
+      await fs.rm(srcSafety.absPath, { recursive: true, force: true })
+      return { ok: true, content: `Moved (cross-fs): ${srcSafety.absPath} → ${finalDest}` }
+    } catch (err2) {
+      const msg = err2 instanceof Error ? err2.message : String(err2)
+      return { ok: false, error: `cross-fs move failed: ${msg}` }
+    }
   }
 }
 

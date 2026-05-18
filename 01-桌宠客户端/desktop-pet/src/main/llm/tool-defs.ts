@@ -32,6 +32,7 @@ import {
   CREATE_DIRECTORY,
   FIND_FILES,
   DELETE_FILE,
+  MOVE_FILE,
   SAVE_USER_PROFILE,
   SET_PET_ANIMATION,
   REMEMBER,
@@ -271,6 +272,21 @@ export function buildToolSetForContext(ctx: ToolContext): ToolSet {
       'delete_file',
       DELETE_FILE.description,
       z.object({ path: z.string().describe('Absolute or ~/-relative path to delete') }),
+      ctx
+    ),
+    move_file: wrapTool(
+      'move_file',
+      MOVE_FILE.description,
+      z.object({
+        src: z.string().describe('Source path (absolute or ~/-relative)'),
+        dest: z
+          .string()
+          .describe('Destination path. Trailing / or existing dir → src basename preserved.'),
+        overwrite: z
+          .string()
+          .optional()
+          .describe('Set "true" only when user explicitly OKs replacing existing dest.')
+      }),
       ctx
     ),
     run_command: wrapTool(
