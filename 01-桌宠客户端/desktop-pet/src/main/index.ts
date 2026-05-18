@@ -597,7 +597,6 @@ let petMemoryCache = ''
 // M5-3：用户档案缓存 —— 启动 load，save_user_profile tool / 设置面板编辑后
 // 由 onDone 重读刷新。注入 system prompt（setup 模式或正常模式）。
 let userProfileCache: UserProfile = { ...DEFAULT_USER_PROFILE }
-let currentApiKey: string | null = null
 let keyState: KeyState = 'missing'
 let currentModel: ModelId = DEFAULT_MODEL
 /**
@@ -818,10 +817,12 @@ async function resolveActivity(app: AppIdentity | null): Promise<ActivityState> 
     const fast = tryFastPath(app)
     if (fast !== null) return fast
   }
-  // 没 key 时 LLM 不可用 → fallback idle
-  if (!currentApiKey) return 'idle'
+  // 没 Anthropic key 时 classifier 不可用 → fallback idle
+  // (其它 provider key 即使有也不切, 见 getAnthropicKeyForClassifier 注释)
+  const anthropicKey = getAnthropicKeyForClassifier()
+  if (!anthropicKey) return 'idle'
   try {
-    return await classifyApp(app, currentApiKey)
+    return await classifyApp(app, anthropicKey)
   } catch (err) {
     console.warn('[activity] classify threw, fallback idle:', err)
     return 'idle'
@@ -849,21 +850,33 @@ function setFollowFrontApp(on: boolean): void {
   schedulePrefsSave(currentPrefsSnapshot())
 }
 
+/** 多 provider 时代的 keyState 计算: 任一 provider 有 key → 'ready'。
+ *  历史: 原本 keyState 单态只跟 Anthropic 联动 → 只配 OpenAI key 的用户
+ *  keyState 永远 'missing', chat 输入框被当作 key 提交闸门, 用户输入聊天内容
+ *  被解读成"提交 key" 弹"这不像 API key"——架构师诊断的"最致命裂缝"。 */
+function recomputeKeyState(): KeyState {
+  for (const v of currentProviderKeys.values()) {
+    if (v) return 'ready'
+  }
+  return 'missing'
+}
+
+/** Activity classifier 跟 LLM 模型分类用 Anthropic key (cost / latency 原因
+ *  不跟着 selected provider 切, 见 llm/activity-classifier.ts 顶部注释)。
+ *  返 null 时 classifier 走 'idle' fallback (见 classifyAppCached)。 */
+function getAnthropicKeyForClassifier(): string | null {
+  return currentProviderKeys.get('anthropic') ?? null
+}
+
 function setKeyInMemory(key: string | null): void {
-  currentApiKey = key
-  // M7-4: 同步 currentProviderKeys map —— 老 key:submit IPC 走 saveApiKey 写
-  // credentials.bin，但 getLlmClient 现在从 currentProviderKeys 取 key 实例化。
-  // 不同步的话 user 输完新 key 后这一 session 走老 client（401）直到下次启动 migration。
-  // wave 4.4 unify IPC 后 setKeyInMemory 整个删除。
+  // 同步 currentProviderKeys map —— LLM 实例化从 map 取 key。
   currentProviderKeys.set('anthropic', key)
-  // 重置缓存 client —— 下次 getLlmClient 会用新 key 重建
-  keyState = key ? 'ready' : 'missing'
+  // 多 provider 时代 keyState 反映"任一 provider 有 key" (而非旧版只看 Anthropic)
+  keyState = recomputeKeyState()
   // M7-5: 内嵌 notifyKeyState —— 让每个 setKeyInMemory caller 自动广播 key:state。
   // 之前 wave 4.4 provider-key:submit 走 anthropic 分支调 setKeyInMemory 但**没**调
   // notifyKeyState，App.tsx onKeyState 收不到 'ready'，user 在 Settings 配完
   // Anthropic key 回桌宠仍看到"粘 API key 到这里"placeholder（Officer A 发现）。
-  // resetKey / legacy key:submit 也都调 setKeyInMemory，重复 notifyKeyState 无害
-  // （webContents.send 幂等）。
   notifyKeyState()
 }
 
@@ -1590,14 +1603,17 @@ function registerIpc(): void {
         win?.webContents.send('chat:error', { kind: 'key-not-persisted' })
         return
       }
-      // anthropic 走 legacy setKeyInMemory（内部同步 map + 重置 llmClient + notifyKeyState）；
-      // 其它 provider 直接 set map。原本这里有 `if (rawProvider === currentSelectedModel.provider) {}`
-      // 空 if 块——注释说要 invalidate llmClient 但实际是 dead code（v0.4.0 fallback 后
-      // chat:submit 每次 instantiate, 不再 cache 复用, 无需 invalidate）。已删。
+      // anthropic 走 legacy setKeyInMemory（内部同步 map + recomputeKeyState +
+      // notifyKeyState）；其它 provider 直接 set map + 显式 recompute + notify。
+      // 修架构师诊断的"keyState 单态裂缝": 只配 OpenAI key 的用户 keyState
+      // 永远 'missing' → chat 输入框被当作 key 提交闸门 → 用户聊天文本被解读成
+      // "提交 key" 弹"这不像 API key"。recomputeKeyState() 看全 map 任一非空即 'ready'。
       if (rawProvider === 'anthropic') {
         setKeyInMemory(key)
       } else {
         currentProviderKeys.set(rawProvider, key)
+        keyState = recomputeKeyState()
+        notifyKeyState()
       }
       // **关键修**: 自动切 selectedModel 到刚配 key 的 provider, 如果当前选中 provider
       // 还没 key —— 防止 onboarding 后果"key 设了但 model 还选 Claude → chat 仍 no-api-key".
@@ -1665,8 +1681,10 @@ function registerIpc(): void {
       }
     })
     currentProviderKeys.set(rawProvider, null)
-    if (rawProvider === currentSelectedModel.provider) {
-    }
+    // recompute + notify: 删 OpenAI 后若 Anthropic 还在仍 'ready', 但若是最后一把
+    // key 被删则 'missing'。原本这里有空 if 块 (dead code, 同 submit 分支), 已删。
+    keyState = recomputeKeyState()
+    notifyKeyState()
     broadcastProviderKeyStates()
   })
 
@@ -2449,8 +2467,9 @@ app.whenReady().then(async () => {
   // 启动 detector —— 按用户偏好（默认开）
   if (followFrontApp) activeAppMonitor.start()
   // 预热 Anthropic TLS pool：让首次真实 classify 从 ~1000ms 降到 ~250ms（A 根因 1）
-  if (currentApiKey) {
-    void warmupClassifier(currentApiKey)
+  const anthropicKey = getAnthropicKeyForClassifier()
+  if (anthropicKey) {
+    void warmupClassifier(anthropicKey)
   }
 
   app.on('activate', () => {
