@@ -204,10 +204,9 @@ function App(): React.JSX.Element {
   const [petCompanionEnabled] = useState(true)
   // v0.4.0 改动 4: chat 顶部模型切换 pill 需要的当前选中模型 state
   const [currentModel, setCurrentModel] = useState<SelectedModel | null>(null)
-  // v0.4.0 改动 4: 动态 listModels — per-provider 列表, dropdown open 状态
+  // v0.4.0 改动 4: 动态 listModels — per-provider 列表, modal open 状态
   const [modelsByProvider, setModelsByProvider] = useState<Record<string, string[]>>({})
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false)
-  const modelDropdownRef = useRef<HTMLDivElement | null>(null)
   // v0.4.0 S6.2 [D] DnD overlay: 用户拖文件到 pet 上方时显示 .pet-drop 大字
   // S6.3-S6.5 (主进程读文件 + agentic 处理) 后续拆出, 现在仅 renderer overlay
   const [dragOver, setDragOver] = useState(false)
@@ -304,17 +303,7 @@ function App(): React.JSX.Element {
     return off
   }, [])
 
-  // v0.4.0 改动 4: dropdown outside-click 关闭
-  useEffect(() => {
-    if (!modelDropdownOpen) return
-    const handler = (e: MouseEvent): void => {
-      if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) {
-        setModelDropdownOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [modelDropdownOpen])
+  // v0.4.0 改动 4 modal: 改 modal 后 overlay backdrop onClick 已处理关闭, 不需 outside-click effect.
 
   // v0.4.0 S4.4 [B] emote-hint: activity 切换时头顶弹 4s 表情气泡.
   // gate by petCompanionEnabled — 默认关闭, 用户开启 🎭 pill 后才弹.
@@ -1050,57 +1039,19 @@ function App(): React.JSX.Element {
               </>
             )}
           </div>
-          {/* v0.4.0 改动 4 完整: model dropdown 内嵌 pill. 点击展开 panel, 按已配
-              provider 分组显示 listModels 拉到的真实可用 model. 选中 → setSelectedModel. */}
+          {/* v0.4.0 改动 4 完整: model pill 触发 modal overlay (用户要"放在额外弹
+              出的方框里"). pill 只触发, modal 实体渲染在外层 (vision-modal-overlay). */}
           <div className="vision-bar">
-            <div className="model-dropdown" ref={modelDropdownRef}>
-              <button
-                type="button"
-                className="vision-pill vision-pill--on"
-                onClick={() => setModelDropdownOpen((v) => !v)}
-                title="点击切换 model"
-              >
-                <span className="vision-pill-ico">🤖</span>
-                {currentModel ? currentModel.modelId : '加载中…'}
-                <span className="model-dropdown-caret">▾</span>
-              </button>
-              {modelDropdownOpen && (
-                <div className="model-dropdown-panel">
-                  {PROVIDER_ORDER.filter((p) => modelsByProvider[p]?.length).map((p) => (
-                    <div key={p} className="model-dropdown-group">
-                      <div className="model-dropdown-group-label">{PROVIDERS[p].label}</div>
-                      {(modelsByProvider[p] ?? []).map((modelId) => {
-                        const isActive =
-                          currentModel?.provider === p && currentModel?.modelId === modelId
-                        return (
-                          <button
-                            key={modelId}
-                            type="button"
-                            className={
-                              isActive
-                                ? 'model-dropdown-item model-dropdown-item--active'
-                                : 'model-dropdown-item'
-                            }
-                            onClick={() => {
-                              window.api.setSelectedModel({ provider: p, modelId })
-                              setModelDropdownOpen(false)
-                            }}
-                          >
-                            {isActive && <span className="model-dropdown-check">✓</span>}
-                            {modelId}
-                          </button>
-                        )
-                      })}
-                    </div>
-                  ))}
-                  {PROVIDER_ORDER.filter((p) => modelsByProvider[p]?.length).length === 0 && (
-                    <div className="model-dropdown-empty">
-                      还没拉到 model 列表 — 检查 Settings 里有没配 API key, 或网络.
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
+            <button
+              type="button"
+              className="vision-pill vision-pill--on"
+              onClick={() => setModelDropdownOpen(true)}
+              title="点击切换 model"
+            >
+              <span className="vision-pill-ico">🤖</span>
+              {currentModel ? currentModel.modelId : '加载中…'}
+              <span className="model-dropdown-caret">▾</span>
+            </button>
           </div>
           <input
             className="chat-input"
@@ -1114,6 +1065,63 @@ function App(): React.JSX.Element {
         </div>
       )}
       {/* v0.4.0 改动 1: vision modal + tavily modal 已删 — 全部迁移到 Settings 窗口 */}
+      {/* v0.4.0 改动 4: 模型切换 modal — 用户要"放在额外弹出的方框里", 不是 inline dropdown */}
+      {modelDropdownOpen && (
+        <div
+          className="vision-modal-overlay"
+          onClick={() => setModelDropdownOpen(false)}
+        >
+          <div
+            className="vision-modal model-modal"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="vision-modal-title">切换模型</div>
+            <div className="vision-modal-body model-modal-body">
+              {PROVIDER_ORDER.filter((p) => modelsByProvider[p]?.length).map((p) => (
+                <div key={p} className="model-dropdown-group">
+                  <div className="model-dropdown-group-label">{PROVIDERS[p].label}</div>
+                  {(modelsByProvider[p] ?? []).map((modelId) => {
+                    const isActive =
+                      currentModel?.provider === p && currentModel?.modelId === modelId
+                    return (
+                      <button
+                        key={modelId}
+                        type="button"
+                        className={
+                          isActive
+                            ? 'model-dropdown-item model-dropdown-item--active'
+                            : 'model-dropdown-item'
+                        }
+                        onClick={() => {
+                          window.api.setSelectedModel({ provider: p, modelId })
+                          setModelDropdownOpen(false)
+                        }}
+                      >
+                        {isActive && <span className="model-dropdown-check">✓</span>}
+                        {modelId}
+                      </button>
+                    )
+                  })}
+                </div>
+              ))}
+              {PROVIDER_ORDER.filter((p) => modelsByProvider[p]?.length).length === 0 && (
+                <div className="model-dropdown-empty">
+                  还没拉到 model 列表 — 检查 Settings 里 API key, 或网络.
+                </div>
+              )}
+            </div>
+            <div className="vision-modal-actions">
+              <button
+                type="button"
+                className="vision-modal-btn-cancel"
+                onClick={() => setModelDropdownOpen(false)}
+              >
+                关闭
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {pendingApproval && (
         <div className="vision-modal-overlay">
           <div className="vision-modal approval-modal" onClick={(e) => e.stopPropagation()}>

@@ -795,29 +795,20 @@ body,
  * box-shadow → filter:drop-shadow 全改 (clip-path 切角必需).
  * =========================================================================== */
 
-/* === v0.4.0 改动 4 model dropdown — chat 顶部 model 切换 panel === */
-.model-dropdown {
-  position: relative;
-  display: inline-block;
-}
+/* === v0.4.0 改动 4 model 切换 modal — pill 触发, 弹出 modal 中心 panel === */
 .model-dropdown-caret {
   margin-left: 3px;
   font-size: 9px;
   opacity: 0.6;
 }
-.model-dropdown-panel {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  z-index: 50;
-  min-width: 240px;
-  max-height: 320px;
+.model-modal {
+  min-width: 280px;
+  max-width: 360px;
+}
+.model-modal-body {
+  max-height: 360px;
   overflow-y: auto;
-  padding: 4px 0;
-  background: var(--paper);
-  border: var(--bw) solid var(--coral);
-  clip-path: var(--clip-pixel-card);
-  filter: var(--drop-shadow);
+  padding: 6px 0;
 }
 .model-dropdown-group {
   padding: 2px 0 4px;

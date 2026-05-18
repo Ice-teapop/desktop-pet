@@ -28,10 +28,11 @@ export const MINI_WIN_HEIGHT = 100
 /** Mini mode 默认露出多少 px（设计师 v2: 24→32，露半只钳 + 部分眼睛，用户余光可见
  *  仍明确"贴边" + hit-test 横向 32px 远高于 Fitts 安全线 12px。100 - 32 = 68px 藏屏外） */
 export const MINI_VISIBLE_PX = 32
-/** Drag end 检测：右边离 workArea.right 这个距离内 → 触发 snap to mini。
- *  60px 比 40 宽容 —— pointerup 时 pet 通常离右边 30-80px（rendererDelta 末帧 +
- *  setPosition latency），主观"我拖到边了"该触发，40px 太严容易 miss. */
-export const MINI_SNAP_THRESHOLD_PX = 60
+/** Drag end 时 pet 在屏内的可见宽度阈值 —— 用户反馈 v0.4.0 改: 视觉上 pet 必须
+ *  已经被推到只剩 1/4 (60px) 还在屏内才触发 snap to mini.
+ *  pet panel 宽 260px, 1/4 ≈ 60px. 旧逻辑用 "右边 ≤ 60px to screen-right" 太宽容,
+ *  pet 完全可见时就 trigger; 新语义改成 visible_width 才精确. */
+export const MINI_SNAP_VISIBLE_PX = 60
 
 // —— M9-5b B-4 Hover peek ——
 /** mini panel 露出更多以便预览：peek 状态露 80px（vs retract 32px / micro 64px） */

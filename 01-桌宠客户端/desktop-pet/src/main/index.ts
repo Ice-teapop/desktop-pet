@@ -62,7 +62,7 @@ import {
   MINI_PEEK_POLL_MS,
   MINI_PEEK_SNAP_PX,
   MINI_PEEK_VISIBLE_PX,
-  MINI_SNAP_THRESHOLD_PX,
+  MINI_SNAP_VISIBLE_PX,
   MINI_VISIBLE_PX,
   MINI_WIN_HEIGHT,
   MINI_WIN_WIDTH,
@@ -1423,8 +1423,11 @@ function registerIpc(): void {
     const bounds = petWindow.getBounds()
     const display = screen.getDisplayMatching(bounds)
     const wa = display.workArea
-    const rightEdge = bounds.x + bounds.width
-    if (rightEdge >= wa.x + wa.width - MINI_SNAP_THRESHOLD_PX) {
+    // v0.4.0 改动 3: 用户要 "pet 1/4 进入屏幕再收起" — 测 pet 在屏内可见宽度,
+    // ≤ 60px (1/4 of 240) 才 snap to mini. 旧 rightEdge 距离判定 pet 完全可见就
+    // trigger 太宽松, 用户反馈"边缘隐藏的设定太宽".
+    const visibleRightWidth = Math.max(0, wa.x + wa.width - bounds.x)
+    if (visibleRightWidth <= MINI_SNAP_VISIBLE_PX) {
       setPetMode('mini')
     }
   })

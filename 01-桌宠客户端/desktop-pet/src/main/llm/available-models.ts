@@ -65,6 +65,69 @@ function fallbackHardcoded(provider: Provider): string[] {
   return AVAILABLE_MODELS.filter((m) => m.provider === provider).map((m) => m.id)
 }
 
+/**
+ * v0.4.0 改动 4 - 用户要"同种模型只保留最新的版本".
+ * 提取 model 的 family (剥掉版本号 + 日期后缀), 同 family 多个 → 选最新一个.
+ *
+ * 优先级:
+ *  1) 有 canonical alias (无日期后缀) → 用它 (Anthropic/OpenAI 推荐用 alias 自动跟进)
+ *  2) 否则字典序 desc 选 max (claude-3-5-sonnet-20241022 > 20240620)
+ *
+ * 各 provider 命名风格不一致 → 用 per-provider family 提取函数.
+ */
+function familyOf(provider: Provider, id: string): string {
+  switch (provider) {
+    case 'anthropic':
+      // claude-opus-4-7 → claude-opus  (按 family: opus/sonnet/haiku)
+      // claude-3-5-sonnet-20241022 → claude-3-5-sonnet (legacy 命名)
+      return id
+        .replace(/-\d{8}$/, '') // claude-3-5-sonnet-20241022 → claude-3-5-sonnet
+        .replace(/-\d+-\d+$/, '') // claude-opus-4-7 → claude-opus
+    case 'openai':
+      // gpt-4o-2024-08-06 → gpt-4o, gpt-4o-mini 保留独立 family
+      return id.replace(/-\d{4}-\d{2}-\d{2}$/, '')
+    case 'google':
+      // gemini-1.5-pro-001 → gemini-1.5-pro
+      return id.replace(/-\d{3,}$/, '')
+    case 'xai':
+      // grok-2-1212 → grok-2, grok-vision-beta 保留
+      return id.replace(/-\d{4}$/, '')
+    case 'deepseek':
+    case 'bytedance':
+    default:
+      // 无统一版本规则 → family = id (不 dedupe)
+      return id
+  }
+}
+
+function dedupeKeepLatest(provider: Provider, models: string[]): string[] {
+  const groups = new Map<string, string[]>()
+  for (const id of models) {
+    const fam = familyOf(provider, id)
+    const arr = groups.get(fam) ?? []
+    arr.push(id)
+    groups.set(fam, arr)
+  }
+  const result: string[] = []
+  for (const group of groups.values()) {
+    if (group.length === 1) {
+      result.push(group[0])
+      continue
+    }
+    // 1) prefer canonical (无日期后缀)
+    const canonical = group.find(
+      (g) => !/-\d{8}$/.test(g) && !/-\d{4}-\d{2}-\d{2}$/.test(g)
+    )
+    if (canonical) {
+      result.push(canonical)
+      continue
+    }
+    // 2) fallback: lex desc (最新日期 / 最大版本号)
+    result.push([...group].sort().reverse()[0])
+  }
+  return result
+}
+
 /** fetch with timeout — Node 20 / undici default has 5min timeout, 10s 足够 listModels. */
 async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
   const controller = new AbortController()
@@ -174,6 +237,8 @@ export async function getAvailableModels(
     console.warn(`[available-models] ${provider} listModels failed:`, msg, '— fallback to hardcoded')
     models = fallbackHardcoded(provider)
   }
+  // 改动 4: 同 family 只留最新一个 (用户要"同种模型只保留最新的版本")
+  models = dedupeKeepLatest(provider, models)
   cache[provider] = { models, fetchedAt: Date.now() }
   void saveCache(cache)
   return models
