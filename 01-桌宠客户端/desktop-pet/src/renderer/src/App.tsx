@@ -462,10 +462,28 @@ function App(): React.JSX.Element {
     }
   }, [pendingApproval?.id])
 
-  // —— M5-2 用户在设置面板清空对话历史 → 同步清 UI 消息列表 ——
+  // —— 清空对话历史 (reset key / 跨 provider 切 / Settings 手动清) → 同步清 UI 消息 ——
+  // PR-2: 加 reason 区分; 仅跨 provider 时 push system 气泡告知用户 (key-reset 已有
+  // KEY_RESET_PROMPT 接管, manual 是用户自己点的不必告知). 气泡只入 renderer messages
+  // 数组, 不入 main chatHistory (防 LLM 上下文污染).
   useEffect(() => {
-    const off = window.api.onChatHistoryCleared(() => {
-      setMessages([])
+    const off = window.api.onChatHistoryCleared((event) => {
+      setMessages(() => {
+        if (event.reason === 'provider-switch' && event.toProvider) {
+          const providerLabel =
+            PROVIDERS[event.toProvider as keyof typeof PROVIDERS]?.label ??
+            event.toProvider
+          return [
+            {
+              id: msgIdRef.current++,
+              role: 'system' as const,
+              text: `已切到 ${providerLabel} — 跨家不兼容, 之前对话已清开始新轮次`,
+              status: 'done' as const
+            }
+          ]
+        }
+        return []
+      })
     })
     return off
   }, [])

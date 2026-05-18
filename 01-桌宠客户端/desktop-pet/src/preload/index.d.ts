@@ -10,7 +10,7 @@ import type {
 import type { VisionState } from '../shared/vision-types'
 import type { ApprovalDecision, ApprovalRequest } from '../shared/approval-types'
 import type { TavilyState } from '../shared/tavily-types'
-import type { ModelId } from '../shared/chat-types'
+import type { ModelId, ChatHistoryClearedEvent } from '../shared/chat-types'
 import type {
   Provider,
   ProviderKeyStates,
@@ -76,7 +76,6 @@ export interface DeskPetAPI {
   openSettings(): void
   requestPrefsState(): void
   onPrefsState(listener: (state: PrefsState) => void): () => void
-  setModel(modelId: ModelId): void
   // M7-4 multi-provider key + selected-model
   submitProviderKey(provider: Provider, key: string): void
   resetProviderKey(provider: Provider): void
@@ -100,7 +99,9 @@ export interface DeskPetAPI {
   revealMemoryInFinder(): void
   clearChatHistory(): Promise<IpcResult>
   revealChatHistoryInFinder(): void
-  onChatHistoryCleared(listener: () => void): () => void
+  onChatHistoryCleared(
+    listener: (event: ChatHistoryClearedEvent) => void
+  ): () => void
   // M5-3 用户档案
   requestUserProfileState(): void
   onUserProfileState(listener: (profile: UserProfile) => void): () => void

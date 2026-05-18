@@ -41,6 +41,18 @@ export interface ChatUsage {
   outputTokens: number
 }
 
+/** chatHistory 被清空的原因, 让 renderer 决定要不要 surface system 气泡。
+ *  - 'provider-switch': 跨 provider 切 (tool_use_id 不兼容必清) — UI 应告知用户避免误以为 bug
+ *  - 'key-reset': key 重置 — 已有 KEY_RESET_PROMPT 处理, 不重复告知
+ *  - 'manual': 用户在 Settings 主动点清空 — 自己点的, 不需要告知 */
+export type ChatHistoryClearedReason = 'provider-switch' | 'key-reset' | 'manual'
+
+export interface ChatHistoryClearedEvent {
+  reason: ChatHistoryClearedReason
+  /** provider-switch 时新切到的 provider, 给气泡文案用 */
+  toProvider?: string
+}
+
 /**
  * API key 持有状态：
  *  - 'missing' 没 key（首启 / 用户主动清除 / Anthropic 拒了上次的 key）

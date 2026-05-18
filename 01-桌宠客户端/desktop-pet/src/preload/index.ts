@@ -14,7 +14,7 @@ import type {
 import type { VisionState } from '../shared/vision-types'
 import type { ApprovalDecision, ApprovalRequest } from '../shared/approval-types'
 import type { TavilyState } from '../shared/tavily-types'
-import type { ModelId } from '../shared/chat-types'
+import type { ChatHistoryClearedEvent } from '../shared/chat-types'
 import type {
   Provider,
   ProviderKeyStates,
@@ -266,9 +266,8 @@ const api = {
     ipcRenderer.on('prefs:state', handler)
     return () => ipcRenderer.off('prefs:state', handler)
   },
-  setModel(modelId: ModelId): void {
-    ipcRenderer.send('prefs:set-model', modelId)
-  },
+  // PR-5: 删 setModel + prefs:set-model — Anthropic-only legacy, renderer 零 caller,
+  // 改 model 全部走 setSelectedModel (multi-provider)。
   // —— M7-4 multi-provider key + selected-model API ——
   /** 提交某 provider 的 key（任 provider）。主进程 safeStorage 加密 + 推 states */
   submitProviderKey(provider: Provider, key: string): void {
@@ -353,9 +352,12 @@ const api = {
   revealChatHistoryInFinder(): void {
     ipcRenderer.send('chat-history:reveal-in-finder')
   },
-  /** 主进程在 user 触发 clearChatHistory 后会广播此事件 —— App.tsx 用来清消息 UI */
-  onChatHistoryCleared(listener: () => void): () => void {
-    const handler = (): void => listener()
+  /** 主进程清 chatHistory 后广播此事件 (含 reason 让 renderer 决定是否 surface 气泡) */
+  onChatHistoryCleared(
+    listener: (event: ChatHistoryClearedEvent) => void
+  ): () => void {
+    const handler = (_e: IpcRendererEvent, ev: ChatHistoryClearedEvent): void =>
+      listener(ev)
     ipcRenderer.on('chat:history-cleared', handler)
     return () => ipcRenderer.off('chat:history-cleared', handler)
   },

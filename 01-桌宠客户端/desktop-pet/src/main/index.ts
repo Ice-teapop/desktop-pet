@@ -84,6 +84,7 @@ import {
   DEFAULT_SELECTED_MODEL,
   PROVIDER_ORDER,
   defaultModelForProvider,
+  findModel,
   isValidProvider,
   isValidSelectedModel,
   type Provider,
@@ -939,6 +940,9 @@ function setModel(id: ModelId): void {
   chatTurnToken++
   rebuildTrayMenu()
   schedulePrefsSave(currentPrefsSnapshot())
+  // 审核 B final audit 发现的真 bug: tray 改 model 改了 currentSelectedModel 但忘
+  // 广播 → renderer pill / Settings 永远 stale (症状 2 真因之一). 1 行修。
+  broadcastSelectedModelState()
 }
 
 function trimChatHistory(): void {
@@ -1230,7 +1234,8 @@ async function resetKey(): Promise<void> {
   // chatTurnToken++ 屏蔽 callback，renderer 看不到 chat:done 可能挂 "thinking"）
   if (isWinAlive()) {
     petWindow!.webContents.send('chat:done', { inputTokens: 0, outputTokens: 0 })
-    petWindow!.webContents.send('chat:history-cleared')
+    // PR-2: 加 reason payload, key-reset 沿用现有 KEY_RESET_PROMPT 不另弹气泡
+    petWindow!.webContents.send('chat:history-cleared', { reason: 'key-reset' })
   }
   if (!stateMachine.transition('idle')) {
     stateMachine.scheduleReturnToIdle(PET_STATES.thinking.minMs)
@@ -1667,7 +1672,7 @@ function registerIpc(): void {
       }
       chatHistory.length = 0
       if (isWinAlive()) {
-        petWindow!.webContents.send('chat:history-cleared')
+        petWindow!.webContents.send('chat:history-cleared', { reason: 'key-reset' })
       }
       if (!stateMachine.transition('idle')) {
         stateMachine.scheduleReturnToIdle(PET_STATES.thinking.minMs)
@@ -1706,21 +1711,39 @@ function registerIpc(): void {
     }
     const isProviderSwitch = currentSelectedModel.provider !== rawSel.provider
 
-    // 切换前清理 in-flight stream + UI bubble + drop trailing user msg
-    if (currentStreamHandle) {
-      if (isWinAlive()) {
-        petWindow!.webContents.send('chat:done', { inputTokens: 0, outputTokens: 0 })
+    // PR-3: 同 provider modelId-only 切换走"软切" — 不 abort 旧 stream, 让回复跑完,
+    // 下 turn 才用新 modelId (chat:submit 推下条时通过 ++chatTurnToken 自然让旧 stream
+    // callback 失效). 防"切个 model 当前回复被截断"不流畅体感 (用户决策 A=a).
+    //
+    // 安全闸门 (审核官员 A #4): 旧 stream 可能在 emit tool_use; 切到 tool 能力不同的
+    // 同厂商 model, onDone push 含 tool_use 的 assistant message → 下 turn 用新 model
+    // 拒绝 → 400. 任一方 capability 未知 (动态 list 出现 static 表里没的新 modelId) 也
+    // 保守降级。findModel 返 undefined → !!oldCap/!!newCap=false → sameToolCapability=false.
+    const oldCap = findModel(currentSelectedModel)
+    const newCap = findModel(rawSel)
+    const sameToolCapability =
+      !!oldCap && !!newCap && oldCap.supportsTools === newCap.supportsTools
+    const canSoftSwitch = !isProviderSwitch && sameToolCapability
+
+    if (!canSoftSwitch) {
+      // 硬切: abort + drop trailing user + ++turnToken (跨 provider 或 capability 不同)
+      if (currentStreamHandle) {
+        if (isWinAlive()) {
+          petWindow!.webContents.send('chat:done', { inputTokens: 0, outputTokens: 0 })
+        }
+        if (chatHistory[chatHistory.length - 1]?.role === 'user') {
+          chatHistory.pop()
+        }
+        if (!stateMachine.transition('idle')) {
+          stateMachine.scheduleReturnToIdle(PET_STATES.thinking.minMs)
+        }
       }
-      if (chatHistory[chatHistory.length - 1]?.role === 'user') {
-        chatHistory.pop()
-      }
-      if (!stateMachine.transition('idle')) {
-        stateMachine.scheduleReturnToIdle(PET_STATES.thinking.minMs)
-      }
+      currentStreamHandle?.abort()
+      currentStreamHandle = null
+      chatTurnToken++
     }
-    currentStreamHandle?.abort()
-    currentStreamHandle = null
-    chatTurnToken++
+    // 软切: 不动 currentStreamHandle / chatTurnToken / chatHistory / stateMachine,
+    // 让旧 stream 跑完, 新 modelId 仅影响下一 turn 的 instantiate。
 
     currentSelectedModel = rawSel
     // Anthropic 时 legacy currentModel 跟 currentSelectedModel.modelId 对齐
@@ -1733,7 +1756,11 @@ function registerIpc(): void {
       chatHistory.length = 0
       scheduleChatHistorySave()
       if (isWinAlive()) {
-        petWindow!.webContents.send('chat:history-cleared')
+        // PR-2: 跨 provider 切换告知用户 (历史已清, 跨家不兼容), 防止用户以为是 bug
+        petWindow!.webContents.send('chat:history-cleared', {
+          reason: 'provider-switch',
+          toProvider: rawSel.provider
+        })
       }
     }
 
@@ -1749,15 +1776,15 @@ function registerIpc(): void {
 
   // —— M5 settings panel IPC ——
 
-  /** Preferences 完整 state（modelId / followFrontApp / useFastPath / vision*）—— 设置面板 + 主窗口都订阅 */
+  /** Preferences 完整 state（followFrontApp / useFastPath / vision*）—— 设置面板 + 主窗口都订阅。
+   *  PR-4: 删 `modelId` 字段, model 走专用 selected-model:state. legacy currentModel
+   *  仍存在 (preferences.json schema 锚点), 这里不输出。 */
   const prefsSnapshot = (): {
-    modelId: ModelId
     followFrontApp: boolean
     useFastPath: boolean
     visionEnabled: boolean
     visionConsented: boolean
   } => ({
-    modelId: currentModel,
     followFrontApp,
     useFastPath,
     visionEnabled: visionEnabledPref,
@@ -1776,11 +1803,8 @@ function registerIpc(): void {
     win?.webContents.send('prefs:state', prefsSnapshot())
   })
 
-  ipcMain.on('prefs:set-model', (_event, modelId: unknown) => {
-    if (!isValidModelId(modelId)) return
-    setModel(modelId)
-    broadcastPrefsState()
-  })
+  // PR-5: 删 `prefs:set-model` IPC (renderer 零 caller, 用 `selected-model:set`)
+  // 同时删 preload api.setModel + d.ts 声明 (顺手清死代码防回归)
 
   ipcMain.on('prefs:set-follow-front-app', (_event, value: unknown) => {
     if (typeof value !== 'boolean') return
@@ -1878,8 +1902,10 @@ function registerIpc(): void {
     try {
       await clearChatHistory()
       chatHistory.length = 0
-      // 通知 renderer 重置消息 UI
-      if (isWinAlive()) petWindow!.webContents.send('chat:history-cleared')
+      // 通知 renderer 重置消息 UI (manual: 用户自己点的, 不需要 surface 气泡)
+      if (isWinAlive()) {
+        petWindow!.webContents.send('chat:history-cleared', { reason: 'manual' })
+      }
       return { ok: true as const }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)

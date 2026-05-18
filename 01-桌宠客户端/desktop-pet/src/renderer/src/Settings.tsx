@@ -47,6 +47,10 @@ function Settings(): React.JSX.Element {
   const [visionState, setVisionState] = useState<VisionState | null>(null)
   const [prefs, setPrefs] = useState<PrefsState | null>(null)
   const [trustedDirs, setTrustedDirs] = useState<TrustedDirsState | null>(null)
+  // 动态拉的 provider model 列表 (24h cache + 异步 refresh, 同 chat pill 数据源).
+  // 修 PR-1: Settings dropdown 之前用静态 modelsForProvider() → 跟 pill 不一致 (pill 用动态).
+  // 启动期 / API 不通时 dynamic 为空 → render 自动 fallback 到静态列表。
+  const [modelsByProvider, setModelsByProvider] = useState<Record<string, string[]>>({})
 
   // —— Per-provider inline key 编辑 drafts ——
   // 用 Record<Provider, string> 让 6 个 provider 各自独立 input draft，互不干扰。
@@ -77,6 +81,7 @@ function Settings(): React.JSX.Element {
       setProviderKeyStates(s)
     )
     const offSelectedModel = window.api.onSelectedModelState((s) => setSelectedModel(s))
+    const offAvailableModels = window.api.onAvailableModels((m) => setModelsByProvider(m))
     const offTavily = window.api.onTavilyState((s) => setTavilyState(s))
     const offVision = window.api.onVisionState((s) => setVisionState(s))
     const offPrefs = window.api.onPrefsState((s) => setPrefs(s))
@@ -87,6 +92,7 @@ function Settings(): React.JSX.Element {
     })
     window.api.requestProviderKeyStates()
     window.api.requestSelectedModelState()
+    window.api.requestAvailableModels()
     window.api.requestTavilyState()
     window.api.requestVisionState()
     window.api.requestPrefsState()
@@ -95,6 +101,7 @@ function Settings(): React.JSX.Element {
     return () => {
       offProviderKeyStates()
       offSelectedModel()
+      offAvailableModels()
       offTavily()
       offVision()
       offPrefs()
@@ -296,30 +303,48 @@ function Settings(): React.JSX.Element {
               </div>
               <p className="hint">{info.description}</p>
 
-              {/* Model dropdown — 仅 active 时展开 (避免 6 个卡都展开噪音) */}
-              {isActive && selectedModel && (
-                <div className="row">
-                  <label>当前模型</label>
-                  <select
-                    value={selectedModel.modelId}
-                    onChange={(e) => handleModelChange(e.target.value)}
-                    className="profile-input"
-                  >
-                    {modelsForProvider(providerId).map((m) => {
-                      const tags: string[] = []
-                      if (m.isReasoning) tags.push('推理')
-                      if (!m.supportsTools) tags.push('无 tool')
-                      if (!m.supportsVision) tags.push('无 vision')
-                      return (
-                        <option key={m.id} value={m.id}>
-                          {m.label}
-                          {tags.length > 0 ? `(${tags.join(' / ')})` : ''}
-                        </option>
-                      )
-                    })}
-                  </select>
-                </div>
-              )}
+              {/* Model dropdown — 仅 active 时展开 (避免 6 个卡都展开噪音).
+                 PR-1: 数据源跟 chat pill (App.tsx:1106) 对齐 — dynamic listModels
+                 primary, 静态 modelsForProvider 作 fallback (启动期 / API 不通 / 新
+                 装且未连过任何 provider 时). metadata (label / 推理 / tool / vision
+                 tag) 仍走静态查询, 动态 list 里的新 modelId 没 metadata 时直接显
+                 raw id 不带 tag. */}
+              {isActive && selectedModel && (() => {
+                const staticEntries = modelsForProvider(providerId)
+                const dynamicIds = modelsByProvider[providerId] ?? []
+                const modelIds =
+                  dynamicIds.length > 0 ? dynamicIds : staticEntries.map((e) => e.id)
+                const metaById = new Map(staticEntries.map((e) => [e.id, e]))
+                // 当前 selectedModel.modelId 不在列表里时显示一条占位避免 select 空 value
+                const idsWithCurrent = modelIds.includes(selectedModel.modelId)
+                  ? modelIds
+                  : [selectedModel.modelId, ...modelIds]
+                return (
+                  <div className="row">
+                    <label>当前模型</label>
+                    <select
+                      value={selectedModel.modelId}
+                      onChange={(e) => handleModelChange(e.target.value)}
+                      className="profile-input"
+                    >
+                      {idsWithCurrent.map((id) => {
+                        const meta = metaById.get(id)
+                        const tags: string[] = []
+                        if (meta?.isReasoning) tags.push('推理')
+                        if (meta && !meta.supportsTools) tags.push('无 tool')
+                        if (meta && !meta.supportsVision) tags.push('无 vision')
+                        const label = meta?.label ?? id
+                        return (
+                          <option key={id} value={id}>
+                            {label}
+                            {tags.length > 0 ? ` (${tags.join(' / ')})` : ''}
+                          </option>
+                        )
+                      })}
+                    </select>
+                  </div>
+                )
+              })()}
 
               <div className="row">
                 <input
