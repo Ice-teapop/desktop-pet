@@ -616,7 +616,8 @@ let currentSelectedModel: SelectedModel = DEFAULT_SELECTED_MODEL
  * 不暴露明文 key 给 renderer（只 IPC boolean status）。
  */
 const currentProviderKeys = new Map<Provider, string | null>()
-let llmClient: LlmClient | null = null
+// v0.4.0 fallback: 每次 chat:submit 内 instantiate LlmClient (cheap, ~1ms), 不再 cache.
+// 原因: fallback chain 可能每 turn 用不同 provider, cache 单 client 没意义.
 // 活动识别（M3-3）：detector 推的状态独立于 PetState，渲染层组合两者决定 SVG
 let currentActivity: ActivityState = 'idle'
 let followFrontApp = true
@@ -850,7 +851,6 @@ function setKeyInMemory(key: string | null): void {
   // wave 4.4 unify IPC 后 setKeyInMemory 整个删除。
   currentProviderKeys.set('anthropic', key)
   // 重置缓存 client —— 下次 getLlmClient 会用新 key 重建
-  llmClient = null
   keyState = key ? 'ready' : 'missing'
   // M7-5: 内嵌 notifyKeyState —— 让每个 setKeyInMemory caller 自动广播 key:state。
   // 之前 wave 4.4 provider-key:submit 走 anthropic 分支调 setKeyInMemory 但**没**调
@@ -859,29 +859,6 @@ function setKeyInMemory(key: string | null): void {
   // resetKey / legacy key:submit 也都调 setKeyInMemory，重复 notifyKeyState 无害
   // （webContents.send 幂等）。
   notifyKeyState()
-}
-
-/**
- * 拿当前 LlmClient（按 currentSelectedModel.provider/modelId 跟 currentProviderKeys
- * 派生）。currentProviderKeys map 里对应 provider 没 key → null（chat:submit 走
- * 'no-api-key' error）。Cached 直到 setKeyInMemory/setModel/setSelectedModel
- * 把 llmClient = null 让下次重建。
- */
-function getLlmClient(): LlmClient | null {
-  if (llmClient) return llmClient
-  const apiKey = currentProviderKeys.get(currentSelectedModel.provider)
-  if (!apiKey) return null
-  const model = instantiateModelSync(
-    currentSelectedModel.provider,
-    apiKey,
-    currentSelectedModel.modelId
-  )
-  llmClient = new LlmClient(
-    model,
-    currentSelectedModel.modelId,
-    currentSelectedModel.provider
-  )
-  return llmClient
 }
 
 /**
@@ -938,7 +915,6 @@ function setModel(id: ModelId): void {
   // selectedModel 一定是 anthropic + id。Wave 4 新增 setSelectedModel 入口才能
   // 切到别的 provider。
   currentSelectedModel = { provider: 'anthropic', modelId: id }
-  llmClient = null
   currentStreamHandle?.abort()
   currentStreamHandle = null
   chatTurnToken++
@@ -1588,7 +1564,6 @@ function registerIpc(): void {
       } else {
         currentProviderKeys.set(rawProvider, key)
         if (rawProvider === currentSelectedModel.provider) {
-          llmClient = null
         }
       }
       // **关键修**: 自动切 selectedModel 到刚配 key 的 provider, 如果当前选中 provider
@@ -1606,7 +1581,6 @@ function registerIpc(): void {
         if (rawProvider === 'anthropic' && isValidModelId(currentSelectedModel.modelId)) {
           currentModel = currentSelectedModel.modelId
         }
-        llmClient = null
         rebuildTrayMenu()
         broadcastSelectedModelState()
         void savePreferences(currentPrefsSnapshot()).catch((err) => {
@@ -1659,7 +1633,6 @@ function registerIpc(): void {
     })
     currentProviderKeys.set(rawProvider, null)
     if (rawProvider === currentSelectedModel.provider) {
-      llmClient = null
     }
     broadcastProviderKeyStates()
   })
@@ -1713,7 +1686,6 @@ function registerIpc(): void {
       }
     }
 
-    llmClient = null
     rebuildTrayMenu()
     schedulePrefsSave(currentPrefsSnapshot())
     broadcastSelectedModelState()
@@ -1941,8 +1913,16 @@ function registerIpc(): void {
     const cleaned = String(text).slice(0, 2000).trim()
     if (!cleaned) return
 
-    const client = getLlmClient()
-    if (!client) {
+    // v0.4.0 Provider auto-fallback: 计算 fallback chain.
+    // 首选 = currentSelectedModel.provider; 后续 = PROVIDER_ORDER 里其它有 key 的.
+    // Anthropic 529 overloaded / 429 rate-limited 且 0 chunk 时自动切下家重试.
+    const selectedProvider = currentSelectedModel.provider
+    const hasKey = (p: Provider): boolean => !!currentProviderKeys.get(p)
+    const fallbackChain: Provider[] = [
+      ...(hasKey(selectedProvider) ? [selectedProvider] : []),
+      ...PROVIDER_ORDER.filter((p) => p !== selectedProvider && hasKey(p))
+    ]
+    if (fallbackChain.length === 0) {
       // missing 状态兜底：渲染层应当走 key:submit，不该走到这里
       win.webContents.send('chat:error', { kind: 'no-api-key' })
       return
@@ -1995,74 +1975,105 @@ function registerIpc(): void {
 
     const myToken = ++chatTurnToken
     let aiText = ''
-    // stream 同步返回 handle，回调异步触发 —— 不要 await 这一行
-    currentStreamHandle = client.stream(
-      chatHistory,
-      {
-        onChunk(delta) {
-          if (myToken !== chatTurnToken) return
-          aiText += delta
-          win.webContents.send('chat:chunk', delta)
-        },
-        onDone(usage) {
-          // 流式中 chatHistory 被 reset 清空了 → 别 push assistant turn 进去，
-          // 否则下次 messages 起头是 assistant，Anthropic 返回 400 invalid_messages
-          if (myToken !== chatTurnToken) return
-          currentStreamHandle = null
-          // **关键修**: AI 上一轮 0 chunk 时 aiText==='', 不能 push 空 content 进历史
-          // 否则下次 streamText 把空 text content block 发给 Anthropic → 整 request 400
-          // "messages: text content blocks must be non-empty". 0 chunk 多见于 tool-only
-          // 一轮 (assistant 只调 tool 没 text) 或 empty-response (finishReason 异常)。
-          if (aiText.length > 0) {
-            chatHistory.push({ role: 'assistant', content: aiText })
-          } else {
-            console.warn('[chat] skipping empty assistant message (0 text chunk)')
-          }
-          trimChatHistory()
-          // M5-2：debounce 持久化对话历史
-          scheduleChatHistorySave()
-          // remember / save_user_profile tool 可能这一轮被调 → 刷新两个缓存
-          void refreshPetMemory()
-          void refreshUserProfile()
-          win.webContents.send('chat:done', usage)
-          stateMachine.transition('success')
-          stateMachine.scheduleReturnToIdle(SUCCESS_HOLD_MS)
-        },
-        onError(err) {
-          if (myToken !== chatTurnToken) return
-          currentStreamHandle = null
-          if (chatHistory[chatHistory.length - 1]?.role === 'user') {
-            chatHistory.pop()
-          }
-          win.webContents.send('chat:error', err)
-          stateMachine.transition('error')
-          stateMachine.scheduleReturnToIdle(ERROR_HOLD_MS)
-          // 401 invalid-api-key → 自动清掉坏 key，引导用户重设。
-          // M7-4: provider-aware —— 老 resetKey() 只清 Anthropic credentials.bin
-          // + setKeyInMemory hardcode 清 anthropic slot；wave 4.2 user 切 OpenAI
-          // 输错 key 401 不能误清 anthropic slot。
-          if (err.kind === 'invalid-api-key') {
-            if (currentSelectedModel.provider === 'anthropic') {
-              void resetKey()
+    let attemptIdx = 0
+    let gotChunk = false
+
+    /**
+     * v0.4.0 Provider auto-fallback: 从 fallbackChain[i] 跑 stream, 如果 overloaded /
+     * rate-limited 且 0 chunk → 递归切下家继续. 用户体感: 一次回答稍慢一点, 但永远有人答.
+     *
+     * 不能 fallback 的情况:
+     * - 已收到 chunk (用户看到一半内容, 切了感觉割裂)
+     * - err.kind 非 overloaded / rate-limited (e.g. invalid-api-key 切了也没用)
+     * - fallback chain 用完了 (用户只配了 1 个 provider, 或者全家都过载)
+     */
+    const startStreamFromProvider = (provider: Provider): void => {
+      const apiKey = currentProviderKeys.get(provider)
+      if (!apiKey) {
+        win.webContents.send('chat:error', { kind: 'no-api-key' })
+        return
+      }
+      // 第一次用 currentSelectedModel (含用户选的 modelId), fallback 用 defaultModelForProvider
+      // (新 provider 必须用自己 default model, currentSelectedModel.modelId 是上一家的)
+      const targetModel =
+        provider === selectedProvider ? currentSelectedModel : defaultModelForProvider(provider)
+      const langModel = instantiateModelSync(provider, apiKey, targetModel.modelId)
+      const fbClient = new LlmClient(langModel, targetModel.modelId, provider)
+
+      // 给用户一个 inline 提示 (fallback 时), display only 不入 aiText / 不进历史
+      if (attemptIdx > 0) {
+        const prev = fallbackChain[attemptIdx - 1]
+        const note = `\n_( ${prev} 过载, 已切到 ${provider} )_\n\n`
+        win.webContents.send('chat:chunk', note)
+      }
+
+      currentStreamHandle = fbClient.stream(
+        chatHistory,
+        {
+          onChunk(delta) {
+            if (myToken !== chatTurnToken) return
+            gotChunk = true
+            aiText += delta
+            win.webContents.send('chat:chunk', delta)
+          },
+          onDone(usage) {
+            if (myToken !== chatTurnToken) return
+            currentStreamHandle = null
+            if (aiText.length > 0) {
+              chatHistory.push({ role: 'assistant', content: aiText })
             } else {
-              // 仅清内存里坏掉的 provider key + 让 llmClient 重建（下次还没新 key
-              // 会再次走 'no-api-key' 引导）。盘上文件 cleanup 留 wave 4.4 新 IPC
-              // resetProviderKey(provider) 统一处理。user 可立即切回 anthropic 或
-              // 换 provider 继续工作。
-              currentProviderKeys.set(currentSelectedModel.provider, null)
-              llmClient = null
+              console.warn('[chat] skipping empty assistant message (0 text chunk)')
+            }
+            trimChatHistory()
+            scheduleChatHistorySave()
+            void refreshPetMemory()
+            void refreshUserProfile()
+            win.webContents.send('chat:done', usage)
+            stateMachine.transition('success')
+            stateMachine.scheduleReturnToIdle(SUCCESS_HOLD_MS)
+          },
+          onError(err) {
+            if (myToken !== chatTurnToken) return
+            // Fallback 判定: overloaded / rate-limited + 0 chunk + 还有下家可试
+            const canFallback =
+              (err.kind === 'overloaded' || err.kind === 'rate-limited') &&
+              !gotChunk &&
+              attemptIdx + 1 < fallbackChain.length
+            if (canFallback) {
+              attemptIdx++
+              const next = fallbackChain[attemptIdx]
+              console.log(`[chat fallback] ${provider} ${err.kind} → trying ${next}`)
+              startStreamFromProvider(next)
+              return
+            }
+            // 真错: surface 到 renderer + 回滚历史
+            currentStreamHandle = null
+            if (chatHistory[chatHistory.length - 1]?.role === 'user') {
+              chatHistory.pop()
+            }
+            win.webContents.send('chat:error', err)
+            stateMachine.transition('error')
+            stateMachine.scheduleReturnToIdle(ERROR_HOLD_MS)
+            // 401 invalid-api-key → 自动清掉坏 key, 引导用户重设. provider-aware.
+            if (err.kind === 'invalid-api-key') {
+              if (provider === 'anthropic') {
+                void resetKey()
+              } else {
+                currentProviderKeys.set(provider, null)
+              }
             }
           }
+        },
+        {
+          toolContext: toolCtx,
+          memory: petMemoryCache,
+          userProfile: userProfileCache,
+          currentPetState: stateMachine.getState()
         }
-      },
-      {
-        toolContext: toolCtx,
-        memory: petMemoryCache,
-        userProfile: userProfileCache,
-        // M8: 让 AI 知道桌宠当前状态（"pet 要知道自己现在是什么状态"）
-        currentPetState: stateMachine.getState()
-      }
-    )
+      )
+    }
+
+    startStreamFromProvider(fallbackChain[0])
   })
 
   ipcMain.on('chat:set-open', (_event, open: boolean) => {
