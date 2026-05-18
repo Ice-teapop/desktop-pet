@@ -108,6 +108,9 @@ export interface DeskPetAPI {
   revealUserProfileInFinder(): void
   // v0.4.0 改动 2 [D] 拖文件 — 给 AI 喂上下文
   dropFiles(paths: string[]): Promise<DropResult>
+  // v0.4.0 改动 4 [B] 动态 listModels
+  requestAvailableModels(): void
+  onAvailableModels(listener: (modelsByProvider: Record<string, string[]>) => void): () => void
 }
 
 export type {

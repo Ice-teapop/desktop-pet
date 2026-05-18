@@ -372,6 +372,17 @@ const api = {
   // v0.4.0 改动 2 [D] 拖文件 — 返回 DropResult, renderer 自己拼 submitChat
   dropFiles(paths: string[]): Promise<DropResult> {
     return ipcRenderer.invoke('chat:drop-files', paths) as Promise<DropResult>
+  },
+  // v0.4.0 改动 4 [B] listModels — 触发 main 拉 + push, listener 收 per-provider 列表
+  requestAvailableModels(): void {
+    ipcRenderer.send('available-models:request')
+  },
+  onAvailableModels(
+    listener: (modelsByProvider: Record<string, string[]>) => void
+  ): () => void {
+    const handler = (_e: IpcRendererEvent, r: Record<string, string[]>): void => listener(r)
+    ipcRenderer.on('available-models:state', handler)
+    return () => ipcRenderer.off('available-models:state', handler)
   }
 }
 

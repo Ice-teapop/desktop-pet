@@ -114,6 +114,10 @@ import { loadTheme } from './storage/theme'
 import { ActiveAppMonitor } from './services/active-app'
 import { createSettingsWindow } from './services/settings-window'
 import { processDroppedFiles } from './services/dropped-files'
+import {
+  getAllAvailableModels,
+  getCachedAvailableModels
+} from './llm/available-models'
 // M7-4: llm/tools 老 ToolDef + buildToolsForContext + executeTool 路径已被
 // llm-client.ts 内部 buildToolSetForContext (AI SDK ToolSet) 取代 —— chat:submit
 // handler 只传 toolContext 给 LlmClient，SDK 自己跑 tool loop。tools.ts 老 export
@@ -1873,6 +1877,40 @@ function registerIpc(): void {
     }
     const validPaths = paths.filter((p): p is string => typeof p === 'string' && p.length > 0)
     return processDroppedFiles(validPaths)
+  })
+
+  // v0.4.0 改动 4 [B] 动态 listModels — UI dropdown 拉各 provider 真实可用 model
+  // renderer 调 requestAvailableModels(): main 先 push cached (即时显示), 再异步
+  // refresh (拉 listModels API 24h cache miss/expired) → push 更新.
+  ipcMain.on('available-models:request', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) return
+    // 1) 立即推 cache (renderer 启动后无延迟显示)
+    try {
+      const cached = await getCachedAvailableModels()
+      const cachedRecord: Record<string, string[]> = {}
+      for (const [p, models] of cached) cachedRecord[p] = models
+      win.webContents.send('available-models:state', cachedRecord)
+    } catch (err) {
+      console.warn('[available-models] cached read failed:', err)
+    }
+    // 2) 异步 refresh (24h TTL miss / 永远 force=false) — 只拉已配 provider
+    const keysMap = new Map<Provider, string>()
+    for (const p of PROVIDER_ORDER) {
+      const k = currentProviderKeys.get(p)
+      if (k) keysMap.set(p, k)
+    }
+    if (keysMap.size === 0) return
+    try {
+      const refreshed = await getAllAvailableModels(keysMap)
+      const refreshedRecord: Record<string, string[]> = {}
+      for (const [p, models] of refreshed) refreshedRecord[p] = models
+      if (!win.isDestroyed()) {
+        win.webContents.send('available-models:state', refreshedRecord)
+      }
+    } catch (err) {
+      console.warn('[available-models] refresh failed:', err)
+    }
   })
 
   // —— M5-3 用户档案 IPC ——
