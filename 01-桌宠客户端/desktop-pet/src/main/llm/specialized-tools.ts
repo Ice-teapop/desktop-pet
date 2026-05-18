@@ -65,6 +65,27 @@ const ANTHROPIC_WEB_SEARCH_MAX_USES = 5
 // tool 走 provider 按 token 计费, 用户无 UI 提示。Tavily 反而按 quota 透明。
 // follow-up: chat 顶部加 native-tool 触发徽章 + 一次性 "what this costs" toast。
 
+// —— OpenAI native tools 兼容性 ————————————————————————————————————
+//
+// openai.tools.webSearchPreview / codeInterpreter 只在 GPT-4o 家族 chat
+// completion 端点上稳定。注入到 legacy completions (`gpt-3.5-turbo-instruct*`)
+// / o-series reasoning model 等会让 OpenAI API 拒整个请求 → SDK 抛
+// AI_NoOutputGeneratedError → classifier 归类为 'empty-response' → 触发
+// fallback 到 Anthropic, 用户看到误导性"过载"提示。这是用户 2026-05-19
+// 报"openai 输入完之后还是没有用"的根因。
+//
+// 跟 Anthropic 同 pattern: 白名单 family prefix, 不在名单里的不注入 native tool
+// (走纯 18 本地 tool + Tavily 已够用)。白名单保守 — 列入实测 webSearchPreview /
+// codeInterpreter 支持的 family; o-series / 3.5 / 4-turbo / 旧 davinci 等都不
+// 注入 (provider 文档对 server-side tool 支持矩阵更新滞后, 仓库内白名单跟不上)。
+const OPENAI_NATIVE_TOOL_ALLOWED_FAMILIES = ['gpt-4o', 'gpt-4.1'] as const
+
+/** true = 该 modelId 支持 openai_web_search / openai_code_interpreter */
+function supportsOpenAINativeTools(modelId: string): boolean {
+  const lower = modelId.toLowerCase()
+  return OPENAI_NATIVE_TOOL_ALLOWED_FAMILIES.some((fam) => lower.includes(fam))
+}
+
 /**
  * 给定 provider，返回该 provider 的 specialized server-side tool 集（dynamic
  * 每 turn 调一次）。DeepSeek / ByteDance 当前无 native server tool 暴露给
@@ -84,13 +105,16 @@ export function buildSpecializedToolsForProvider(selected: SelectedModel): ToolS
       }
       return tools
     }
-    case 'openai':
-      return {
+    case 'openai': {
+      const tools: ToolSet = {}
+      if (supportsOpenAINativeTools(selected.modelId)) {
         // GPT-4o 原生 web search（webSearchPreview = stable interface）
-        openai_web_search: openai.tools.webSearchPreview({}),
+        tools.openai_web_search = openai.tools.webSearchPreview({})
         // OpenAI 沙箱跑 Python
-        openai_code_interpreter: openai.tools.codeInterpreter({})
+        tools.openai_code_interpreter = openai.tools.codeInterpreter({})
       }
+      return tools
+    }
     case 'google':
       return {
         // Google Search grounding —— 比 Tavily / 其它 web search 更权威，附 citation

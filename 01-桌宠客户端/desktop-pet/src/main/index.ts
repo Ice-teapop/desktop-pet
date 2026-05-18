@@ -1591,14 +1591,13 @@ function registerIpc(): void {
         return
       }
       // anthropic 走 legacy setKeyInMemory（内部同步 map + 重置 llmClient + notifyKeyState）；
-      // 其它 provider 直接 set map + invalidate llmClient（当前选才需要）。
-      // 不重复 set map 的同一 key。
+      // 其它 provider 直接 set map。原本这里有 `if (rawProvider === currentSelectedModel.provider) {}`
+      // 空 if 块——注释说要 invalidate llmClient 但实际是 dead code（v0.4.0 fallback 后
+      // chat:submit 每次 instantiate, 不再 cache 复用, 无需 invalidate）。已删。
       if (rawProvider === 'anthropic') {
         setKeyInMemory(key)
       } else {
         currentProviderKeys.set(rawProvider, key)
-        if (rawProvider === currentSelectedModel.provider) {
-        }
       }
       // **关键修**: 自动切 selectedModel 到刚配 key 的 provider, 如果当前选中 provider
       // 还没 key —— 防止 onboarding 后果"key 设了但 model 还选 Claude → chat 仍 no-api-key".
@@ -2055,6 +2054,8 @@ function registerIpc(): void {
     let aiText = ''
     let attemptIdx = 0
     let gotChunk = false
+    // 记录上一家失败的 err.kind, 给 fallback 提示准确文案 (旧版硬编码"过载"误导)
+    let lastErrKind: string | null = null
 
     /**
      * v0.4.0 Provider auto-fallback: 从 fallbackChain[i] 跑 stream, 如果 overloaded /
@@ -2081,7 +2082,16 @@ function registerIpc(): void {
       // 给用户一个 inline 提示 (fallback 时), display only 不入 aiText / 不进历史
       if (attemptIdx > 0) {
         const prev = fallbackChain[attemptIdx - 1]
-        const note = `\n_( ${prev} 过载, 已切到 ${provider} )_\n\n`
+        // 按 lastErr.kind 区分文案 — 旧版硬编码"过载"误导 (empty-response /
+        // rate-limited 都被说成"过载"). 用户看到错误归因才知道是不是 provider /
+        // 模型选错 (e.g. OpenAI 老 model 注入 native tool 翻车被归类 empty-response).
+        const reasonZh: Record<string, string> = {
+          overloaded: '过载',
+          'rate-limited': '限流',
+          'empty-response': 'API 异常 (无回复)'
+        }
+        const reason = lastErrKind ? (reasonZh[lastErrKind] ?? lastErrKind) : '不可用'
+        const note = `\n_( ${prev} ${reason}, 已切到 ${provider} )_\n\n`
         win.webContents.send('chat:chunk', note)
       }
 
@@ -2131,6 +2141,7 @@ function registerIpc(): void {
               attemptIdx + 1 < fallbackChain.length
             if (canFallback) {
               attemptIdx++
+              lastErrKind = err.kind
               const next = fallbackChain[attemptIdx]
               console.log(`[chat fallback] ${provider} ${err.kind} → trying ${next}`)
               startStreamFromProvider(next)
