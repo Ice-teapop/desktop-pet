@@ -131,7 +131,13 @@ async function doClassify(
       prompt: `${app.name} (${app.bundleId})`,
       maxOutputTokens: 4,
       temperature: 0,
-      timeout: CLASSIFIER_TIMEOUT_MS
+      // v0.4.0 fix: 老代码 `timeout: 5000` 是 number 但 AI SDK v6 期望 TimeoutConfiguration
+      // object → 静默 ignore, classifier 实际无 timeout 撞 server 慢响应卡几十秒.
+      // 改 abortSignal 标准 API, 5s 后 throw AbortError → 上层 catch 'idle' 兜底.
+      // maxRetries: 0 — classifier 撞 529 没必要重试 (反正 fail 也是 'idle'), 减 server 同
+      // key RPM 窗口压力, 让 chat:submit 拿主路.
+      abortSignal: AbortSignal.timeout(CLASSIFIER_TIMEOUT_MS),
+      maxRetries: 0
     })
     // Haiku 偶发回 "coding." 或 "category: coding"，用 startsWith 兜底
     const trimmed = text.trim().toLowerCase()

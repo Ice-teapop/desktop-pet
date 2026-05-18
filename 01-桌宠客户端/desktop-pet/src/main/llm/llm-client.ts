@@ -369,6 +369,11 @@ export class LlmClient {
           stopWhen: stepCountIs(MAX_TOOL_STEPS),
           maxOutputTokens: getMaxOutputTokensForModel(this.modelId),
           ...(providerOptions ? { providerOptions } : {}),
+          // **v0.4.0 关键**: 默认 maxRetries=2 让 SDK 在 server 已过载时反复重发同样
+          // ~18-20K token payload 3 次, 加重 server load + 把 fallback chain 推迟 7s.
+          // 改 0 让单次 fail → 上层 onError → DeskPet provider fallback chain 立即切
+          // 下家. graceful degradation 由我们控制, 不让 SDK 自残式 retry.
+          maxRetries: 0,
           abortSignal: abortController.signal
         })
 
