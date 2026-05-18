@@ -16,7 +16,7 @@
  *  - hits-rect 检测严格用 chatPhase==='open'（不含 fade-out 中的 'closing'）
  *  - FADE_HALF_MS 单一来源 inline transition style（不跟 main.css 那行重复维护）
  */
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { PetState } from '../../shared/pet-state'
 import type { ActivityState, ChatError, KeyState } from '../../shared/chat-types'
 import type { VisionState } from '../../shared/vision-types'
@@ -484,46 +484,83 @@ function App(): React.JSX.Element {
 
   useEffect(() => {
     const off = window.api.onChatError((err) => {
-      setMessages((prev) => [
-        ...prev,
-        { id: msgIdRef.current++, role: 'ai', text: chatErrorText(err), status: 'error' }
-      ])
+      // S2 fix #1 (part): error 时清 running tool msg (它们等不到 tool-result 了)
+      setMessages((prev) => {
+        const swept = prev.map((m) =>
+          m.tool && m.tool.status === 'running'
+            ? {
+                ...m,
+                status: 'error' as const,
+                tool: { ...m.tool, status: 'error' as const }
+              }
+            : m
+        )
+        return [
+          ...swept,
+          { id: msgIdRef.current++, role: 'ai' as const, text: chatErrorText(err), status: 'error' as const }
+        ]
+      })
     })
     return off
   }, [])
 
   // v0.4.0 [A] msg-tool 卡: AI 调 tool 时 main 推 chat:tool-event {kind:'start'|'end'|'error', toolCallId, toolName}.
   // kind='start' → 插新 'tool' role message (status='running'); kind='end' → match toolCallId 改 status='done'.
+  // S2 fix #3: 同 toolCallId 多次 'start' 事件 (multi-step retry / fallback chain) 去重,
+  //            防止堆多张卡只有第一张被 end 命中其余永远 spinning.
   useEffect(() => {
     const off = window.api.onChatToolEvent((event) => {
       if (event.kind === 'start') {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: msgIdRef.current++,
-            role: 'tool',
-            text: '',
-            status: 'streaming',
-            tool: {
-              name: event.toolName,
-              status: 'running',
-              toolCallId: event.toolCallId
-            }
+        setMessages((prev) => {
+          // 去重: 已有同 toolCallId 卡就别插
+          if (prev.some((m) => m.tool?.toolCallId === event.toolCallId)) {
+            return prev
           }
-        ])
+          return [
+            ...prev,
+            {
+              id: msgIdRef.current++,
+              role: 'tool' as const,
+              text: '',
+              status: 'streaming' as const,
+              tool: {
+                name: event.toolName,
+                status: 'running' as const,
+                toolCallId: event.toolCallId
+              }
+            }
+          ]
+        })
       } else {
         // end / error → find by toolCallId, update status
-        const newStatus = event.kind === 'end' ? 'done' : 'error'
+        const newStatus: 'done' | 'error' = event.kind === 'end' ? 'done' : 'error'
         setMessages((prev) =>
           prev.map((m) =>
             m.tool && m.tool.toolCallId === event.toolCallId
-              ? { ...m, status: 'done', tool: { ...m.tool, status: newStatus } }
+              ? {
+                  ...m,
+                  status: (newStatus === 'error' ? 'error' : 'done') as 'error' | 'done',
+                  tool: { ...m.tool, status: newStatus }
+                }
               : m
           )
         )
       }
     })
     return off
+  }, [])
+
+  // S2 fix #1: abort / 切 turn / error 时清掉所有 still-running 的 msg-tool 卡.
+  // tool-call 后 stream abort → tool-result 永远不到 → UI 卡 "运行中 ⠂⠂⠂".
+  // 任何 chat 错误 / 新 submit 时把 running tool msg 标 'error' 让用户看到该卡终止了.
+  const sweepRunningToolMessages = useCallback((): void => {
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.tool && m.tool.status === 'running'
+          ? { ...m, status: 'error' as const, tool: { ...m.tool, status: 'error' as const } }
+          : m
+      )
+    )
   }, [])
 
   useEffect(() => {
@@ -676,6 +713,10 @@ function App(): React.JSX.Element {
   const submitChat = (): void => {
     const text = draft.trim()
     if (!text) return
+
+    // S2 fix #1 (part): 新 turn 开始前清掉上 turn 还 running 的 msg-tool 卡 (abort 后
+    // tool-result 不会再来, 不清会卡 "运行中"). 复用 sweepRunningToolMessages.
+    sweepRunningToolMessages()
 
     if (keyState === 'missing') {
       const detect = detectProvider(text)

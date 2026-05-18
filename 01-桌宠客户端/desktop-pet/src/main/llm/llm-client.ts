@@ -384,12 +384,14 @@ export class LlmClient {
         // 'tool-error' 等). 各 case 分发: text-delta → handler.onChunk (跟之前一致),
         // tool-call → onToolEvent kind='start', tool-result → kind='end', tool-error → 'error'.
         let textChunkCount = 0
+        let sawToolCall = false
         for await (const part of result.fullStream) {
           if (aborted) return
           if (part.type === 'text-delta') {
             textChunkCount++
             handler.onChunk(part.text)
           } else if (part.type === 'tool-call') {
+            sawToolCall = true
             handler.onToolEvent?.({
               kind: 'start',
               toolCallId: part.toolCallId,
@@ -419,7 +421,9 @@ export class LlmClient {
         // 用户报: 切到 Opus 4.7 / Sonnet 4.6 + adaptive thinking 偶发触发 (无 text output,
         // 全在 thinking budget); 或新 doc tool 嵌套 schema 被 Anthropic strict mode 拒
         // 整 request 但 stream 走完 0 chunk.
-        if (textChunkCount === 0) {
+        // S2 fix #2: textChunkCount === 0 + sawToolCall === true 时不该误判 empty-response
+        // (AI 只调 tool 没 text output 是合法行为, 不应触发 fallback chain).
+        if (textChunkCount === 0 && !sawToolCall) {
           const finishReason = await result.finishReason
           if (finishReason !== 'stop' && finishReason !== 'tool-calls') {
             handler.onError({ kind: 'empty-response', finishReason: String(finishReason) })
