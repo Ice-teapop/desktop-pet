@@ -36,6 +36,7 @@ import {
   SET_PET_ANIMATION,
   REMEMBER,
   FETCH_URL,
+  GET_WEATHER,
   WEB_SEARCH,
   READ_SYSTEM_PREFERENCE,
   executeTool,
@@ -316,6 +317,18 @@ export function buildToolSetForContext(ctx: ToolContext): ToolSet {
       'fetch_url',
       FETCH_URL.description,
       z.object({ url: z.string().describe('Public http(s) URL') }),
+      ctx
+    ),
+    get_weather: wrapTool(
+      'get_weather',
+      GET_WEATHER.description,
+      z.object({
+        location: z
+          .string()
+          .describe(
+            'City / region name in any language: 北京 / Beijing / "San Francisco, CA"'
+          )
+      }),
       ctx
     ),
     remember: wrapTool(

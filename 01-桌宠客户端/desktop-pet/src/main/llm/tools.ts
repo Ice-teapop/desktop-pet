@@ -642,6 +642,28 @@ export const FETCH_URL: ToolDef = {
   }
 }
 
+export const GET_WEATHER: ToolDef = {
+  name: 'get_weather',
+  description:
+    'Get current weather + next 12h forecast for a location. ' +
+    'Use when user asks "天气怎么样" / "现在多少度" / "明天下雨吗" / "weather in Tokyo" etc. ' +
+    'Provider: Open-Meteo (free, no API key). Resolves city name via geocoding then ' +
+    'fetches forecast. Returns temperature (°C), apparent temp, humidity, wind, ' +
+    'condition (中文), day/night flag, plus 12 hourly forecast points.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      location: {
+        type: 'string',
+        description:
+          'City / region name in any language. Examples: "北京", "Beijing", "New York", ' +
+          '"San Francisco, CA", "Tokyo". Resolved via Open-Meteo geocoding API.'
+      }
+    },
+    required: ['location']
+  }
+}
+
 export const WEB_SEARCH: ToolDef = {
   name: 'web_search',
   description:
@@ -709,6 +731,7 @@ const CORE_TOOLS = [
   OPEN_SYSTEM_SETTINGS,
   READ_SYSTEM_PREFERENCE,
   FETCH_URL,
+  GET_WEATHER,
   REMEMBER,
   SAVE_USER_PROFILE,
   SET_PET_ANIMATION
@@ -779,6 +802,8 @@ export async function executeTool(
       return await execReadSystemPreference(input)
     case 'fetch_url':
       return await execFetchUrl(input)
+    case 'get_weather':
+      return await execGetWeather(input)
     case 'web_search':
       return await execWebSearch(input, ctx)
     case 'remember':
@@ -2291,6 +2316,151 @@ interface TavilyResponse {
   answer?: string
   results?: TavilyResult[]
   query?: string
+}
+
+// —— get_weather —— Open-Meteo 免费 API 不需 key —————————————————————————
+
+const WEATHER_TIMEOUT_MS = 10_000
+
+// WMO weather code → 中文描述. 参 https://open-meteo.com/en/docs#weather_variable_documentation
+function wmoCodeToCn(code: number): string {
+  const map: Record<number, string> = {
+    0: '晴',
+    1: '少云',
+    2: '多云',
+    3: '阴',
+    45: '雾',
+    48: '冻雾',
+    51: '小毛毛雨',
+    53: '中毛毛雨',
+    55: '大毛毛雨',
+    56: '小冻毛毛雨',
+    57: '大冻毛毛雨',
+    61: '小雨',
+    63: '中雨',
+    65: '大雨',
+    66: '小冻雨',
+    67: '大冻雨',
+    71: '小雪',
+    73: '中雪',
+    75: '大雪',
+    77: '雪粒',
+    80: '小阵雨',
+    81: '中阵雨',
+    82: '大阵雨',
+    85: '小阵雪',
+    86: '大阵雪',
+    95: '雷暴',
+    96: '雷暴+小冰雹',
+    99: '雷暴+大冰雹'
+  }
+  return map[code] ?? `未知天气 (code ${code})`
+}
+
+interface GeocodingResult {
+  results?: Array<{
+    latitude: number
+    longitude: number
+    name: string
+    admin1?: string
+    country?: string
+    timezone?: string
+  }>
+}
+
+interface ForecastResult {
+  current: {
+    temperature_2m: number
+    apparent_temperature: number
+    relative_humidity_2m: number
+    wind_speed_10m: number
+    weather_code: number
+    is_day: number
+  }
+  hourly: {
+    time: string[]
+    temperature_2m: number[]
+    weather_code: number[]
+  }
+  timezone: string
+}
+
+async function execGetWeather(input: unknown): Promise<ToolResult> {
+  if (typeof input !== 'object' || input === null) {
+    return { ok: false, error: 'input must be { location: string }' }
+  }
+  const obj = input as { location?: unknown }
+  if (typeof obj.location !== 'string' || !obj.location.trim()) {
+    return { ok: false, error: 'location must be a non-empty string' }
+  }
+  const location = obj.location.trim()
+  await logToolAction({
+    tool: 'get_weather',
+    argsSummary: `location=${location}`,
+    result: 'ok',
+    detail: 'open-meteo (no key)'
+  })
+  try {
+    // 1. Geocoding —— 把 city name 转 lat/lng
+    const geoUrl =
+      `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(location)}` +
+      `&count=1&language=zh&format=json`
+    const geoResp = await fetch(geoUrl, { signal: AbortSignal.timeout(WEATHER_TIMEOUT_MS) })
+    if (!geoResp.ok) {
+      return { ok: false, error: `geocoding 失败 HTTP ${geoResp.status}` }
+    }
+    const geoJson = (await geoResp.json()) as GeocodingResult
+    if (!geoJson.results || geoJson.results.length === 0) {
+      return { ok: false, error: `没找到 "${location}"，换个名字试 (e.g. "Beijing" / "北京市")` }
+    }
+    const place = geoJson.results[0]
+
+    // 2. Forecast
+    const fcastUrl =
+      `https://api.open-meteo.com/v1/forecast?latitude=${place.latitude}&longitude=${place.longitude}` +
+      `&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code,is_day` +
+      `&hourly=temperature_2m,weather_code&forecast_days=2&timezone=auto`
+    const fcastResp = await fetch(fcastUrl, {
+      signal: AbortSignal.timeout(WEATHER_TIMEOUT_MS)
+    })
+    if (!fcastResp.ok) {
+      return { ok: false, error: `forecast 失败 HTTP ${fcastResp.status}` }
+    }
+    const fc = (await fcastResp.json()) as ForecastResult
+
+    // 3. Format
+    const placeName = [place.name, place.admin1, place.country].filter(Boolean).join(', ')
+    const cur = fc.current
+    const lines = [
+      `📍 ${placeName} (${fc.timezone})`,
+      `当前: ${wmoCodeToCn(cur.weather_code)} ${cur.temperature_2m}°C (体感 ${cur.apparent_temperature}°C)`,
+      `湿度 ${cur.relative_humidity_2m}% · 风速 ${cur.wind_speed_10m} km/h · ${cur.is_day ? '☀️ 白天' : '🌙 夜晚'}`,
+      '',
+      '未来 12 小时:'
+    ]
+    const now = new Date()
+    // hourly time 是从今天 00:00 起每小时一条; 找到当前时刻附近的索引取 12 条
+    const nowMs = now.getTime()
+    let startIdx = 0
+    for (let i = 0; i < fc.hourly.time.length; i++) {
+      if (new Date(fc.hourly.time[i]).getTime() >= nowMs) {
+        startIdx = i
+        break
+      }
+    }
+    const endIdx = Math.min(startIdx + 12, fc.hourly.time.length)
+    for (let i = startIdx; i < endIdx; i++) {
+      const t = new Date(fc.hourly.time[i])
+      const hh = t.getHours().toString().padStart(2, '0')
+      lines.push(
+        `  ${hh}:00  ${wmoCodeToCn(fc.hourly.weather_code[i])} ${fc.hourly.temperature_2m[i]}°C`
+      )
+    }
+    return { ok: true, content: lines.join('\n') }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return { ok: false, error: `获取天气失败: ${msg}` }
+  }
 }
 
 async function execWebSearch(input: unknown, ctx: ToolContext): Promise<ToolResult> {
