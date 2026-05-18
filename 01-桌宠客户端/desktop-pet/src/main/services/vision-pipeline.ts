@@ -38,6 +38,6 @@ export async function captureForTool(
   return {
     ok: true,
     data,
-    mediaType: 'image/png'
+    mediaType: cap.mediaType
   }
 }
