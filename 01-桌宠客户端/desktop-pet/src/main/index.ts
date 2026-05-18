@@ -2075,7 +2075,11 @@ function registerIpc(): void {
           }
         },
         {
-          toolContext: toolCtx,
+          // **v0.4.0 sub-bug fix**: fallback 切 provider 时 toolContext.selectedModel 必须
+          // 跟 fallback target 对齐 — 不然 specialized-tools 给 anthropic 模型注入了 openai
+          // native tool (openai.web_search_preview / code_interpreter), Anthropic SDK 警告
+          // "feature not supported". toolCtx.selectedModel 决定 specialized-tools 加哪家.
+          toolContext: { ...toolCtx, selectedModel: targetModel },
           memory: petMemoryCache,
           userProfile: userProfileCache,
           currentPetState: stateMachine.getState()
