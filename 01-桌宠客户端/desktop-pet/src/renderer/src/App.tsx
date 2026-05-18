@@ -20,13 +20,12 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { PetState } from '../../shared/pet-state'
 import { ACTIVITY_INFO } from '../../shared/chat-types'
 import type { ActivityState, ChatError, KeyState } from '../../shared/chat-types'
-import type { VisionState } from '../../shared/vision-types'
 import type { ApprovalDecision, ApprovalRequest } from '../../shared/approval-types'
-import type { TavilyState } from '../../shared/tavily-types'
 import type { PetMode } from '../../shared/pet-mode'
 import { DEFAULT_PET_MODE } from '../../shared/pet-mode'
 import { detectProvider } from '../../shared/key-detect'
 import { PROVIDERS } from '../../shared/provider-types'
+import type { SelectedModel } from '../../shared/provider-types'
 // idle 池 6 种"无聊时的小动作"，闲态随机切
 import idleGif from '@themes/clawd-dev/clawd-idle.gif'
 import idleReadingGif from '@themes/clawd-dev/clawd-idle-reading.gif'
@@ -200,9 +199,11 @@ function App(): React.JSX.Element {
   const [emoteHint, setEmoteHint] = useState<string | null>(null)
   const emoteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastActivityRef = useRef<ActivityState>('idle')
-  // v0.4.0 S3.3 [B] 第 3 颗 pill — companion mode (跟着我做事). 暂仅 renderer state,
-  // prefs IPC 拆 S3.3-impl 后续接入. 提前到 useEffect 作用域之前避免 TDZ.
-  const [petCompanionEnabled, setPetCompanionEnabled] = useState(false)
+  // v0.4.0 S3.3 [B] companion mode (跟着我做事). 用户反馈"默认开启", 改 default true.
+  // 已从 chat 顶部 pill 改成静默开启 — 真要关时去 Settings (pending S3.3-impl).
+  const [petCompanionEnabled] = useState(true)
+  // v0.4.0 改动 4: chat 顶部模型切换 pill 需要的当前选中模型 state
+  const [currentModel, setCurrentModel] = useState<SelectedModel | null>(null)
   // v0.4.0 S6.2 [D] DnD overlay: 用户拖文件到 pet 上方时显示 .pet-drop 大字
   // S6.3-S6.5 (主进程读文件 + agentic 处理) 后续拆出, 现在仅 renderer overlay
   const [dragOver, setDragOver] = useState(false)
@@ -216,16 +217,9 @@ function App(): React.JSX.Element {
   // → CSS opacity transition 让 back 0→1 + front 1→0 同时 ramp，永远不出现透明窗口
   const [frontIdx, setFrontIdx] = useState<0 | 1>(0)
   const [urls, setUrls] = useState<[string, string]>([IDLE_POOL[0], IDLE_POOL[0]])
-  // —— M4-A-4 视觉感知 state（agentic：AI 自主决定何时截屏，无 progress chip）——
-  const [visionState, setVisionState] = useState<VisionState | null>(null)
-  // 隐私同意 modal 开关
-  const [visionModalOpen, setVisionModalOpen] = useState(false)
   // —— M4-C 高风险 tool 待审批的请求（null = 当前无 pending） ——
   const [pendingApproval, setPendingApproval] = useState<ApprovalRequest | null>(null)
-  // —— M4-D-1 Tavily search API key state ——
-  const [tavilyState, setTavilyState] = useState<TavilyState | null>(null)
-  const [tavilyModalOpen, setTavilyModalOpen] = useState(false)
-  const [tavilyKeyDraft, setTavilyKeyDraft] = useState('')
+  // v0.4.0 改动 1: vision/tavily UI 全部迁移到 Settings, 这里不再持 state.
   // 记录"想切到的 url" —— 防止 back img 在我们没期待时（如初始 mount）fire onLoad 误触发 swap
   const pendingBackRef = useRef<string | null>(null)
   const msgIdRef = useRef(1)
@@ -292,6 +286,13 @@ function App(): React.JSX.Element {
     return off
   }, [])
 
+  // v0.4.0 改动 4: 订阅 selectedModel + 启动时拉一次, 给 chat 顶部模型 pill 用
+  useEffect(() => {
+    const off = window.api.onSelectedModelState((sel) => setCurrentModel(sel))
+    window.api.requestSelectedModelState()
+    return off
+  }, [])
+
   // v0.4.0 S4.4 [B] emote-hint: activity 切换时头顶弹 4s 表情气泡.
   // gate by petCompanionEnabled — 默认关闭, 用户开启 🎭 pill 后才弹.
   // 不依赖 'idle' (空闲态不打扰), 仅在转入 coding/writing/chatting/terminal 时显示.
@@ -329,10 +330,11 @@ function App(): React.JSX.Element {
     return off
   }, [])
 
-  // vision-simplify: tray 点 "屏幕感知" toggle 但用户没 consent → main 通知 renderer 弹 modal.
+  // v0.4.0 改动 1: tray 点 "屏幕感知" toggle 但用户没 consent → 改成直接打开 Settings,
+  // vision consent UI 已迁到 Settings 窗口的「Agentic 工具」section.
   useEffect(() => {
     const off = window.api.onVisionRequestConsentModal(() => {
-      setVisionModalOpen(true)
+      window.api.openSettings()
     })
     return off
   }, [])
@@ -417,25 +419,13 @@ function App(): React.JSX.Element {
     // mini mode 时 SVG opacity=0 不可见 → 不必每帧 write 3 个 invisible style.transform
   }, [state, activity, petMode])
 
-  // —— vision state 订阅 + 启动主动拉一次（同 keyState 防 race 模式）——
-  useEffect(() => {
-    const off = window.api.onVisionState((s) => setVisionState(s))
-    window.api.requestVisionState()
-    return off
-  }, [])
+  // v0.4.0 改动 1: vision/tavily state 订阅 已迁移到 Settings 窗口
 
   // —— 订阅 main 端的 approval 请求 ——
   // 一次只支持一个 pending —— 后来的覆盖前面的（理论上 main 端 serial 处理 tool calls，
   // 不会出现并发；这里做 last-wins 防御）
   useEffect(() => {
     const off = window.api.onApprovalRequest((req) => setPendingApproval(req))
-    return off
-  }, [])
-
-  // —— Tavily state 订阅 ——
-  useEffect(() => {
-    const off = window.api.onTavilyState((s) => setTavilyState(s))
-    window.api.requestTavilyState()
     return off
   }, [])
 
@@ -923,73 +913,8 @@ function App(): React.JSX.Element {
     pendingBackRef.current = null
     requestAnimationFrame(() => setFrontIdx(idx))
   }
-  // —— vision UI helpers ——
-  const handleVisionToggleClick = (): void => {
-    if (!visionState) return // 还没拿到状态，禁用
-    if (visionState.kind === 'disabled-no-consent') {
-      // 没 consent：弹隐私 modal
-      setVisionModalOpen(true)
-    } else if (visionState.kind === 'disabled') {
-      // 已 consent + 关 → 直接开
-      window.api.setVisionEnabled(true)
-    } else {
-      // enabled → 关
-      window.api.setVisionEnabled(false)
-    }
-  }
-
-  const handleVisionEnableConfirm = (): void => {
-    // consent + enable 主进程一并写入 prefs
-    window.api.acceptVisionConsentAndEnable()
-    setVisionModalOpen(false)
-  }
-
-  const handleVisionModalCancel = (): void => {
-    setVisionModalOpen(false)
-  }
-
-  const visionLabel = ((): string => {
-    if (!visionState) return '...'
-    if (visionState.kind === 'enabled') return '🧠 屏幕感知'
-    if (visionState.kind === 'disabled') return '🧠 屏幕感知 (关)'
-    return '🔒 启用屏幕感知'
-  })()
-  const visionPillOn = visionState?.kind === 'enabled'
-
-  // —— Tavily UI helpers ——
-  const handleTavilyButtonClick = (): void => {
-    setTavilyKeyDraft('')
-    setTavilyModalOpen(true)
-  }
-
-  const handleTavilyKeySubmit = (): void => {
-    const trimmed = tavilyKeyDraft.trim()
-    if (!trimmed) return
-    window.api.submitTavilyKey(trimmed)
-    setTavilyModalOpen(false)
-    setTavilyKeyDraft('')
-  }
-
-  const handleTavilyKeyReset = (): void => {
-    window.api.resetTavilyKey()
-    setTavilyModalOpen(false)
-    setTavilyKeyDraft('')
-  }
-
-  const handleTavilyModalCancel = (): void => {
-    setTavilyModalOpen(false)
-    setTavilyKeyDraft('')
-  }
-
-  const tavilyLabel = ((): string => {
-    if (!tavilyState) return '...'
-    return tavilyState.kind === 'configured' ? '🔍 搜索就绪' : '🔍 设搜索 key'
-  })()
-  const tavilyPillOn = tavilyState?.kind === 'configured'
-
-  // v0.4.0 [B] 第 3 颗 pill — 跟着我做事 (companion mode). state 已在上方 useState 区
-  const handleCompanionToggle = (): void => setPetCompanionEnabled((v) => !v)
-  const companionLabel = petCompanionEnabled ? '🎭 跟着做事' : '🎭 自顾自'
+  // v0.4.0 改动 1: vision + tavily modal 已全部移到 Settings 窗口管理.
+  // chat 顶部只剩 1 颗模型 pill, 不再保留 helpers / labels / handlers.
 
   // v0.4.0 [A] anyToolRunning — pet 容器 .pet-busy-ring 接 running tool state
   const anyToolRunning = messages.some(
@@ -1102,38 +1027,20 @@ function App(): React.JSX.Element {
               </>
             )}
           </div>
+          {/* v0.4.0 改动 1+4: chat 顶部 vision-bar 简化为「单颗模型切换 pill」.
+              vision + tavily + companion 三颗都移走/默认开:
+              - vision/tavily → Settings 里管 (已存在 section)
+              - companion → default true 静默运行 (代码层 const true)
+              点击 pill → 打开 Settings (临时方案; 后续 listModels 动态下拉拆 batch 3) */}
           <div className="vision-bar">
             <button
               type="button"
-              className={visionPillOn ? 'vision-pill vision-pill--on' : 'vision-pill'}
-              onClick={handleVisionToggleClick}
-              disabled={!visionState}
-              data-state={visionState?.kind}
+              className="vision-pill vision-pill--on"
+              onClick={() => window.api.openSettings()}
+              title="点击去设置切换模型 / 配置 provider"
             >
-              <span className="vision-pill-ico">{visionLabel.slice(0, 2)}</span>
-              {visionLabel.slice(2).trim()}
-            </button>
-            <button
-              type="button"
-              className={tavilyPillOn ? 'vision-pill vision-pill--on' : 'vision-pill'}
-              onClick={handleTavilyButtonClick}
-              disabled={!tavilyState}
-              data-state={tavilyState?.kind}
-            >
-              <span className="vision-pill-ico">{tavilyLabel.slice(0, 2)}</span>
-              {tavilyLabel.slice(2).trim()}
-            </button>
-            <button
-              type="button"
-              className={
-                petCompanionEnabled ? 'vision-pill vision-pill--on' : 'vision-pill'
-              }
-              onClick={handleCompanionToggle}
-              data-state={petCompanionEnabled ? 'enabled' : 'disabled'}
-              title="开启后 AI 调用 tool 时桌宠会有动作伴随"
-            >
-              <span className="vision-pill-ico">🎭</span>
-              {companionLabel.slice(2).trim()}
+              <span className="vision-pill-ico">🤖</span>
+              {currentModel ? currentModel.modelId : '加载中…'}
             </button>
           </div>
           <input
@@ -1147,100 +1054,7 @@ function App(): React.JSX.Element {
           />
         </div>
       )}
-      {visionModalOpen && (
-        <div className="vision-modal-overlay" onClick={handleVisionModalCancel}>
-          <div className="vision-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="vision-modal-title">启用屏幕感知?</div>
-            <div className="vision-modal-body">
-              <p>AI 看你屏幕回答"屏幕上有啥"、"看看我在干啥"等问题。</p>
-              <p className="vision-modal-endpoint">
-                截图发往 Anthropic，本地不存，可随时关。
-              </p>
-            </div>
-            <div className="vision-modal-actions">
-              <button type="button" className="vision-modal-btn-cancel" onClick={handleVisionModalCancel}>
-                取消
-              </button>
-              <button
-                type="button"
-                className="vision-modal-btn-ok"
-                onClick={handleVisionEnableConfirm}
-              >
-                启用
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      {tavilyModalOpen && (
-        <div className="vision-modal-overlay" onClick={handleTavilyModalCancel}>
-          <div className="vision-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="vision-modal-title">搜索 API（Tavily）</div>
-            <div className="vision-modal-body">
-              <p>
-                状态：
-                {tavilyState?.kind === 'configured' ? (
-                  <b style={{ color: 'var(--coral-deep)' }}>已配置（加密落盘）</b>
-                ) : (
-                  <b style={{ color: 'var(--muted)' }}>未配置</b>
-                )}
-              </p>
-              <p>
-                Tavily 提供 AI 友好的网页搜索（免费 1000 次/月）。配置后 AI 可以在你
-                问到需要联网信息时自动调用。
-              </p>
-              <p>
-                获取 key：
-                <code className="vision-modal-endpoint">tavily.com</code>{' '}
-                注册账号后从 dashboard 拿。格式 <code>tvly-xxxxxxxxxxxx</code>。
-              </p>
-              <ul>
-                <li>safeStorage AES-256 加密落盘（macOS Keychain backed）</li>
-                <li>query 发送到 api.tavily.com 由 Tavily 处理</li>
-                <li>本地随时清除；env var <code>TAVILY_API_KEY</code> 启动时优先</li>
-              </ul>
-              <input
-                className="vision-modal-input"
-                type="password"
-                placeholder={
-                  tavilyState?.kind === 'configured'
-                    ? '粘贴新 key 覆盖（或留空仅查看）'
-                    : '粘贴 tvly-... key'
-                }
-                value={tavilyKeyDraft}
-                onChange={(e) => setTavilyKeyDraft(e.target.value)}
-                autoFocus
-              />
-            </div>
-            <div className="vision-modal-actions">
-              <button
-                type="button"
-                className="vision-modal-btn-cancel"
-                onClick={handleTavilyModalCancel}
-              >
-                取消
-              </button>
-              {tavilyState?.kind === 'configured' && (
-                <button
-                  type="button"
-                  className="vision-modal-btn-cancel"
-                  onClick={handleTavilyKeyReset}
-                >
-                  清除已存 key
-                </button>
-              )}
-              <button
-                type="button"
-                className="vision-modal-btn-ok"
-                onClick={handleTavilyKeySubmit}
-                disabled={!tavilyKeyDraft.trim()}
-              >
-                保存
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* v0.4.0 改动 1: vision modal + tavily modal 已删 — 全部迁移到 Settings 窗口 */}
       {pendingApproval && (
         <div className="vision-modal-overlay">
           <div className="vision-modal approval-modal" onClick={(e) => e.stopPropagation()}>

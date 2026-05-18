@@ -468,7 +468,22 @@ function Settings(): React.JSX.Element {
           </span>
         </div>
         {visionState?.kind === 'disabled-no-consent' && (
-          <p className="hint">回桌宠对话区点「🔒 启用屏幕感知」按钮走 consent 流程。</p>
+          <div className="row" style={{ flexDirection: 'column', gap: 6 }}>
+            <p className="hint" style={{ margin: 0 }}>
+              ⚠️ 启用后 AI 会在你问"看看屏幕"等问题时截屏发往 Anthropic. 本地不存盘,
+              可随时关. 同意才能继续.
+            </p>
+            <div className="row" style={{ marginTop: 4 }}>
+              <button
+                onClick={() => {
+                  window.api.acceptVisionConsentAndEnable()
+                  showToast('已同意 consent + 启用屏幕感知')
+                }}
+              >
+                同意并启用
+              </button>
+            </div>
+          </div>
         )}
         {visionState?.kind === 'disabled' && (
           <div className="row">
