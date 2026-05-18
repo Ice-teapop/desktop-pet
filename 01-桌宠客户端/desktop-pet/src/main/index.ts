@@ -2033,8 +2033,13 @@ function registerIpc(): void {
             stateMachine.scheduleReturnToIdle(SUCCESS_HOLD_MS)
           },
           onError(err) {
-            if (myToken !== chatTurnToken) return
-            // Fallback 判定: overloaded / rate-limited + 0 chunk + 还有下家可试
+            console.log(
+              `[chat] onError(${provider}): kind=${err.kind} gotChunk=${gotChunk} attemptIdx=${attemptIdx}/${fallbackChain.length} token=${myToken}/${chatTurnToken}`
+            )
+            if (myToken !== chatTurnToken) {
+              console.log('[chat] token mismatch, drop error')
+              return
+            }
             const canFallback =
               (err.kind === 'overloaded' || err.kind === 'rate-limited') &&
               !gotChunk &&
@@ -2046,6 +2051,9 @@ function registerIpc(): void {
               startStreamFromProvider(next)
               return
             }
+            console.log(
+              `[chat] no fallback, surfacing err (canFallback=${canFallback})`
+            )
             // 真错: surface 到 renderer + 回滚历史
             currentStreamHandle = null
             if (chatHistory[chatHistory.length - 1]?.role === 'user') {
