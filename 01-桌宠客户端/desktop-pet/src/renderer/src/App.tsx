@@ -914,10 +914,11 @@ function App(): React.JSX.Element {
 
   const visionLabel = ((): string => {
     if (!visionState) return '...'
-    if (visionState.kind === 'enabled') return '👁 允许 AI 看屏'
-    if (visionState.kind === 'disabled') return '👁 禁止看屏'
+    if (visionState.kind === 'enabled') return '🧠 屏幕感知'
+    if (visionState.kind === 'disabled') return '🧠 屏幕感知 (关)'
     return '🔒 启用屏幕感知'
   })()
+  const visionPillOn = visionState?.kind === 'enabled'
 
   // —— Tavily UI helpers ——
   const handleTavilyButtonClick = (): void => {
@@ -948,6 +949,18 @@ function App(): React.JSX.Element {
     if (!tavilyState) return '...'
     return tavilyState.kind === 'configured' ? '🔍 搜索就绪' : '🔍 设搜索 key'
   })()
+  const tavilyPillOn = tavilyState?.kind === 'configured'
+
+  // v0.4.0 [B] 第 3 颗 pill — 跟着我做事 (companion mode)
+  // S3.3 暂时只是本地 UI 占位 state, prefs IPC 后续 S3.3-impl 接入 main 端
+  const [petCompanionEnabled, setPetCompanionEnabled] = useState(false)
+  const handleCompanionToggle = (): void => setPetCompanionEnabled((v) => !v)
+  const companionLabel = petCompanionEnabled ? '🎭 跟着做事' : '🎭 自顾自'
+
+  // v0.4.0 [A] anyToolRunning — pet 容器 .pet-busy-ring 接 running tool state
+  const anyToolRunning = messages.some(
+    (m) => m.tool && m.tool.status === 'running'
+  )
 
   // keyState 还没就位时禁用：避免「user msg / no-api-key 错误 / 迎宾」三连闪
   // 等 AI 回复时禁用：避免连点 submit 让旧 stream 被 token 屏蔽但仍在烧 Anthropic token
@@ -1039,21 +1052,35 @@ function App(): React.JSX.Element {
           <div className="vision-bar">
             <button
               type="button"
-              className="vision-toggle"
+              className={visionPillOn ? 'vision-pill vision-pill--on' : 'vision-pill'}
               onClick={handleVisionToggleClick}
               disabled={!visionState}
               data-state={visionState?.kind}
             >
-              {visionLabel}
+              <span className="vision-pill-ico">{visionLabel.slice(0, 2)}</span>
+              {visionLabel.slice(2).trim()}
             </button>
             <button
               type="button"
-              className="vision-toggle"
+              className={tavilyPillOn ? 'vision-pill vision-pill--on' : 'vision-pill'}
               onClick={handleTavilyButtonClick}
               disabled={!tavilyState}
               data-state={tavilyState?.kind}
             >
-              {tavilyLabel}
+              <span className="vision-pill-ico">{tavilyLabel.slice(0, 2)}</span>
+              {tavilyLabel.slice(2).trim()}
+            </button>
+            <button
+              type="button"
+              className={
+                petCompanionEnabled ? 'vision-pill vision-pill--on' : 'vision-pill'
+              }
+              onClick={handleCompanionToggle}
+              data-state={petCompanionEnabled ? 'enabled' : 'disabled'}
+              title="开启后 AI 调用 tool 时桌宠会有动作伴随"
+            >
+              <span className="vision-pill-ico">🎭</span>
+              {companionLabel.slice(2).trim()}
             </button>
           </div>
           <input
@@ -1238,6 +1265,10 @@ function App(): React.JSX.Element {
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
       >
+        {/* v0.4.0 S4.2 [A] pet-busy-ring — AI 调 tool 时 pet 周围珊瑚虚线闪烁,
+            消息流中 m.tool.status==='running' 至少 1 个就显示. Mini 模式也显示 —
+            CSS `inset:6px` + `clip-path` 自然适配 64×64. */}
+        {anyToolRunning && <div className="pet-busy-ring" aria-hidden="true" />}
         {/* M9-5a Mini mode：单 img 渲染 mini-idle.gif。Sub-wave B 加 hover peek / mini
             state→gif 映射。Mini 模式下完全独立于下方 IdleFollow + dual-img 体系。 */}
         {petMode === 'mini' && (
