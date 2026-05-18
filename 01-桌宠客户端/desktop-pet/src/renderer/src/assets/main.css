@@ -507,6 +507,42 @@ body,
   border-color: var(--coral-deep);
 }
 
+/* v0.4.0 改动 5: 指令预测 ghost 文字 — input 内嵌灰色后缀 */
+.chat-input-wrap {
+  position: relative;
+  width: 100%;
+}
+.chat-input-wrap .chat-input { position: relative; z-index: 2; background: transparent; }
+.chat-input-ghost {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  padding: 8px 12px;
+  font-family: var(--fnt-cn);
+  font-size: 12.5px;
+  letter-spacing: 0.3px;
+  pointer-events: none;
+  z-index: 1;
+  white-space: pre;
+  overflow: hidden;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  background: var(--paper);
+  border: var(--bw) solid transparent;
+  clip-path: var(--clip-pixel-card);
+}
+.chat-input-ghost-prefix { color: transparent; }
+.chat-input-ghost-suffix { color: var(--muted); opacity: 0.55; }
+.chat-input-ghost-tab {
+  margin-left: 6px;
+  padding: 1px 5px;
+  background: var(--paper-3);
+  color: var(--ink-soft);
+  font-size: 9px;
+  letter-spacing: 0.5px;
+  font-family: var(--fnt-en);
+}
+
 /* ============================================================
  * M4-A-2 视觉感知 UI
  * ============================================================ */
