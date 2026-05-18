@@ -19,11 +19,18 @@
 
 :root {
   --ink: #3a2820; /* 文字（暖深棕，不用纯黑） */
+  --ink-soft: #6b5042; /* secondary 文字 — v0.4.0 + msg-system / muted body */
   --paper: #f7f1e6; /* 奶油底 */
+  --paper-2: #ede4d2; /* paper 暗 1 档 — drop-queue / msg-system 背景 */
+  --paper-3: #e3d6bc; /* paper 暗 2 档 — pet-toast 内层 / 系统态 bg */
   --coral: #d97560; /* 主边 */
   --coral-deep: #b8503a; /* 阴影 / 强调 */
   --coral-soft: #f5c2b3; /* AI 气泡柔和高亮 */
+  --coral-faint: #fce6df; /* coral 极淡 — msg-tool inline 卡片 / pet-drop hover */
   --muted: #a89889;
+  --ok: #4f9b5c; /* tool done 绿勾 */
+  --ok-soft: #d4ead7; /* ok 极淡 — 完成态背景 */
+  --warn: #c98a2b; /* tool error / hotkey conflict — msg-tool 失败态 */
 
   --bw: 3px;
   --notch: 4px;

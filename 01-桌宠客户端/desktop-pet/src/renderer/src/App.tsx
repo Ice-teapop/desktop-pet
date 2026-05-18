@@ -131,11 +131,23 @@ const KEY_RESET_PROMPT = '🔑 钥匙没了或被拒了 —— 再贴一个 API 
 const NOT_KEY_HINT =
   '🤔 这看着不像 API key (我认 Anthropic sk-ant- / OpenAI sk- 或 sk-proj- / Google AIza / xAI xai- / 字节豆包 UUID)。复制时检查下别带空格。'
 
+/**
+ * Renderer-only ChatMessage —— main-side `shared/chat-types.ChatMessage` (user|assistant)
+ * 是发给 Anthropic API 的严格形态，本接口扩展给 UI 渲染用：
+ *   - 'user' / 'ai': 主对话气泡 (现有)
+ *   - 'system': v0.4.0 系统提示 (e.g., 季节装扮 hint / NOT_KEY_HINT) —— msg-system 灰 muted 气泡
+ *   - 'tool': v0.4.0 [A] AI 调 tool 时 inline 状态卡 —— msg-tool 加图标 + 状态点
+ * tool/file 字段为各自卡片携带的附加渲染数据 (S2/S5 实现时填充).
+ */
 interface ChatMessage {
   id: number
-  role: 'user' | 'ai'
+  role: 'user' | 'ai' | 'system' | 'tool'
   text: string
   status: 'streaming' | 'done' | 'error'
+  // [A] msg-tool 卡: tool 调用名 + 状态 (running / done / error)
+  tool?: { name: string; status: 'running' | 'done' | 'error' }
+  // [D] msg-file 卡: 文件信息 + 处理结果摘要
+  file?: { name: string; ext: string; summary?: string }
 }
 
 function chatErrorText(err: ChatError): string {
