@@ -119,17 +119,29 @@ export function setApprovalPetWindow(win: BrowserWindow | null): void {
   petWindowRef = win
 }
 
+/** 单条 approval 用户响应窗口 (modal 真显示后开始计时) */
+const APPROVAL_TIMEOUT_MS = 60_000
+
 /**
  * Pending entry：包 resolver + timer，IPC response 来了能 clearTimeout 防 race。
  * cr-fix S3：之前只存 resolver，timer 不被取消，存在窗口期 race（用户 59.9s 点
  * allow 但 timer 已经在 60s 时 fire deny）。
+ *
+ * fix (queue race): timer 初始为 null, 在 renderer 发 'approval:displayed' 后
+ * 才启动。原 60s 从入队时起算 → 队列里第 N 个 request 在前 N-1 个被处理期间
+ * 静默 timeout 被 auto-deny。改成"真显示后才计时"，每个 request 都有完整 60s。
  */
 interface PendingEntry {
   resolve: (decision: ApprovalDecision) => void
-  timer: NodeJS.Timeout
+  timer: NodeJS.Timeout | null
+  /** 防 stuck: queue 即使一直不显示也要兜底, 入队 +5min 后强制 fire */
+  fallbackTimer: NodeJS.Timeout
 }
 
 const pendingEntries = new Map<string, PendingEntry>()
+
+/** 入队后多久还没收到 'displayed' 就强制 fail-safe deny (5 min) */
+const APPROVAL_QUEUE_STUCK_MS = 5 * 60_000
 
 /**
  * 请求用户审批。如果 petWindow 不可用（启动时序异常），直接 deny。
@@ -144,16 +156,17 @@ export async function requestApproval(
   }
   const id = 'apr_' + randomBytes(8).toString('hex')
   return new Promise<ApprovalDecision>((resolve) => {
-    const timer = setTimeout(() => {
-      // cr-fix S3：从 map 拿到自己（resolve）才 deny，避免被 IPC response 抢先 delete
-      // 后再走 deny 路径
+    // fallback: 入队后 5min 还没显示 (renderer crash / queue stuck) 强制 deny
+    const fallbackTimer = setTimeout(() => {
       const entry = pendingEntries.get(id)
-      if (entry && entry.timer === timer) {
+      if (entry && entry.fallbackTimer === fallbackTimer) {
+        if (entry.timer) clearTimeout(entry.timer)
         pendingEntries.delete(id)
+        console.warn(`[approval] queue stuck >${APPROVAL_QUEUE_STUCK_MS}ms, auto-deny: ${id}`)
         entry.resolve('deny')
       }
-    }, 60_000)
-    pendingEntries.set(id, { resolve, timer })
+    }, APPROVAL_QUEUE_STUCK_MS)
+    pendingEntries.set(id, { resolve, timer: null, fallbackTimer })
     petWindowRef!.webContents.send('approval:request', { id, ...req })
   })
 }
@@ -165,13 +178,26 @@ export async function requestApproval(
  * cr-fix S3：拿到 response 立即 clearTimeout 防 timer fire 二次 resolve。
  */
 export function registerApprovalIpc(): void {
+  ipcMain.on('approval:displayed', (_event, id: string) => {
+    const entry = pendingEntries.get(id)
+    if (!entry || entry.timer !== null) return // 已启过 / 不存在
+    entry.timer = setTimeout(() => {
+      const e = pendingEntries.get(id)
+      if (e && e.timer) {
+        clearTimeout(e.fallbackTimer)
+        pendingEntries.delete(id)
+        e.resolve('deny')
+      }
+    }, APPROVAL_TIMEOUT_MS)
+  })
   ipcMain.on(
     'approval:response',
     async (_event, id: string, decision: ApprovalDecision, dirToTrust?: string) => {
       const entry = pendingEntries.get(id)
       if (!entry) return
       pendingEntries.delete(id)
-      clearTimeout(entry.timer)
+      if (entry.timer) clearTimeout(entry.timer)
+      clearTimeout(entry.fallbackTimer)
       if (decision === 'trust-dir-session' && dirToTrust) {
         sessionTrustedDirs.add(normDir(dirToTrust))
       }

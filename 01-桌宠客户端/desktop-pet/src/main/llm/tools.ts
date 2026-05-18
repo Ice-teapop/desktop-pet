@@ -352,17 +352,32 @@ export const WRITE_FILE: ToolDef = {
     "Use freely to create / modify the user's documents, code, notes etc. " +
     'SAFETY: ~/.ssh /.aws /.env / Keychain / browser data 等永远禁；HOME 下 ' +
     'visible 顶级目录默认信任不弹 modal；其它路径弹 modal 等用户确认。' +
+    'BATCH: prefer `files: [{path, content}, ...]` for ≥2 files. Per-file modal ' +
+    'still pops on untrusted paths but batch validates schema upfront and ' +
+    'audit logs use a shared batch_id. Single-file `{path, content}` still accepted.' +
     'Returns confirmation with bytes written.',
   input_schema: {
     type: 'object',
     properties: {
-      path: { type: 'string', description: 'Absolute or ~/-relative path' },
+      path: { type: 'string', description: 'Single-file mode: absolute or ~/-relative path' },
       content: {
         type: 'string',
-        description: 'Full UTF-8 text content to write. Max 1MB.'
+        description: 'Single-file mode: full UTF-8 text content. Max 1MB.'
+      },
+      files: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            path: { type: 'string' },
+            content: { type: 'string' }
+          },
+          required: ['path', 'content']
+        },
+        description: 'Batch mode: array of {path, content}. Each content up to 1MB.'
       }
     },
-    required: ['path', 'content']
+    required: []
   }
 }
 
@@ -515,16 +530,29 @@ export const FIND_FILES: ToolDef = {
 export const DELETE_FILE: ToolDef = {
   name: 'delete_file',
   description:
-    'Delete a file or empty directory. ⚠️ Irreversible —— ALWAYS shows ' +
-    'a confirmation modal (no auto-trust). Use sparingly; consider asking ' +
-    'user before calling. For non-empty dirs use run_command with explicit ' +
-    'user-approved `rm -r` command.',
+    'Delete files and/or empty directories. ⚠️ Irreversible —— ALWAYS shows ' +
+    'a confirmation modal (no auto-trust). ' +
+    'BATCH: prefer `paths: string[]` for ≥2 files — one modal lists all, single ' +
+    'click approves whole batch (vs N modals if you call this tool N times in a loop, ' +
+    'which races and most calls auto-deny). Legacy `path: string` still accepted for 1 file. ' +
+    'NON-EMPTY DIRS: still rejected (ENOTEMPTY). Use run_command with explicit ' +
+    'user-approved `rm -r` command for recursive deletion.',
   input_schema: {
     type: 'object',
     properties: {
-      path: { type: 'string', description: 'Absolute or ~/-relative path to delete' }
+      path: {
+        type: 'string',
+        description: 'Single path (legacy/single-file; absolute or ~/-relative)'
+      },
+      paths: {
+        type: 'array',
+        items: { type: 'string' },
+        description:
+          'Batch paths (absolute or ~/-relative). Preferred for multi-file deletion.'
+      }
     },
-    required: ['path']
+    // 二选一: 没法用 JSON Schema 直接表达 oneOf, 靠 zod refine 兜底 (tool-defs.ts)
+    required: []
   }
 }
 
@@ -534,30 +562,42 @@ export const MOVE_FILE: ToolDef = {
     'Move / rename a file or directory atomically. Use for organizing user files: ' +
     'sort Downloads by extension, batch rename, archive old files into dated folders, ' +
     'move screenshots into project subfolders, etc. ' +
-    'Always shows a confirmation modal for both src AND dest (跟 delete_file 同安全级). ' +
+    'Always shows a confirmation modal (跟 delete_file 同安全级). ' +
+    'BATCH: prefer `moves: [{src, dest, overwrite?}, ...]` for ≥2 moves — one modal ' +
+    'lists all src→dest pairs, single click approves whole batch (vs N modals if you ' +
+    'call N times). Single-move `{src, dest, overwrite?}` still accepted. ' +
     'Safety: blacklist (~/.ssh / .aws / .env / Keychain etc) rejected; src + dest both ' +
     'go through path safety. Atomic fs.rename within same filesystem; falls back to ' +
-    'copy + unlink across filesystems. Preserves binary content (跟 write_file 不同, ' +
-    "write_file UTF-8 写文本会破坏二进制). Use 'overwrite: true' only when user " +
-    'explicitly confirms replacing existing dest.',
+    'copy + unlink across filesystems. Preserves binary content (跟 write_file 不同). ' +
+    'Use `overwrite: true` (boolean, not string) only when user explicitly OKs replacement.',
   input_schema: {
     type: 'object',
     properties: {
-      src: { type: 'string', description: 'Source path (absolute or ~/-relative)' },
+      src: { type: 'string', description: 'Single-move: source path' },
       dest: {
         type: 'string',
         description:
-          'Destination path. Can be a different filename (rename) or different ' +
-          'directory (move). If a directory path ending in /, src filename is preserved.'
+          'Single-move: destination path. If trailing / or existing dir, src basename preserved.'
       },
       overwrite: {
-        type: 'string',
-        description:
-          'Optional "true" to allow overwriting existing dest. Default no-overwrite ' +
-          '(fail if dest exists). Set true only when user explicitly OKs replacement.'
+        type: 'boolean',
+        description: 'Single-move: true to allow overwriting existing dest. Default false.'
+      },
+      moves: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            src: { type: 'string' },
+            dest: { type: 'string' },
+            overwrite: { type: 'boolean' }
+          },
+          required: ['src', 'dest']
+        },
+        description: 'Batch mode: array of moves with optional per-item overwrite.'
       }
     },
-    required: ['src', 'dest']
+    required: []
   }
 }
 
@@ -715,8 +755,8 @@ export const WEB_SEARCH: ToolDef = {
     properties: {
       query: { type: 'string', description: 'Search query in natural language' },
       max_results: {
-        type: 'string',
-        description: 'Optional 1-10, defaults to 5'
+        type: 'number',
+        description: 'Optional integer 1-10, defaults to 5'
       }
     },
     required: ['query']
@@ -1203,36 +1243,158 @@ const FIND_FILES_SKIP_DIRS = new Set([
   '.cache'
 ])
 
+/** 单批 write 上限 —— 防 LLM 一次塞 100 文件把 modal 队列撑爆 */
+const WRITE_BATCH_MAX = 30
+
 async function execWriteFile(input: unknown): Promise<ToolResult> {
   if (typeof input !== 'object' || input === null) {
-    return { ok: false, error: 'input must be { path: string, content: string }' }
+    return { ok: false, error: 'input must be { path, content } or { files: [...] }' }
   }
-  const obj = input as { path?: unknown; content?: unknown }
-  if (typeof obj.path !== 'string') {
-    return { ok: false, error: 'path must be a string' }
+  // 归一化: 单文件 → files[0]
+  const obj = input as { path?: unknown; content?: unknown; files?: unknown }
+  const items: { path: string; content: string }[] = []
+  if (typeof obj.path === 'string' && typeof obj.content === 'string') {
+    items.push({ path: obj.path, content: obj.content })
   }
-  if (typeof obj.content !== 'string') {
-    return { ok: false, error: 'content must be a string' }
+  if (Array.isArray(obj.files)) {
+    for (let i = 0; i < obj.files.length; i++) {
+      const f = obj.files[i]
+      if (typeof f !== 'object' || f === null) {
+        return { ok: false, error: `files[${i}] must be an object` }
+      }
+      const fo = f as { path?: unknown; content?: unknown }
+      if (typeof fo.path !== 'string') {
+        return { ok: false, error: `files[${i}].path must be a string` }
+      }
+      if (typeof fo.content !== 'string') {
+        return { ok: false, error: `files[${i}].content must be a string` }
+      }
+      items.push({ path: fo.path, content: fo.content })
+    }
   }
-  if (obj.content.length > WRITE_FILE_MAX) {
-    return { ok: false, error: `content too long: ${obj.content.length} > ${WRITE_FILE_MAX}` }
+  if (items.length === 0) {
+    return {
+      ok: false,
+      error: 'must provide {path, content} (single) or non-empty files[] (batch)'
+    }
   }
-  const gate = await requestPathApprovalWithPreview(
-    obj.path,
-    'write_file',
-    '写入文件',
-    obj.content.slice(0, 200)
-  )
-  if (!gate.ok) return gate
-  try {
-    await fs.writeFile(gate.absPath, obj.content, { encoding: 'utf8', mode: 0o644 })
+  if (items.length > WRITE_BATCH_MAX) {
+    return {
+      ok: false,
+      error: `batch too large (${items.length} > ${WRITE_BATCH_MAX}). Split.`
+    }
+  }
+  // 每个 file 内容上限
+  for (let i = 0; i < items.length; i++) {
+    if (items[i].content.length > WRITE_FILE_MAX) {
+      return {
+        ok: false,
+        error: `files[${i}] content too long: ${items[i].content.length} > ${WRITE_FILE_MAX}`
+      }
+    }
+  }
+
+  // 单文件: 走原 requestPathApprovalWithPreview 保留 content preview UX
+  if (items.length === 1) {
+    const it = items[0]
+    const gate = await requestPathApprovalWithPreview(
+      it.path,
+      'write_file',
+      '写入文件',
+      it.content.slice(0, 200)
+    )
+    if (!gate.ok) return gate
+    try {
+      await fs.writeFile(gate.absPath, it.content, { encoding: 'utf8', mode: 0o644 })
+      return { ok: true, content: `Wrote ${it.content.length} chars to ${gate.absPath}` }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      return { ok: false, error: `writeFile failed: ${msg}` }
+    }
+  }
+
+  // 批量: 先所有 path 过 safety + trust 检查, 收集 untrusted 列表, 单次 modal
+  const batchId = `wr_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+  const resolved: { absPath: string; content: string; needsApproval: boolean }[] = []
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i]
+    const safety = await isPathSafe(it.path)
+    if (!safety.ok) {
+      await logToolAction({
+        tool: 'write_file',
+        argsSummary: `batch_id=${batchId} blacklisted=${it.path}`,
+        result: 'denied',
+        detail: `blacklist: ${safety.reason ?? 'unknown'}`
+      })
+      return { ok: false, error: `files[${i}] 路径被黑名单拦 (整批拒): ${it.path} (${safety.reason})` }
+    }
+    const trust = checkTrusted(safety.absPath)
+    resolved.push({ absPath: safety.absPath, content: it.content, needsApproval: !trust })
+  }
+  const untrusted = resolved.filter((r) => r.needsApproval).map((r) => r.absPath)
+  if (untrusted.length > 0) {
+    // 一次 modal 列出所有 untrusted 路径
+    const decision = await requestApproval({
+      tool: 'write_file',
+      summary: `📝 AI 想批量写入 ${resolved.length} 个文件（${untrusted.length} 个需授权）`,
+      paths: untrusted
+    })
+    if (decision === 'deny') {
+      await logToolAction({
+        tool: 'write_file',
+        argsSummary: `batch_id=${batchId} count=${resolved.length} untrusted=${untrusted.length}`,
+        result: 'denied',
+        detail: 'user denied batch'
+      })
+      return { ok: false, error: '用户拒绝整批写入' }
+    }
+  }
+  // best-effort 写入
+  const written: { path: string; bytes: number }[] = []
+  const failed: { path: string; err: string }[] = []
+  for (const r of resolved) {
+    try {
+      await fs.writeFile(r.absPath, r.content, { encoding: 'utf8', mode: 0o644 })
+      written.push({ path: r.absPath, bytes: r.content.length })
+      await logToolAction({
+        tool: 'write_file',
+        argsSummary: `batch_id=${batchId} path=${r.absPath}`,
+        result: 'ok',
+        detail: `bytes=${r.content.length}${r.needsApproval ? ' (approved)' : ' (trusted)'}`
+      })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      failed.push({ path: r.absPath, err: msg })
+      await logToolAction({
+        tool: 'write_file',
+        argsSummary: `batch_id=${batchId} path=${r.absPath}`,
+        result: 'error',
+        detail: msg
+      })
+    }
+  }
+  await logToolAction({
+    tool: 'write_file',
+    argsSummary: `batch_id=${batchId} summary count=${resolved.length}`,
+    result: failed.length === 0 ? 'ok' : 'error',
+    detail: `wrote=${written.length} failed=${failed.length}`
+  })
+  if (failed.length === 0) {
     return {
       ok: true,
-      content: `Wrote ${obj.content.length} chars to ${gate.absPath}`
+      content:
+        `Wrote ${written.length} files:\n` +
+        written.map((w) => `${w.path} (${w.bytes} chars)`).join('\n')
     }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    return { ok: false, error: `writeFile failed: ${msg}` }
+  }
+  return {
+    ok: true,
+    content:
+      `Wrote ${written.length}/${resolved.length}.\n` +
+      (written.length > 0
+        ? `OK:\n${written.map((w) => `${w.path} (${w.bytes})`).join('\n')}\n`
+        : '') +
+      `Failed:\n${failed.map((f) => `${f.path}: ${f.err}`).join('\n')}`
   }
 }
 
@@ -1706,91 +1868,172 @@ async function execFindFiles(input: unknown): Promise<ToolResult> {
   }
 }
 
+/** 单批 delete 上限 —— 防 LLM 一次提交几百 path 把 modal 撑爆 */
+const DELETE_BATCH_MAX = 50
+
 async function execDeleteFile(input: unknown): Promise<ToolResult> {
   if (typeof input !== 'object' || input === null) {
-    return { ok: false, error: 'input must be { path: string }' }
+    return { ok: false, error: 'input must be { path } or { paths: [] }' }
   }
-  const rawPath = (input as { path?: unknown }).path
-  if (typeof rawPath !== 'string') {
-    return { ok: false, error: 'path must be a string' }
+  // 归一化：path (string) 或 paths (string[]) → rawPaths: string[]
+  const obj = input as { path?: unknown; paths?: unknown }
+  const rawPaths: string[] = []
+  if (typeof obj.path === 'string') rawPaths.push(obj.path)
+  if (Array.isArray(obj.paths)) {
+    for (const p of obj.paths) {
+      if (typeof p === 'string') rawPaths.push(p)
+    }
   }
-  // delete 不享受默认信任：始终弹 modal
-  const safety = await isPathSafe(rawPath)
-  if (!safety.ok) {
-    return { ok: false, error: `路径被静态黑名单拦截: ${safety.reason}` }
+  if (rawPaths.length === 0) {
+    return { ok: false, error: 'must provide `path` (string) or `paths` (string[])' }
   }
+  if (rawPaths.length > DELETE_BATCH_MAX) {
+    return {
+      ok: false,
+      error: `batch too large (${rawPaths.length} > ${DELETE_BATCH_MAX}). Split into multiple calls.`
+    }
+  }
+
+  // path safety: per-path 检查, 任一命中黑名单 → fail-fast 整批拒
+  // 理由 (审核官员 pre-review): 黑名单命中 = AI 试图碰凭证, 是高信号攻击迹象,
+  // 跳过继续等于把警报降级成 warning, 也丢失 "AI 试图删 N 个里有 1 个禁区" 的审计可追溯性
+  const safetyResults = await Promise.all(rawPaths.map((p) => isPathSafe(p)))
+  const blacklistHits = safetyResults
+    .map((s, i) => ({ s, i }))
+    .filter(({ s }) => !s.ok)
+  if (blacklistHits.length > 0) {
+    for (const { s, i } of blacklistHits) {
+      await logToolAction({
+        tool: 'delete_file',
+        argsSummary: `blacklisted=${rawPaths[i]}`,
+        result: 'denied',
+        detail: `blacklist: ${s.reason ?? 'unknown'}`
+      })
+    }
+    return {
+      ok: false,
+      error:
+        `路径被静态黑名单拦截 (整批拒绝): ` +
+        blacklistHits.map(({ s, i }) => `${rawPaths[i]} (${s.reason})`).join('; ')
+    }
+  }
+  const safePaths = safetyResults.map((s) => (s as { absPath: string }).absPath)
+
+  // 单次 modal: paths[] 列全部, paths.length>1 时 renderer 自动隐藏 trust-dir-*
+  const isBatch = safePaths.length > 1
+  const summary = isBatch
+    ? `⚠️ AI 想批量删除 ${safePaths.length} 个路径（不可恢复）`
+    : `⚠️ AI 想删除：${safePaths[0]}（不可恢复）`
   const decision = await requestApproval({
     tool: 'delete_file',
-    summary: `⚠️ AI 想删除：${safety.absPath}（不可恢复）`,
-    path: safety.absPath
+    summary,
+    // 单 path 走旧字段, 批量走新字段; renderer 据此切 UI
+    ...(isBatch ? { paths: safePaths } : { path: safePaths[0] })
   })
+  // batch_id: 关联同一批的 N+1 行审计 log
+  const batchId = `del_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
   if (decision === 'deny') {
     await logToolAction({
       tool: 'delete_file',
-      argsSummary: `path=${safety.absPath}`,
+      argsSummary: `batch_id=${batchId} count=${safePaths.length}`,
       result: 'denied',
-      detail: 'user denied'
+      detail: `user denied; paths=${safePaths.join(',')}`
     })
-    return { ok: false, error: '用户拒绝删除' }
+    return { ok: false, error: isBatch ? '用户拒绝整批删除' : '用户拒绝删除' }
   }
+
+  // best-effort continue: 一条挂不影响后续 (审核官员 pre-review #4: 短路 abort
+  // 会让用户已批准的剩余操作丢失, 用户疲劳重批)
+  const deleted: string[] = []
+  const failed: { path: string; err: string }[] = []
+  for (const absPath of safePaths) {
+    try {
+      const stat = await fs.stat(absPath)
+      if (stat.isDirectory()) {
+        await fs.rmdir(absPath) // 仅空目录; 非空 → ENOTEMPTY (LLM 应改用 run_command rm -r)
+      } else {
+        await fs.unlink(absPath)
+      }
+      deleted.push(absPath)
+      await logToolAction({
+        tool: 'delete_file',
+        argsSummary: `batch_id=${batchId} path=${absPath}`,
+        result: 'ok',
+        detail: `approved: ${decision}`
+      })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      // ENOTEMPTY 给人类语义提示, 帮 LLM 自然续答时建议 run_command rm -r
+      const code = (err as NodeJS.ErrnoException).code
+      const friendly =
+        code === 'ENOTEMPTY'
+          ? `目录非空 (use run_command with \`rm -r\` for recursive): ${msg}`
+          : msg
+      failed.push({ path: absPath, err: friendly })
+      await logToolAction({
+        tool: 'delete_file',
+        argsSummary: `batch_id=${batchId} path=${absPath}`,
+        result: 'error',
+        detail: friendly
+      })
+    }
+  }
+  // summary log (审核官员 pre-review #5: 1 行 summary + N 行 per-path)
   await logToolAction({
     tool: 'delete_file',
-    argsSummary: `path=${safety.absPath}`,
-    result: 'ok',
-    detail: `approved: ${decision}`
+    argsSummary: `batch_id=${batchId} summary count=${safePaths.length}`,
+    result: failed.length === 0 ? 'ok' : 'error',
+    detail: `deleted=${deleted.length} failed=${failed.length} approval=${decision}`
   })
-  try {
-    const stat = await fs.stat(safety.absPath)
-    if (stat.isDirectory()) {
-      await fs.rmdir(safety.absPath) // 仅空目录
-    } else {
-      await fs.unlink(safety.absPath)
+
+  // 结构化结果: AI 看 content 决定是否对失败项 follow-up
+  if (failed.length === 0) {
+    return {
+      ok: true,
+      content: isBatch
+        ? `Deleted ${deleted.length} paths:\n${deleted.join('\n')}`
+        : `Deleted: ${deleted[0]}`
     }
-    return { ok: true, content: `Deleted: ${safety.absPath}` }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    return { ok: false, error: `delete failed: ${msg}` }
+  }
+  return {
+    ok: true,
+    content:
+      `Deleted ${deleted.length}/${safePaths.length}.\n` +
+      (deleted.length > 0 ? `OK:\n${deleted.join('\n')}\n` : '') +
+      `Failed:\n${failed.map((f) => `${f.path}: ${f.err}`).join('\n')}`
   }
 }
 
 // —— move_file —— 移动 / 重命名 文件或目录 (跟 delete 同 modal 级别) ————————————
 
-async function execMoveFile(input: unknown): Promise<ToolResult> {
-  if (typeof input !== 'object' || input === null) {
-    return { ok: false, error: 'input must be { src: string, dest: string, overwrite?: string }' }
-  }
-  const obj = input as { src?: unknown; dest?: unknown; overwrite?: unknown }
-  if (typeof obj.src !== 'string' || !obj.src) {
-    return { ok: false, error: 'src must be a non-empty string' }
-  }
-  if (typeof obj.dest !== 'string' || !obj.dest) {
-    return { ok: false, error: 'dest must be a non-empty string' }
-  }
-  const overwrite = obj.overwrite === 'true' || obj.overwrite === true
-  // 两路径都过 path safety 黑名单
-  const srcSafety = await isPathSafe(obj.src)
-  if (!srcSafety.ok) {
-    return { ok: false, error: `src 路径被黑名单拦: ${srcSafety.reason}` }
-  }
-  const destSafety = await isPathSafe(obj.dest)
-  if (!destSafety.ok) {
-    return { ok: false, error: `dest 路径被黑名单拦: ${destSafety.reason}` }
-  }
-  // 检查 dest 是否目录形式 (尾 / 或者已存在的目录) → 自动拼 src basename
+const MOVE_BATCH_MAX = 50
+
+/** 解析一个 move pair → { srcAbs, destAbs } 或错误 */
+async function resolveMovePair(
+  rawSrc: string,
+  rawDest: string,
+  overwrite: boolean
+): Promise<
+  | { ok: true; srcAbs: string; finalDest: string }
+  | { ok: false; error: string }
+> {
+  const srcSafety = await isPathSafe(rawSrc)
+  if (!srcSafety.ok) return { ok: false, error: `src 黑名单拦: ${srcSafety.reason}` }
+  const destSafety = await isPathSafe(rawDest)
+  if (!destSafety.ok) return { ok: false, error: `dest 黑名单拦: ${destSafety.reason}` }
   let finalDest = destSafety.absPath
   try {
     const destStat = await fs.stat(destSafety.absPath).catch(() => null)
-    if (destStat?.isDirectory() || obj.dest.endsWith('/')) {
+    if (destStat?.isDirectory() || rawDest.endsWith('/')) {
       const srcBasename = srcSafety.absPath.split('/').pop() ?? ''
       finalDest = destSafety.absPath.replace(/\/+$/, '') + '/' + srcBasename
     }
-    // 覆盖防御: dest 已存在且 user 没显式同意 overwrite
     if (!overwrite) {
       const finalStat = await fs.stat(finalDest).catch(() => null)
       if (finalStat) {
         return {
           ok: false,
-          error: `dest 已存在 (${finalDest}). 想覆盖请显式传 overwrite="true" 且先跟用户确认.`
+          error: `dest 已存在 (${finalDest})。需 overwrite:true (boolean)`
         }
       }
     }
@@ -1798,53 +2041,149 @@ async function execMoveFile(input: unknown): Promise<ToolResult> {
     const msg = err instanceof Error ? err.message : String(err)
     return { ok: false, error: `检查 dest 失败: ${msg}` }
   }
-  // 跟 delete 同级别: 始终弹 modal (不享受目录信任 — 移动比 write 危险, 不可一键 undo)
-  const decision = await requestApproval({
-    tool: 'move_file',
-    summary: `📦 AI 想移动:\n${srcSafety.absPath}\n  ↓\n${finalDest}${overwrite ? '\n(将覆盖已存在文件)' : ''}`,
-    path: srcSafety.absPath
-  })
-  if (decision === 'deny') {
-    await logToolAction({
-      tool: 'move_file',
-      argsSummary: `src=${srcSafety.absPath} dest=${finalDest}`,
-      result: 'denied',
-      detail: 'user denied'
-    })
-    return { ok: false, error: '用户拒绝移动' }
-  }
-  await logToolAction({
-    tool: 'move_file',
-    argsSummary: `src=${srcSafety.absPath} dest=${finalDest}`,
-    result: 'ok',
-    detail: `approved: ${decision}${overwrite ? ' overwrite' : ''}`
-  })
+  return { ok: true, srcAbs: srcSafety.absPath, finalDest }
+}
+
+/** 实际执行一个 move (假设已 approve, 已 resolve) */
+async function doMove(
+  srcAbs: string,
+  finalDest: string,
+  overwrite: boolean
+): Promise<{ ok: true; msg: string } | { ok: false; err: string }> {
   // 确保 dest 父目录存在
   try {
     const destParent = finalDest.substring(0, finalDest.lastIndexOf('/'))
     if (destParent) await fs.mkdir(destParent, { recursive: true })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    return { ok: false, error: `创建 dest 父目录失败: ${msg}` }
+    return { ok: false, err: `创建 dest 父目录失败: ${msg}` }
   }
-  // 优先 fs.rename (atomic, 同 filesystem). 跨 fs 失败 (EXDEV) 走 copy + unlink fallback.
   try {
-    await fs.rename(srcSafety.absPath, finalDest)
-    return { ok: true, content: `Moved: ${srcSafety.absPath} → ${finalDest}` }
+    await fs.rename(srcAbs, finalDest)
+    return { ok: true, msg: `Moved: ${srcAbs} → ${finalDest}` }
   } catch (err) {
     const e = err as NodeJS.ErrnoException
-    if (e.code !== 'EXDEV') {
-      return { ok: false, error: `rename failed: ${e.message}` }
-    }
-    // 跨 fs (e.g., 内置硬盘 → 外接 U 盘): copy 然后 unlink
+    if (e.code !== 'EXDEV') return { ok: false, err: `rename failed: ${e.message}` }
+    // 跨 fs fallback
     try {
-      await fs.cp(srcSafety.absPath, finalDest, { recursive: true, force: overwrite })
-      await fs.rm(srcSafety.absPath, { recursive: true, force: true })
-      return { ok: true, content: `Moved (cross-fs): ${srcSafety.absPath} → ${finalDest}` }
+      await fs.cp(srcAbs, finalDest, { recursive: true, force: overwrite })
+      await fs.rm(srcAbs, { recursive: true, force: true })
+      return { ok: true, msg: `Moved (cross-fs): ${srcAbs} → ${finalDest}` }
     } catch (err2) {
       const msg = err2 instanceof Error ? err2.message : String(err2)
-      return { ok: false, error: `cross-fs move failed: ${msg}` }
+      return { ok: false, err: `cross-fs move failed: ${msg}` }
     }
+  }
+}
+
+async function execMoveFile(input: unknown): Promise<ToolResult> {
+  if (typeof input !== 'object' || input === null) {
+    return { ok: false, error: 'input must be { src, dest, overwrite? } or { moves: [...] }' }
+  }
+  const obj = input as {
+    src?: unknown
+    dest?: unknown
+    overwrite?: unknown
+    moves?: unknown
+  }
+  // 归一化
+  type MoveItem = { src: string; dest: string; overwrite: boolean }
+  const items: MoveItem[] = []
+  if (typeof obj.src === 'string' && typeof obj.dest === 'string') {
+    // overwrite 接受 boolean (新 schema) 或 "true" string (老格式向后兼容)
+    const ow = obj.overwrite === true || obj.overwrite === 'true'
+    items.push({ src: obj.src, dest: obj.dest, overwrite: ow })
+  }
+  if (Array.isArray(obj.moves)) {
+    for (let i = 0; i < obj.moves.length; i++) {
+      const m = obj.moves[i]
+      if (typeof m !== 'object' || m === null) {
+        return { ok: false, error: `moves[${i}] must be an object` }
+      }
+      const mo = m as { src?: unknown; dest?: unknown; overwrite?: unknown }
+      if (typeof mo.src !== 'string') return { ok: false, error: `moves[${i}].src must be string` }
+      if (typeof mo.dest !== 'string') return { ok: false, error: `moves[${i}].dest must be string` }
+      const ow = mo.overwrite === true || mo.overwrite === 'true'
+      items.push({ src: mo.src, dest: mo.dest, overwrite: ow })
+    }
+  }
+  if (items.length === 0) {
+    return { ok: false, error: 'must provide {src, dest} or non-empty moves[]' }
+  }
+  if (items.length > MOVE_BATCH_MAX) {
+    return { ok: false, error: `batch too large (${items.length} > ${MOVE_BATCH_MAX}). Split.` }
+  }
+
+  // 解析所有 pair, 黑名单 / dest 已存在等 fail-fast 整批拒
+  const resolved: { srcAbs: string; finalDest: string; overwrite: boolean }[] = []
+  for (let i = 0; i < items.length; i++) {
+    const r = await resolveMovePair(items[i].src, items[i].dest, items[i].overwrite)
+    if (!r.ok) return { ok: false, error: `moves[${i}] (整批拒): ${r.error}` }
+    resolved.push({ srcAbs: r.srcAbs, finalDest: r.finalDest, overwrite: items[i].overwrite })
+  }
+  const isBatch = resolved.length > 1
+
+  // 始终弹 modal (move 不享受信任)
+  const summary = isBatch
+    ? `📦 AI 想批量移动 ${resolved.length} 个 src→dest`
+    : `📦 AI 想移动:\n${resolved[0].srcAbs}\n  ↓\n${resolved[0].finalDest}${resolved[0].overwrite ? '\n(将覆盖)' : ''}`
+  const decision = await requestApproval({
+    tool: 'move_file',
+    summary,
+    ...(isBatch
+      ? { paths: resolved.map((r) => `${r.srcAbs} → ${r.finalDest}`) }
+      : { path: resolved[0].srcAbs })
+  })
+  const batchId = `mv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+  if (decision === 'deny') {
+    await logToolAction({
+      tool: 'move_file',
+      argsSummary: `batch_id=${batchId} count=${resolved.length}`,
+      result: 'denied',
+      detail: 'user denied'
+    })
+    return { ok: false, error: isBatch ? '用户拒绝整批移动' : '用户拒绝移动' }
+  }
+
+  // best-effort
+  const moved: string[] = []
+  const failed: { pair: string; err: string }[] = []
+  for (const r of resolved) {
+    const res = await doMove(r.srcAbs, r.finalDest, r.overwrite)
+    const pair = `${r.srcAbs} → ${r.finalDest}`
+    if (res.ok) {
+      moved.push(res.msg)
+      await logToolAction({
+        tool: 'move_file',
+        argsSummary: `batch_id=${batchId} src=${r.srcAbs} dest=${r.finalDest}`,
+        result: 'ok',
+        detail: `approved: ${decision}${r.overwrite ? ' overwrite' : ''}`
+      })
+    } else {
+      failed.push({ pair, err: res.err })
+      await logToolAction({
+        tool: 'move_file',
+        argsSummary: `batch_id=${batchId} src=${r.srcAbs} dest=${r.finalDest}`,
+        result: 'error',
+        detail: res.err
+      })
+    }
+  }
+  await logToolAction({
+    tool: 'move_file',
+    argsSummary: `batch_id=${batchId} summary count=${resolved.length}`,
+    result: failed.length === 0 ? 'ok' : 'error',
+    detail: `moved=${moved.length} failed=${failed.length}`
+  })
+  if (failed.length === 0) {
+    return { ok: true, content: isBatch ? `Moved ${moved.length}:\n${moved.join('\n')}` : moved[0] }
+  }
+  return {
+    ok: true,
+    content:
+      `Moved ${moved.length}/${resolved.length}.\n` +
+      (moved.length > 0 ? `OK:\n${moved.join('\n')}\n` : '') +
+      `Failed:\n${failed.map((f) => `${f.pair}: ${f.err}`).join('\n')}`
   }
 }
 
@@ -2632,14 +2971,19 @@ async function execWebSearch(input: unknown, ctx: ToolContext): Promise<ToolResu
     return { ok: false, error: 'Tavily API key 未配置 —— 设置 TAVILY_API_KEY 环境变量或在设置面板填' }
   }
   if (typeof input !== 'object' || input === null) {
-    return { ok: false, error: 'input must be { query: string, max_results?: string }' }
+    return { ok: false, error: 'input must be { query: string, max_results?: number }' }
   }
   const obj = input as { query?: unknown; max_results?: unknown }
   if (typeof obj.query !== 'string' || !obj.query.trim()) {
     return { ok: false, error: 'query required' }
   }
   let maxResults = 5
-  if (typeof obj.max_results === 'string') {
+  // schema 已要 number, 但兼容旧版 LLM 学到的 string 传参
+  if (typeof obj.max_results === 'number') {
+    if (Number.isFinite(obj.max_results) && obj.max_results >= 1 && obj.max_results <= 10) {
+      maxResults = Math.floor(obj.max_results)
+    }
+  } else if (typeof obj.max_results === 'string') {
     const n = parseInt(obj.max_results, 10)
     if (!isNaN(n) && n >= 1 && n <= 10) maxResults = n
   }

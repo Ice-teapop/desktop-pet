@@ -18,8 +18,12 @@ export interface ApprovalRequest {
   tool: string
   /** 人类可读 1 行 summary（modal 顶部显示） */
   summary: string
-  /** 完整路径 —— 用于"信任此目录"按钮的目录推导 */
+  /** 完整路径 —— 用于"信任此目录"按钮的目录推导（单 path 场景） */
   path?: string
+  /** 批量路径列表 —— delete_file 等支持批量的 tool 使用；与 path 互斥。
+   *  paths.length > 1 时 modal 必须**禁用** trust-dir-* 按钮（跨多个父目录的
+   *  persistent trust 用户无法 informed-consent，scope 爆炸） */
+  paths?: string[]
   /** 完整 shell 命令 —— 用于 modal 详情展示 */
   command?: string
   /** 写入操作的内容预览（最多 200 字） */

@@ -34,6 +34,37 @@ import { xaiTools } from '@ai-sdk/xai'
 import type { ToolSet } from 'ai'
 import type { SelectedModel } from '../../shared/provider-types'
 
+// —— Anthropic native server-side tools 兼容性 ————————————————————————
+//
+// 这两个 native tool 仅 Opus 4.5+ / Sonnet 4.5+ 支持；Haiku 4.5 装上会让
+// API 拒整个请求 → 0 step → AI SDK 'No output generated' (M8 hotfix bug)。
+// 不支持的模型走 18 本地 tool + Tavily 已够用。
+//
+// 设计取舍 (tester 报告):
+// - **黑名单 vs 白名单**：真实白名单需要逐月跟 provider 文档对齐，仓库里维护
+//   滞后于上游发版。当前用 family-prefix 黑名单——AI 厂商命名通常稳定 (haiku/
+//   opus/sonnet 跨版本一致)，新出 mid-tier 时再扩名单。
+// - **不依赖完整 modelId**：modelId 含日期 (claude-haiku-4-5-20251001) 容易漂移
+//   ，改用 family substring (`haiku`) 鲁棒性更高。
+// - **未实现**：真正版本号比对 (Haiku 5 出来若支持需手动更新)。这是 follow-up。
+const ANTHROPIC_NATIVE_TOOL_BLOCKED_FAMILIES = ['haiku'] as const
+
+/** true = 该 modelId 支持 anthropic_web_search / anthropic_code_execution */
+function supportsAnthropicNativeTools(modelId: string): boolean {
+  const lower = modelId.toLowerCase()
+  return !ANTHROPIC_NATIVE_TOOL_BLOCKED_FAMILIES.some((fam) => lower.includes(fam))
+}
+
+/** Anthropic native web_search 单次会话内最大调用次数。
+ *  超过 → provider 强制停止；user 不知道有此 cap。
+ *  当前硬编码 5 —— provider 默认值，复杂研究流可能不够 (tester 报告 LOW)。
+ *  暴露成 const 便于以后做成 prefs 或按 turn 动态调。*/
+const ANTHROPIC_WEB_SEARCH_MAX_USES = 5
+
+// ⚠️ 计费透明度 (tester 报告 MED): Anthropic / OpenAI / Google / xAI native
+// tool 走 provider 按 token 计费, 用户无 UI 提示。Tavily 反而按 quota 透明。
+// follow-up: chat 顶部加 native-tool 触发徽章 + 一次性 "what this costs" toast。
+
 /**
  * 给定 provider，返回该 provider 的 specialized server-side tool 集（dynamic
  * 每 turn 调一次）。DeepSeek / ByteDance 当前无 native server tool 暴露给
@@ -44,13 +75,11 @@ import type { SelectedModel } from '../../shared/provider-types'
 export function buildSpecializedToolsForProvider(selected: SelectedModel): ToolSet {
   switch (selected.provider) {
     case 'anthropic': {
-      // ⚠️ Haiku 4.5 不在 codeExecution_20260120 / webSearch_20260209 的
-      // "Supported models" 列表里（仅 Opus 4.5+ / Sonnet 4.5+）。装上会让
-      // Anthropic API 拒整个请求 → 0 step → AI SDK 'No output generated'
-      // 报错（M8 hotfix 实测的 bug）。Haiku 走 18 本地 tool + Tavily 已够用。
       const tools: ToolSet = {}
-      if (!selected.modelId.includes('haiku')) {
-        tools.anthropic_web_search = anthropic.tools.webSearch_20260209({ maxUses: 5 })
+      if (supportsAnthropicNativeTools(selected.modelId)) {
+        tools.anthropic_web_search = anthropic.tools.webSearch_20260209({
+          maxUses: ANTHROPIC_WEB_SEARCH_MAX_USES
+        })
         tools.anthropic_code_execution = anthropic.tools.codeExecution_20260120({})
       }
       return tools

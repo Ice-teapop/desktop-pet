@@ -749,6 +749,42 @@ body,
   color: var(--muted);
 }
 
+/* 批量 delete: paths 列表 + 队列徽章 */
+.approval-paths-list {
+  list-style: none;
+  padding: 0;
+  margin: 4px 0 0 0;
+  max-height: 140px;
+  overflow-y: auto;
+  border: 2px solid var(--coral-soft);
+  border-radius: 0;
+}
+
+.approval-paths-list li {
+  padding: 2px 6px;
+  border-bottom: 1px dashed var(--coral-soft);
+}
+
+.approval-paths-list li:last-child {
+  border-bottom: none;
+}
+
+.approval-paths-list code {
+  font-family: var(--fnt-en);
+  font-size: 9.5px;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  display: inline;
+  word-break: break-all;
+}
+
+.approval-queue-badge {
+  font-size: 10px;
+  color: var(--coral-deep);
+  font-weight: normal;
+}
+
 .approval-actions {
   display: flex;
   flex-direction: column;

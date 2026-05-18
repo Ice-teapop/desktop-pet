@@ -222,6 +222,14 @@ const api = {
   sendApprovalResponse(id: string, decision: ApprovalDecision, dirToTrust?: string): void {
     ipcRenderer.send('approval:response', id, decision, dirToTrust)
   },
+  /**
+   * 通知 main: 此 id 的 modal 已真正显示给用户 → main 才开始 60s auto-deny 计时。
+   * 防 race: 队列里第 N 个 request 不能从入队那一刻起计时，否则用户处理前 N-1 个
+   * 期间第 N 个静默 timeout 被 auto-deny。
+   */
+  notifyApprovalDisplayed(id: string): void {
+    ipcRenderer.send('approval:displayed', id)
+  },
 
   // —— M4-D-1 Tavily search API key ——
   /** 提交 Tavily key，主进程 safeStorage 加密落盘 + 推送 tavily:state */

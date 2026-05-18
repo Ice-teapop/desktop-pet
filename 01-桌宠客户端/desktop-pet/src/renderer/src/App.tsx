@@ -220,8 +220,12 @@ function App(): React.JSX.Element {
   // → CSS opacity transition 让 back 0→1 + front 1→0 同时 ramp，永远不出现透明窗口
   const [frontIdx, setFrontIdx] = useState<0 | 1>(0)
   const [urls, setUrls] = useState<[string, string]>([IDLE_POOL[0], IDLE_POOL[0]])
-  // —— M4-C 高风险 tool 待审批的请求（null = 当前无 pending） ——
-  const [pendingApproval, setPendingApproval] = useState<ApprovalRequest | null>(null)
+  // —— M4-C 高风险 tool 待审批的请求队列 ——
+  // 队列化（v0.4 后续 fix）: 原来是单 state 'last-wins' 覆盖, 多个并发 IPC 来
+  // 只显示最后一个, 其它 N-1 个在 main 端 60s timeout 后被 auto-deny → 用户
+  // 看到「批量删除失败 N-1 次」的假象。改成 queue 后, head 显示, response 后 shift。
+  const [approvalQueue, setApprovalQueue] = useState<ApprovalRequest[]>([])
+  const pendingApproval = approvalQueue[0] ?? null
   // v0.4.0 改动 1: vision/tavily UI 全部迁移到 Settings, 这里不再持 state.
   // 记录"想切到的 url" —— 防止 back img 在我们没期待时（如初始 mount）fire onLoad 误触发 swap
   const pendingBackRef = useRef<string | null>(null)
@@ -434,12 +438,29 @@ function App(): React.JSX.Element {
   // v0.4.0 改动 1: vision/tavily state 订阅 已迁移到 Settings 窗口
 
   // —— 订阅 main 端的 approval 请求 ——
-  // 一次只支持一个 pending —— 后来的覆盖前面的（理论上 main 端 serial 处理 tool calls，
-  // 不会出现并发；这里做 last-wins 防御）
+  // 入队尾。 head 由 modal 渲染, response 后 shift 头部, 下一个自动现身。
+  // 防 race: 即使 main 端有并发 IPC (batch tool 引入后理论上少了, 但 read_file/
+  // write_file 等其它 tool 仍可能 concurrent), 也不会丢请求。
   useEffect(() => {
-    const off = window.api.onApprovalRequest((req) => setPendingApproval(req))
+    const off = window.api.onApprovalRequest((req) =>
+      setApprovalQueue((q) => [...q, req])
+    )
     return off
   }, [])
+
+  // —— head 变化时通知 main: 此 id modal 真正在显示 → 启 60s auto-deny 计时 ——
+  // 防队列里第 N 个 request 在前 N-1 个被处理期间静默 timeout
+  const lastDisplayedIdRef = useRef<string | null>(null)
+  useEffect(() => {
+    const headId = pendingApproval?.id ?? null
+    if (headId && headId !== lastDisplayedIdRef.current) {
+      lastDisplayedIdRef.current = headId
+      window.api.notifyApprovalDisplayed(headId)
+    }
+    if (!headId) {
+      lastDisplayedIdRef.current = null
+    }
+  }, [pendingApproval?.id])
 
   // —— M5-2 用户在设置面板清空对话历史 → 同步清 UI 消息列表 ——
   useEffect(() => {
@@ -452,13 +473,15 @@ function App(): React.JSX.Element {
   const handleApprovalDecision = (decision: ApprovalDecision): void => {
     if (!pendingApproval) return
     // trust-dir-* 决策需要目录路径 —— 从 req.path 推出（path 是文件或目录绝对路径）
+    // 批量场景 (paths.length > 1) 在 modal UI 层就已隐藏 trust-dir-* 按钮,
+    // 这里仍兜底: 若 main 端拿到 trust-dir-* 但 dirToTrust 缺失会 noop。
     const dirToTrust = pendingApproval.path
       ? pendingApproval.path.endsWith('/')
         ? pendingApproval.path
         : pendingApproval.path.replace(/\/[^/]*$/, '') || '/'
       : undefined
     window.api.sendApprovalResponse(pendingApproval.id, decision, dirToTrust)
-    setPendingApproval(null)
+    setApprovalQueue((q) => q.slice(1))
   }
 
   // keyState 转变（非 'missing' → 'missing'）才插迎宾，避免重复推送 missing 时反复插。
@@ -1125,7 +1148,15 @@ function App(): React.JSX.Element {
       {pendingApproval && (
         <div className="vision-modal-overlay">
           <div className="vision-modal approval-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="vision-modal-title">⚠️ AI 请求授权</div>
+            <div className="vision-modal-title">
+              ⚠️ AI 请求授权
+              {approvalQueue.length > 1 && (
+                <span className="approval-queue-badge">
+                  {' '}
+                  · 队列 {approvalQueue.length}
+                </span>
+              )}
+            </div>
             <div className="vision-modal-body">
               <p className="approval-summary">{pendingApproval.summary}</p>
               {pendingApproval.path && (
@@ -1133,6 +1164,18 @@ function App(): React.JSX.Element {
                   <b>路径：</b>
                   <code>{pendingApproval.path}</code>
                 </p>
+              )}
+              {pendingApproval.paths && pendingApproval.paths.length > 0 && (
+                <div className="approval-detail">
+                  <b>批量路径（{pendingApproval.paths.length} 个）：</b>
+                  <ul className="approval-paths-list">
+                    {pendingApproval.paths.map((p) => (
+                      <li key={p}>
+                        <code>{p}</code>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               )}
               {pendingApproval.command && (
                 <p className="approval-detail">
@@ -1158,33 +1201,40 @@ function App(): React.JSX.Element {
                 className="vision-modal-btn-cancel"
                 onClick={() => handleApprovalDecision('deny')}
               >
-                拒绝
+                {pendingApproval.paths && pendingApproval.paths.length > 1
+                  ? '拒绝整批'
+                  : '拒绝'}
               </button>
               <button
                 type="button"
                 className="approval-btn-once"
                 onClick={() => handleApprovalDecision('allow-once')}
               >
-                允许一次
+                {pendingApproval.paths && pendingApproval.paths.length > 1
+                  ? `允许全部 ${pendingApproval.paths.length} 个`
+                  : '允许一次'}
               </button>
-              {pendingApproval.path && (
-                <>
-                  <button
-                    type="button"
-                    className="approval-btn-trust-session"
-                    onClick={() => handleApprovalDecision('trust-dir-session')}
-                  >
-                    信任此目录（本会话）
-                  </button>
-                  <button
-                    type="button"
-                    className="approval-btn-trust-permanent"
-                    onClick={() => handleApprovalDecision('trust-dir-permanent')}
-                  >
-                    永久信任此目录
-                  </button>
-                </>
-              )}
+              {/* 单 path 才显示 trust-dir-* 两键; 批量隐藏 (审核官员 pre-review #2:
+                  跨多个父目录一次性 persistent trust 用户无法 informed-consent) */}
+              {pendingApproval.path &&
+                !(pendingApproval.paths && pendingApproval.paths.length > 1) && (
+                  <>
+                    <button
+                      type="button"
+                      className="approval-btn-trust-session"
+                      onClick={() => handleApprovalDecision('trust-dir-session')}
+                    >
+                      信任此目录（本会话）
+                    </button>
+                    <button
+                      type="button"
+                      className="approval-btn-trust-permanent"
+                      onClick={() => handleApprovalDecision('trust-dir-permanent')}
+                    >
+                      永久信任此目录
+                    </button>
+                  </>
+                )}
             </div>
           </div>
         </div>

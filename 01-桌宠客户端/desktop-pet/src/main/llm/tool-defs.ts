@@ -197,10 +197,32 @@ export function buildToolSetForContext(ctx: ToolContext): ToolSet {
     write_file: wrapTool(
       'write_file',
       WRITE_FILE.description,
-      z.object({
-        path: z.string().describe('Absolute or ~/-relative path'),
-        content: z.string().describe('Full UTF-8 text content to write. Max 1MB.')
-      }),
+      z
+        .object({
+          path: z
+            .string()
+            .optional()
+            .describe('Single-file mode: absolute or ~/-relative path'),
+          content: z.string().optional().describe('Single-file mode: full UTF-8 content'),
+          files: z
+            .array(
+              z.object({
+                path: z.string().describe('Absolute or ~/-relative path'),
+                content: z.string().describe('Full UTF-8 text content')
+              })
+            )
+            .optional()
+            .describe(
+              'Batch mode: array of {path, content}. Preferred for ≥2 files — ' +
+                'one modal per untrusted path still, but batch validates schema upfront.'
+            )
+        })
+        .refine(
+          (v) =>
+            (typeof v.path === 'string' && typeof v.content === 'string') ||
+            (Array.isArray(v.files) && v.files.length > 0),
+          { message: 'must provide {path, content} or non-empty files[]' }
+        ),
       ctx
     ),
     write_docx: wrapTool(
@@ -271,22 +293,63 @@ export function buildToolSetForContext(ctx: ToolContext): ToolSet {
     delete_file: wrapTool(
       'delete_file',
       DELETE_FILE.description,
-      z.object({ path: z.string().describe('Absolute or ~/-relative path to delete') }),
+      z
+        .object({
+          path: z
+            .string()
+            .optional()
+            .describe('Single path (legacy/single-file mode; absolute or ~/-relative)'),
+          paths: z
+            .array(z.string())
+            .optional()
+            .describe(
+              'Batch paths (absolute or ~/-relative). Prefer this for ≥2 files — ' +
+                'one modal lists all paths, single user click approves whole batch.'
+            )
+        })
+        .refine((v) => !!v.path || (Array.isArray(v.paths) && v.paths.length > 0), {
+          message: 'must provide `path` or non-empty `paths[]`'
+        }),
       ctx
     ),
     move_file: wrapTool(
       'move_file',
       MOVE_FILE.description,
-      z.object({
-        src: z.string().describe('Source path (absolute or ~/-relative)'),
-        dest: z
-          .string()
-          .describe('Destination path. Trailing / or existing dir → src basename preserved.'),
-        overwrite: z
-          .string()
-          .optional()
-          .describe('Set "true" only when user explicitly OKs replacing existing dest.')
-      }),
+      z
+        .object({
+          // 单文件 (向后兼容)
+          src: z.string().optional().describe('Single-move mode: source path'),
+          dest: z.string().optional().describe('Single-move mode: destination path'),
+          overwrite: z
+            .boolean()
+            .optional()
+            .describe('Single-move: true to overwrite existing dest. Default false.'),
+          // 批量
+          moves: z
+            .array(
+              z.object({
+                src: z.string().describe('Source path (absolute or ~/-relative)'),
+                dest: z
+                  .string()
+                  .describe('Destination. Trailing / or existing dir → src basename preserved.'),
+                overwrite: z
+                  .boolean()
+                  .optional()
+                  .describe('Per-item overwrite flag (default false)')
+              })
+            )
+            .optional()
+            .describe(
+              'Batch mode: array of moves. Preferred for ≥2 files — one modal lists ' +
+                'all src→dest pairs, single click approves whole batch.'
+            )
+        })
+        .refine(
+          (v) =>
+            (typeof v.src === 'string' && typeof v.dest === 'string') ||
+            (Array.isArray(v.moves) && v.moves.length > 0),
+          { message: 'must provide {src, dest} or non-empty moves[]' }
+        ),
       ctx
     ),
     run_command: wrapTool(
@@ -410,7 +473,13 @@ export function buildToolSetForContext(ctx: ToolContext): ToolSet {
       WEB_SEARCH.description,
       z.object({
         query: z.string().describe('Search query in natural language'),
-        max_results: z.string().optional().describe('Optional 1-10, defaults to 5')
+        max_results: z
+          .number()
+          .int()
+          .min(1)
+          .max(10)
+          .optional()
+          .describe('Optional 1-10, defaults to 5')
       }),
       ctx
     )
