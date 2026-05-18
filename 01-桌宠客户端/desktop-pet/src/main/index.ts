@@ -1955,7 +1955,12 @@ function registerIpc(): void {
     // chat:submit 只准备 toolCtx，LlmClient 内部用 buildToolSetForContext(ctx)
     // 把 tool 池跟每个 tool 的 execute 函数自动包装好；SDK 跑 tool loop。
     // tools 池由 ToolContext 动态构建（如 tavilyApiKey 缺则 web_search 不暴露）。
-    const agenticEnabled = visionEnabledPref && visionConsentedPref
+    //
+    // **v0.3.7 fix**: agenticEnabled 之前 = visionEnabledPref && visionConsentedPref,
+    // 把整个 tool 池 gate 在 vision toggle 后面 → 用户没开 vision 时 get_weather /
+    // write_docx / fetch_url 等所有非 vision tool 都不暴露给 AI, AI 报"天气 API
+    // 有问题"等幻觉. view_screen 在 exec 内部已有 visionConsentedPref 检查 graceful
+    // fail; 其它 tool 不应该被 vision gate 误拦。一直 enable.
     const toolCtx = {
       petWindow,
       currentActivity,
@@ -2051,7 +2056,7 @@ function registerIpc(): void {
         }
       },
       {
-        toolContext: agenticEnabled ? toolCtx : undefined,
+        toolContext: toolCtx,
         memory: petMemoryCache,
         userProfile: userProfileCache,
         // M8: 让 AI 知道桌宠当前状态（"pet 要知道自己现在是什么状态"）
