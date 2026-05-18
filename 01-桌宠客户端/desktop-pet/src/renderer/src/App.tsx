@@ -18,6 +18,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { PetState } from '../../shared/pet-state'
+import { ACTIVITY_INFO } from '../../shared/chat-types'
 import type { ActivityState, ChatError, KeyState } from '../../shared/chat-types'
 import type { VisionState } from '../../shared/vision-types'
 import type { ApprovalDecision, ApprovalRequest } from '../../shared/approval-types'
@@ -192,6 +193,16 @@ function App(): React.JSX.Element {
   const [keyState, setKeyState] = useState<KeyState | null>(null)
   // 活动识别状态：默认 idle，主进程 detector 通过 pet:activity 推
   const [activity, setActivity] = useState<ActivityState>('idle')
+  // v0.4.0 S4.3 [A] pet-toast: tool 'end' 时头顶弹 2.7s "✓ <toolName>" 字条
+  const [petToast, setPetToast] = useState<{ id: number; text: string } | null>(null)
+  const petToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // v0.4.0 S4.4 [B] pet-emote-hint: activity 切换时头顶弹 4s 表情气泡
+  const [emoteHint, setEmoteHint] = useState<string | null>(null)
+  const emoteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastActivityRef = useRef<ActivityState>('idle')
+  // v0.4.0 S3.3 [B] 第 3 颗 pill — companion mode (跟着我做事). 暂仅 renderer state,
+  // prefs IPC 拆 S3.3-impl 后续接入. 提前到 useEffect 作用域之前避免 TDZ.
+  const [petCompanionEnabled, setPetCompanionEnabled] = useState(false)
   // M9-5a: 顶层 petMode（full 完整 240×240 vs mini 80×80 藏边）
   const [petMode, setPetMode] = useState<PetMode>(DEFAULT_PET_MODE)
   // idle 6 变体池索引（仅 stateMachine=idle + activity=idle 时玩）
@@ -276,6 +287,20 @@ function App(): React.JSX.Element {
     const off = window.api.onActivityState((a) => setActivity(a))
     return off
   }, [])
+
+  // v0.4.0 S4.4 [B] emote-hint: activity 切换时头顶弹 4s 表情气泡.
+  // gate by petCompanionEnabled — 默认关闭, 用户开启 🎭 pill 后才弹.
+  // 不依赖 'idle' (空闲态不打扰), 仅在转入 coding/writing/chatting/terminal 时显示.
+  useEffect(() => {
+    const prev = lastActivityRef.current
+    lastActivityRef.current = activity
+    if (!petCompanionEnabled) return
+    if (activity === 'idle' || activity === prev) return
+    const info = ACTIVITY_INFO[activity]
+    if (emoteTimerRef.current) clearTimeout(emoteTimerRef.current)
+    setEmoteHint(`${info.emoji} 你${info.label}, 我陪你`)
+    emoteTimerRef.current = setTimeout(() => setEmoteHint(null), 4000)
+  }, [activity, petCompanionEnabled])
 
   // M9-5a: 订阅 petMode + 启动 race 防御 (pull request-state)
   // 进 mini 时主进程已 stopCursorPoll → 进 full 前 cursorRef 是 stale；这里 reset
@@ -545,6 +570,13 @@ function App(): React.JSX.Element {
               : m
           )
         )
+        // v0.4.0 S4.3 [A] tool 'end' → 头顶 toast (2.7s)
+        // tool 'error' 不弹 toast, 已经在 msg-tool 卡显红色状态
+        if (event.kind === 'end') {
+          if (petToastTimerRef.current) clearTimeout(petToastTimerRef.current)
+          setPetToast({ id: Date.now(), text: `✓ ${event.toolName}` })
+          petToastTimerRef.current = setTimeout(() => setPetToast(null), 2700)
+        }
       }
     })
     return off
@@ -951,9 +983,7 @@ function App(): React.JSX.Element {
   })()
   const tavilyPillOn = tavilyState?.kind === 'configured'
 
-  // v0.4.0 [B] 第 3 颗 pill — 跟着我做事 (companion mode)
-  // S3.3 暂时只是本地 UI 占位 state, prefs IPC 后续 S3.3-impl 接入 main 端
-  const [petCompanionEnabled, setPetCompanionEnabled] = useState(false)
+  // v0.4.0 [B] 第 3 颗 pill — 跟着我做事 (companion mode). state 已在上方 useState 区
   const handleCompanionToggle = (): void => setPetCompanionEnabled((v) => !v)
   const companionLabel = petCompanionEnabled ? '🎭 跟着做事' : '🎭 自顾自'
 
@@ -1024,6 +1054,25 @@ function App(): React.JSX.Element {
                       <div key={m.id} className="msg-system">
                         <span className="msg-system-dot" />
                         <span>{m.text}</span>
+                      </div>
+                    )
+                  }
+                  // v0.4.0 S5.2 [D] msg-file: AI 处理完拖入文件 → 卡片显示文件信息
+                  // 触发: main 端 DnD handler 完成 (S6.4) 后通过 chat:message-file 推, 暂时
+                  // 数据通道空, 仅 render 分支就位. m.file 字段 ChatMessage 已扩展.
+                  if (m.file) {
+                    return (
+                      <div key={m.id} className={`msg msg-${m.role}`}>
+                        <div className="msg-file">
+                          <div className="msg-file-head">
+                            <span className="msg-file-ext">{m.file.ext.toUpperCase()}</span>
+                            <span className="msg-file-name">{m.file.name}</span>
+                          </div>
+                          {m.text && <div className="msg-file-summary">{m.text}</div>}
+                          {m.file.summary && (
+                            <div className="msg-file-summary">{m.file.summary}</div>
+                          )}
+                        </div>
                       </div>
                     )
                   }
@@ -1269,6 +1318,16 @@ function App(): React.JSX.Element {
             消息流中 m.tool.status==='running' 至少 1 个就显示. Mini 模式也显示 —
             CSS `inset:6px` + `clip-path` 自然适配 64×64. */}
         {anyToolRunning && <div className="pet-busy-ring" aria-hidden="true" />}
+        {/* v0.4.0 S4.3 [A] pet-toast — tool 'end' 时 2.7s 头顶字条. CSS 已带
+            pet-pop-in + fade-out 复合 keyframe. */}
+        {petToast && (
+          <div className="pet-toast" key={petToast.id}>
+            {petToast.text}
+          </div>
+        )}
+        {/* v0.4.0 S4.4 [B] pet-emote-hint — activity 切换时 4s 表情气泡.
+            companion mode (🎭 pill) 开启时才显示, 否则被 useEffect gate 拦住. */}
+        {emoteHint && <div className="pet-emote-hint">{emoteHint}</div>}
         {/* M9-5a Mini mode：单 img 渲染 mini-idle.gif。Sub-wave B 加 hover peek / mini
             state→gif 映射。Mini 模式下完全独立于下方 IdleFollow + dual-img 体系。 */}
         {petMode === 'mini' && (
