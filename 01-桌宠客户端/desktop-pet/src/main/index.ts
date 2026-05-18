@@ -51,6 +51,7 @@ import {
 } from '../shared/pet-state'
 import {
   DEFAULT_PET_MODE,
+  DRAG_MIN_VISIBLE_PX,
   MINI_MICRO_PEEK_HOLD_MS,
   MINI_MICRO_PEEK_JITTER_MS,
   MINI_MICRO_PEEK_LERP,
@@ -1380,12 +1381,11 @@ function registerIpc(): void {
     // primary; getCursorScreenPoint 总是用户当前正在拖的 display).
     const cursor = screen.getCursorScreenPoint()
     const wa = screen.getDisplayNearestPoint(cursor).workArea
-    // 露出最少 40×40 像素 (而不是 0) — 全藏屏外可能 user 找不到, drag 都看不到 grab handle
-    const MIN_VISIBLE = 40
-    const minX = wa.x - (w - MIN_VISIBLE)
-    const maxX = wa.x + wa.width - MIN_VISIBLE
+    // 露出最少 DRAG_MIN_VISIBLE_PX 像素 (而不是 0) — 全藏屏外可能 user 找不到, drag 都看不到 grab handle
+    const minX = wa.x - (w - DRAG_MIN_VISIBLE_PX)
+    const maxX = wa.x + wa.width - DRAG_MIN_VISIBLE_PX
     const minY = wa.y
-    const maxY = wa.y + wa.height - MIN_VISIBLE
+    const maxY = wa.y + wa.height - DRAG_MIN_VISIBLE_PX
     const clampedX = Math.max(minX, Math.min(targetX, maxX))
     const clampedY = Math.max(minY, Math.min(targetY, maxY))
     win.setPosition(clampedX, clampedY)
@@ -1420,12 +1420,14 @@ function registerIpc(): void {
   ipcMain.on('window:drag-end', () => {
     if (!petWindow || petWindow.isDestroyed()) return
     if (petMode === 'mini') return // 已经 mini，drag 在 mini 内不重新 snap
+    // chat 开时窗口宽 WIN_WIDTH_FULL，pet 在窗口右半，"窗口左缘到屏右"的判定语义
+    // 与 pet 实际可见宽脱钩 → 守卫: 只 compact 状态下 snap。chat 开着拖 pet 视为
+    // "想换位置"而非"想收起"，由托盘菜单或关 chat 后再拖触发 mini。
+    const [w] = petWindow.getSize()
+    if (w !== WIN_WIDTH_COMPACT) return
     const bounds = petWindow.getBounds()
     const display = screen.getDisplayMatching(bounds)
     const wa = display.workArea
-    // v0.4.0 改动 3: 用户要 "pet 1/4 进入屏幕再收起" — 测 pet 在屏内可见宽度,
-    // ≤ 60px (1/4 of 240) 才 snap to mini. 旧 rightEdge 距离判定 pet 完全可见就
-    // trigger 太宽松, 用户反馈"边缘隐藏的设定太宽".
     const visibleRightWidth = Math.max(0, wa.x + wa.width - bounds.x)
     if (visibleRightWidth <= MINI_SNAP_VISIBLE_PX) {
       setPetMode('mini')

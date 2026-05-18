@@ -28,11 +28,16 @@ export const MINI_WIN_HEIGHT = 100
 /** Mini mode 默认露出多少 px（设计师 v2: 24→32，露半只钳 + 部分眼睛，用户余光可见
  *  仍明确"贴边" + hit-test 横向 32px 远高于 Fitts 安全线 12px。100 - 32 = 68px 藏屏外） */
 export const MINI_VISIBLE_PX = 32
-/** Drag end 时 pet 在屏内的可见宽度阈值 —— 用户反馈 v0.4.0 改: 视觉上 pet 必须
- *  已经被推到只剩 1/4 (60px) 还在屏内才触发 snap to mini.
- *  pet panel 宽 260px, 1/4 ≈ 60px. 旧逻辑用 "右边 ≤ 60px to screen-right" 太宽容,
- *  pet 完全可见时就 trigger; 新语义改成 visible_width 才精确. */
-export const MINI_SNAP_VISIBLE_PX = 60
+/** Drag 时窗口在屏内的最小可见宽度（drag clamp 下限）—— 防全藏屏外让用户找不到
+ *  grab handle。与 MINI_SNAP_VISIBLE_PX 是同轴两阈值：必须 DRAG_MIN < SNAP，
+ *  否则物理上达不到 snap 触发带，snap 永远不会 fire。 */
+export const DRAG_MIN_VISIBLE_PX = 40
+/** Drag end 时窗口在屏内的可见宽度阈值 —— ≤ 此值触发 snap to mini。
+ *  panel 窗口宽 260px (pet body 240 + padding 20)，180px ≈ panel 的 69% 可见 /
+ *  31% 推出屏。用户只需"明显往右推一下"就 snap，不必拖到几乎完全出屏。
+ *  历史: v0.4.0 首版 60 太严格 (触发带仅 20px 几乎拖不出); 100 仍不够激进
+ *  (用户反馈"还是不行"); 180 触发带 140px (40-180), 手感跟桌宠"边缘收纳" UX 对齐。 */
+export const MINI_SNAP_VISIBLE_PX = 180
 
 // —— M9-5b B-4 Hover peek ——
 /** mini panel 露出更多以便预览：peek 状态露 80px（vs retract 32px / micro 64px） */
