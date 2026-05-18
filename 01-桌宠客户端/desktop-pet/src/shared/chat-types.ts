@@ -10,6 +10,13 @@ export interface ChatMessage {
   content: string
 }
 
+/** v0.4.0 [A] AI 调 tool 时 main → renderer 推送的事件, 让 renderer 加 / 改 msg-tool 卡. */
+export interface ToolEvent {
+  kind: 'start' | 'end' | 'error'
+  toolCallId: string
+  toolName: string
+}
+
 export type ChatError =
   | { kind: 'no-api-key' }
   | { kind: 'invalid-api-key' }

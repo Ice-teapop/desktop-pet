@@ -2016,6 +2016,11 @@ function registerIpc(): void {
             aiText += delta
             win.webContents.send('chat:chunk', delta)
           },
+          // v0.4.0 [A] AI 调 tool 事件 → renderer 加 / 改 msg-tool 卡
+          onToolEvent(event) {
+            if (myToken !== chatTurnToken) return
+            win.webContents.send('chat:tool-event', event)
+          },
           onDone(usage) {
             if (myToken !== chatTurnToken) return
             currentStreamHandle = null

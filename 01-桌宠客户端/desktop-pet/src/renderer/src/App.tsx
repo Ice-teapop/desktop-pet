@@ -144,8 +144,8 @@ interface ChatMessage {
   role: 'user' | 'ai' | 'system' | 'tool'
   text: string
   status: 'streaming' | 'done' | 'error'
-  // [A] msg-tool 卡: tool 调用名 + 状态 (running / done / error)
-  tool?: { name: string; status: 'running' | 'done' | 'error' }
+  // [A] msg-tool 卡: tool 调用名 + 状态 (running / done / error) + toolCallId 匹配 start/end
+  tool?: { name: string; status: 'running' | 'done' | 'error'; toolCallId: string }
   // [D] msg-file 卡: 文件信息 + 处理结果摘要
   file?: { name: string; ext: string; summary?: string }
 }
@@ -488,6 +488,40 @@ function App(): React.JSX.Element {
         ...prev,
         { id: msgIdRef.current++, role: 'ai', text: chatErrorText(err), status: 'error' }
       ])
+    })
+    return off
+  }, [])
+
+  // v0.4.0 [A] msg-tool 卡: AI 调 tool 时 main 推 chat:tool-event {kind:'start'|'end'|'error', toolCallId, toolName}.
+  // kind='start' → 插新 'tool' role message (status='running'); kind='end' → match toolCallId 改 status='done'.
+  useEffect(() => {
+    const off = window.api.onChatToolEvent((event) => {
+      if (event.kind === 'start') {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: msgIdRef.current++,
+            role: 'tool',
+            text: '',
+            status: 'streaming',
+            tool: {
+              name: event.toolName,
+              status: 'running',
+              toolCallId: event.toolCallId
+            }
+          }
+        ])
+      } else {
+        // end / error → find by toolCallId, update status
+        const newStatus = event.kind === 'end' ? 'done' : 'error'
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.tool && m.tool.toolCallId === event.toolCallId
+              ? { ...m, status: 'done', tool: { ...m.tool, status: newStatus } }
+              : m
+          )
+        )
+      }
     })
     return off
   }, [])
@@ -903,14 +937,52 @@ function App(): React.JSX.Element {
               </div>
             ) : (
               <>
-                {messages.map((m) => (
-                  <div key={m.id} className={`msg msg-${m.role}`}>
-                    <div className="msg-bubble" data-status={m.status}>
-                      {m.text}
-                      {m.status === 'streaming' && <span className="cursor-blink" />}
+                {messages.map((m) => {
+                  // v0.4.0 [A] msg-tool: AI 调 tool 状态卡 (running 显 loading dots, done 显 ✓ 绿勾)
+                  if (m.role === 'tool' && m.tool) {
+                    const isDone = m.tool.status === 'done'
+                    const isError = m.tool.status === 'error'
+                    return (
+                      <div key={m.id} className="msg-tool">
+                        <span className="msg-tool-icon">🔧</span>
+                        <span className="msg-tool-name">{m.tool.name}</span>
+                        <span className="msg-tool-sep">·</span>
+                        <span
+                          className="msg-tool-status"
+                          data-state={m.tool.status}
+                        >
+                          {isError ? '失败' : isDone ? '完成' : '运行中'}
+                          {isDone && <span className="msg-tool-check">✓</span>}
+                          {!isDone && !isError && (
+                            <span className="msg-tool-loading">
+                              <span className="msg-tool-loading-dot" />
+                              <span className="msg-tool-loading-dot" />
+                              <span className="msg-tool-loading-dot" />
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                    )
+                  }
+                  // v0.4.0 [E] msg-system: 灰 muted 居中提示 (季节装扮 / 系统侧)
+                  if (m.role === 'system') {
+                    return (
+                      <div key={m.id} className="msg-system">
+                        <span className="msg-system-dot" />
+                        <span>{m.text}</span>
+                      </div>
+                    )
+                  }
+                  // user / ai: 原 msg-bubble 不变
+                  return (
+                    <div key={m.id} className={`msg msg-${m.role}`}>
+                      <div className="msg-bubble" data-status={m.status}>
+                        {m.text}
+                        {m.status === 'streaming' && <span className="cursor-blink" />}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
                 {isWaitingForReply && (
                   <div className="msg msg-ai">
                     <div className="typing" aria-label="桌宠在打字">

@@ -18,7 +18,7 @@
  * 已经这样做了。这里只处理 model/network/auth 这类 stream-level 错误。
  */
 import { streamText, stepCountIs, APICallError, type LanguageModel, type ModelMessage } from 'ai'
-import type { ChatError, ChatMessage, ChatUsage } from '../../shared/chat-types'
+import type { ChatError, ChatMessage, ChatUsage, ToolEvent } from '../../shared/chat-types'
 import type { ToolContext } from './tools'
 import { buildToolSetForContext } from './tool-defs'
 import {
@@ -195,6 +195,8 @@ export interface ChatChunkHandler {
   onChunk: (text: string) => void
   onDone: (usage: ChatUsage) => void
   onError: (err: ChatError) => void
+  /** v0.4.0 [A] AI 调 tool 时 fullStream tool-call/tool-result/tool-error 触发 */
+  onToolEvent?: (event: ToolEvent) => void
 }
 
 export interface StreamOptions {
@@ -377,12 +379,37 @@ export class LlmClient {
           abortSignal: abortController.signal
         })
 
-        // drain textStream —— 把 model 输出的每个 text delta 推给上层
+        // v0.4.0 [A]: 切 fullStream 让我们看到 tool-call / tool-result 事件 (textStream
+        // 是 fullStream 的 text-only 子集, fullStream 还含 'tool-call' / 'tool-result' /
+        // 'tool-error' 等). 各 case 分发: text-delta → handler.onChunk (跟之前一致),
+        // tool-call → onToolEvent kind='start', tool-result → kind='end', tool-error → 'error'.
         let textChunkCount = 0
-        for await (const textChunk of result.textStream) {
+        for await (const part of result.fullStream) {
           if (aborted) return
-          textChunkCount++
-          handler.onChunk(textChunk)
+          if (part.type === 'text-delta') {
+            textChunkCount++
+            handler.onChunk(part.text)
+          } else if (part.type === 'tool-call') {
+            handler.onToolEvent?.({
+              kind: 'start',
+              toolCallId: part.toolCallId,
+              toolName: part.toolName
+            })
+          } else if (part.type === 'tool-result') {
+            handler.onToolEvent?.({
+              kind: 'end',
+              toolCallId: part.toolCallId,
+              toolName: part.toolName
+            })
+          } else if (part.type === 'tool-error') {
+            handler.onToolEvent?.({
+              kind: 'error',
+              toolCallId: part.toolCallId,
+              toolName: part.toolName
+            })
+          }
+          // 其它 part type (text-start/text-end/start-step/finish-step/finish/error/...)
+          // 当前不 surface (text-end 跟 finishReason 检查重复; finish 单独走 result.totalUsage)
         }
 
         if (aborted) return

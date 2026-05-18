@@ -5,7 +5,12 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import type { ActivityState, ChatError as ChatErrorMsg, KeyState } from '../shared/chat-types'
+import type {
+  ActivityState,
+  ChatError as ChatErrorMsg,
+  KeyState,
+  ToolEvent as ToolEventMsg
+} from '../shared/chat-types'
 import type { VisionState } from '../shared/vision-types'
 import type { ApprovalDecision, ApprovalRequest } from '../shared/approval-types'
 import type { TavilyState } from '../shared/tavily-types'
@@ -63,6 +68,13 @@ const api = {
     const handler = (_event: IpcRendererEvent, err: ChatErrorMsg): void => listener(err)
     ipcRenderer.on('chat:error', handler)
     return () => ipcRenderer.off('chat:error', handler)
+  },
+  /** v0.4.0 [A] 订阅 AI tool call 事件 (fullStream 'tool-call' / 'tool-result' / 'tool-error').
+   *  让 renderer 加 inline msg-tool 卡 显示"AI 正在用 view_screen 看..." → 完成态绿勾. */
+  onChatToolEvent(listener: (event: ToolEventMsg) => void): () => void {
+    const handler = (_event: IpcRendererEvent, ev: ToolEventMsg): void => listener(ev)
+    ipcRenderer.on('chat:tool-event', handler)
+    return () => ipcRenderer.off('chat:tool-event', handler)
   },
   /** 通知主进程对话 UI 开/关：主进程据此切换窗口尺寸（紧凑 260 / 扩展 540）。 */
   setChatOpen(open: boolean): void {

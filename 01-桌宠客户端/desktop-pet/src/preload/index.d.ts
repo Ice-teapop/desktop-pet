@@ -1,6 +1,12 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
 import type { PetState } from '../shared/pet-state'
-import type { ActivityState, ChatError, ChatUsage, KeyState } from '../shared/chat-types'
+import type {
+  ActivityState,
+  ChatError,
+  ChatUsage,
+  KeyState,
+  ToolEvent
+} from '../shared/chat-types'
 import type { VisionState } from '../shared/vision-types'
 import type { ApprovalDecision, ApprovalRequest } from '../shared/approval-types'
 import type { TavilyState } from '../shared/tavily-types'
@@ -14,7 +20,7 @@ import type { IpcResult, PrefsState, TrustedDirsState } from '../shared/settings
 import type { UserProfile } from '../shared/user-profile-types'
 import type { PetMode } from '../shared/pet-mode'
 
-export type { PetState, ActivityState, ChatError, ChatUsage, KeyState }
+export type { PetState, ActivityState, ChatError, ChatUsage, KeyState, ToolEvent }
 export type { VisionState }
 export type { ApprovalDecision, ApprovalRequest }
 export type { TavilyState }
@@ -31,6 +37,7 @@ export interface DeskPetAPI {
   onChatChunk(listener: (text: string) => void): () => void
   onChatDone(listener: (usage: ChatUsage) => void): () => void
   onChatError(listener: (err: ChatError) => void): () => void
+  onChatToolEvent(listener: (event: ToolEvent) => void): () => void
   setChatOpen(open: boolean): void
   // M9-2 click reactions + M9-3 wake hook + M9-4 eye tracking + M9-5 mini mode
   petPoke(): void

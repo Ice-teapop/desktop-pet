@@ -298,6 +298,116 @@ body,
   background: var(--coral-soft);
 }
 
+/* v0.4.0 [A] msg-tool — AI 调 tool 时 inline 状态卡 (一行 icon+name+状态点)
+ * 复用 clip-path + filter:drop-shadow 跟现有 msg-bubble 同视觉体系 (不用 box-shadow,
+ * 因为 clip-path 切角会裁阴影). BEM (msg__name) 改扁平 (msg-tool-name).
+ */
+.msg-tool {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--paper);
+  border: var(--bw) solid var(--paper-3);
+  font-size: 12px;
+  color: var(--ink-soft);
+  letter-spacing: 0.3px;
+  clip-path: var(--clip-pixel-card);
+  filter: var(--drop-shadow-sm);
+}
+.msg-tool-icon {
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--coral-faint);
+  color: var(--coral-deep);
+  font-size: 10px;
+  clip-path: var(--clip-pixel-card);
+}
+.msg-tool-name {
+  font-family: var(--fnt-en);
+  font-size: 9px;
+  letter-spacing: 1px;
+  color: var(--ink);
+}
+.msg-tool-sep {
+  color: var(--paper-3);
+}
+.msg-tool-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.msg-tool-status[data-state='done'] {
+  color: var(--ok);
+}
+.msg-tool-status[data-state='error'] {
+  color: var(--warn);
+}
+.msg-tool-check {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  background: var(--ok);
+  color: #fff;
+  text-align: center;
+  line-height: 12px;
+  font-size: 9px;
+  font-family: var(--fnt-en);
+  clip-path: var(--clip-pixel-card);
+}
+.msg-tool-loading {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: 2px;
+}
+.msg-tool-loading-dot {
+  width: 3px;
+  height: 3px;
+  background: var(--coral);
+  animation: msg-tool-dot-jump 0.6s steps(2) infinite;
+}
+.msg-tool-loading-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.msg-tool-loading-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes msg-tool-dot-jump {
+  0%,
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  50% {
+    transform: translateY(-3px);
+    opacity: 0.5;
+  }
+}
+
+/* v0.4.0 [E] msg-system — 居中 dashed 灰 muted 气泡, 系统侧提示 (季节装扮 hint 等) */
+.msg-system {
+  align-self: center;
+  font-size: 12px;
+  color: var(--ink-soft);
+  background: var(--paper-2);
+  padding: 5px 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  letter-spacing: 0.3px;
+  border: 1px dashed var(--paper-3);
+  clip-path: var(--clip-pixel-card);
+}
+.msg-system-dot {
+  width: 4px;
+  height: 4px;
+  background: var(--muted);
+}
+
 /* —— 错误气泡：暖红色调，跟珊瑚色系统协调但明显是警告 —— */
 .msg-ai .msg-bubble[data-status='error'] {
   background: #fce4e0;
