@@ -1225,14 +1225,43 @@ function App(): React.JSX.Element {
           e.preventDefault()
           dragDepthRef.current = 0
           setDragOver(false)
-          // S6.3 IPC: 收集 path 推 main. file.path 在 Electron renderer 直接可读 (webSecurity).
+          // v0.4.0 改动 2 [D]: dataTransfer.files → file.path (Electron renderer 允许)
+          // → main 端 dropFiles 安全检查 + preview → summary → 走正常 submitChat 流
           const paths = Array.from(e.dataTransfer.files)
             .map((f) => (f as File & { path?: string }).path)
             .filter((p): p is string => typeof p === 'string' && p.length > 0)
-          if (paths.length > 0) {
-            // 占位 — S6.3-impl 后通过 window.api.dropFiles(paths) 推 main
-            console.log('[v0.4.0 S6.2] drop files (S6.3 IPC pending):', paths)
-          }
+          if (paths.length === 0) return
+          void (async (): Promise<void> => {
+            const result = await window.api.dropFiles(paths)
+            if (result.accepted.length === 0 && result.rejected.length > 0) {
+              // 全部 reject — 不发 chat, 加 system 消息让用户看到原因
+              setMessages((prev) => [
+                ...prev,
+                {
+                  id: msgIdRef.current++,
+                  role: 'system' as const,
+                  text:
+                    `⚠️ 拖入的 ${result.rejected.length} 个文件全部被拒:\n` +
+                    result.rejected.map((r) => `• ${r.path} — ${r.reason}`).join('\n'),
+                  status: 'done' as const
+                }
+              ])
+              return
+            }
+            // 有接受的: 推 summary 当 user msg, 也走 chat:submit 让 AI 收到完整上下文.
+            // summary 长但信息密集 — 包括路径 + 大小 + 文本预览 + 安全拒绝列表.
+            // 主进程会把同一份 text 存进 chat-history.json, 下次启动 reload 一致.
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: msgIdRef.current++,
+                role: 'user' as const,
+                text: result.summary,
+                status: 'done' as const
+              }
+            ])
+            window.api.submitChat(result.summary)
+          })()
         }}
       >
         {/* v0.4.0 S4.2 [A] pet-busy-ring — AI 调 tool 时 pet 周围珊瑚虚线闪烁,

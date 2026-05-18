@@ -113,6 +113,7 @@ import { migrateLegacyUserData } from './storage/migration'
 import { loadTheme } from './storage/theme'
 import { ActiveAppMonitor } from './services/active-app'
 import { createSettingsWindow } from './services/settings-window'
+import { processDroppedFiles } from './services/dropped-files'
 // M7-4: llm/tools 老 ToolDef + buildToolsForContext + executeTool 路径已被
 // llm-client.ts 内部 buildToolSetForContext (AI SDK ToolSet) 取代 —— chat:submit
 // handler 只传 toolContext 给 LlmClient，SDK 自己跑 tool loop。tools.ts 老 export
@@ -1838,6 +1839,16 @@ function registerIpc(): void {
 
   ipcMain.on('chat-history:reveal-in-finder', () => {
     void shell.showItemInFolder(chatHistoryPath())
+  })
+
+  // v0.4.0 改动 2 [D] 拖文件入口 — preload `dropFiles(paths)` → 此 handler
+  // 安全检查 + 文本预览 → 返回 DropResult, renderer 用 summary 走正常 chat:submit
+  ipcMain.handle('chat:drop-files', async (_event, paths: unknown) => {
+    if (!Array.isArray(paths)) {
+      return { accepted: [], rejected: [], summary: '⚠️ paths 不是数组' }
+    }
+    const validPaths = paths.filter((p): p is string => typeof p === 'string' && p.length > 0)
+    return processDroppedFiles(validPaths)
   })
 
   // —— M5-3 用户档案 IPC ——

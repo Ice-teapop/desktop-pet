@@ -19,6 +19,7 @@ import type {
 import type { IpcResult, PrefsState, TrustedDirsState } from '../shared/settings-types'
 import type { UserProfile } from '../shared/user-profile-types'
 import type { PetMode } from '../shared/pet-mode'
+import type { DropResult } from '../shared/dropped-files-types'
 
 export type { PetState, ActivityState, ChatError, ChatUsage, KeyState, ToolEvent }
 export type { VisionState }
@@ -105,7 +106,15 @@ export interface DeskPetAPI {
   saveUserProfile(profile: Partial<UserProfile>): Promise<IpcResult>
   resetUserProfileSetup(): Promise<IpcResult>
   revealUserProfileInFinder(): void
+  // v0.4.0 改动 2 [D] 拖文件 — 给 AI 喂上下文
+  dropFiles(paths: string[]): Promise<DropResult>
 }
+
+export type {
+  DropResult,
+  AcceptedDroppedFile,
+  RejectedDroppedFile
+} from '../shared/dropped-files-types'
 
 declare global {
   interface Window {

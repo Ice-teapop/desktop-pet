@@ -23,6 +23,7 @@ import type {
 import type { IpcResult, PrefsState, TrustedDirsState } from '../shared/settings-types'
 import type { UserProfile } from '../shared/user-profile-types'
 import type { PetMode } from '../shared/pet-mode'
+import type { DropResult } from '../shared/dropped-files-types'
 
 const api = {
   /** 渲染层接管鼠标后，把 dx/dy 增量发给主进程，由主进程移动窗口。 */
@@ -367,6 +368,10 @@ const api = {
   },
   revealUserProfileInFinder(): void {
     ipcRenderer.send('user-profile:reveal-in-finder')
+  },
+  // v0.4.0 改动 2 [D] 拖文件 — 返回 DropResult, renderer 自己拼 submitChat
+  dropFiles(paths: string[]): Promise<DropResult> {
+    return ipcRenderer.invoke('chat:drop-files', paths) as Promise<DropResult>
   }
 }
 
