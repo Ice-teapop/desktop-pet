@@ -16,7 +16,7 @@
  *  - hits-rect 检测严格用 chatPhase==='open'（不含 fade-out 中的 'closing'）
  *  - FADE_HALF_MS 单一来源 inline transition style（不跟 main.css 那行重复维护）
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { PetState } from '../../shared/pet-state'
 import { ACTIVITY_INFO } from '../../shared/chat-types'
 import type { ActivityState, ChatError, KeyState } from '../../shared/chat-types'
@@ -128,23 +128,6 @@ const KEY_STORED_TEXT = '钥匙记下了，咱们可以聊了 🦀'
 
 const KEY_RESET_PROMPT = '🔑 钥匙没了或被拒了 —— 再贴一个 API key 给我？'
 
-// v0.4.0 改动 5: 指令预测预设池 (静态). 用户实际输入时按 prefix 匹配 historyPool + PRESETS.
-// 排在前的优先 (历史更高优先级 — 用户重复操作命中更多).
-const COMMAND_PRESETS: ReadonlyArray<string> = [
-  '现在几点了?',
-  '今天天气怎么样?',
-  '看看屏幕上有什么',
-  '帮我写一份会议总结 docx',
-  '帮我做一个 Excel 待办清单',
-  '把这段总结成英文',
-  '整理一下桌面文件',
-  '搜一下最近的 AI 新闻',
-  '记一下: 今天下午 3 点开会',
-  '你最近都在干啥?'
-]
-const HISTORY_STORAGE_KEY = 'deskpet:chat-input-history'
-const HISTORY_MAX = 50
-
 const NOT_KEY_HINT =
   '🤔 这看着不像 API key (我认 Anthropic sk-ant- / OpenAI sk- 或 sk-proj- / Google AIza / xAI xai- / 字节豆包 UUID)。复制时检查下别带空格。'
 
@@ -221,18 +204,6 @@ function App(): React.JSX.Element {
   const [petCompanionEnabled] = useState(true)
   // v0.4.0 改动 4: chat 顶部模型切换 pill 需要的当前选中模型 state
   const [currentModel, setCurrentModel] = useState<SelectedModel | null>(null)
-  // v0.4.0 改动 5: 用户历史输入 (localStorage 持久化, 最多 50 条, MRU 在前)
-  const [inputHistory, setInputHistory] = useState<string[]>(() => {
-    try {
-      const raw = localStorage.getItem(HISTORY_STORAGE_KEY)
-      if (!raw) return []
-      const parsed = JSON.parse(raw) as unknown
-      if (!Array.isArray(parsed)) return []
-      return parsed.filter((s): s is string => typeof s === 'string').slice(0, HISTORY_MAX)
-    } catch {
-      return []
-    }
-  })
   // v0.4.0 S6.2 [D] DnD overlay: 用户拖文件到 pet 上方时显示 .pet-drop 大字
   // S6.3-S6.5 (主进程读文件 + agentic 处理) 后续拆出, 现在仅 renderer overlay
   const [dragOver, setDragOver] = useState(false)
@@ -765,21 +736,8 @@ function App(): React.JSX.Element {
    *  - missing + 不像 key → 用户消息照常显示 + 追加一条 AI 提示
    *  - ready → 正常对话流
    */
-  // v0.4.0 改动 5: 历史 push — 成功 submit 后 MRU 到最前, 去重, 限 50 条, 落盘 localStorage
-  const pushInputHistory = useCallback((text: string): void => {
-    setInputHistory((prev) => {
-      const next = [text, ...prev.filter((h) => h !== text)].slice(0, HISTORY_MAX)
-      try {
-        localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(next))
-      } catch {
-        // localStorage 满 / disabled — 内存里仍然 work
-      }
-      return next
-    })
-  }, [])
-
-  const submitChat = (overrideText?: string): void => {
-    const text = (overrideText ?? draft).trim()
+  const submitChat = (): void => {
+    const text = draft.trim()
     if (!text) return
 
     // S2 fix #1 (part): 新 turn 开始前清掉上 turn 还 running 的 msg-tool 卡 (abort 后
@@ -841,30 +799,10 @@ function App(): React.JSX.Element {
 
     setMessages((prev) => [...prev, { id: msgIdRef.current++, role: 'user', text, status: 'done' }])
     window.api.submitChat(text)
-    pushInputHistory(text) // v0.4.0 改动 5: 成功 submit 才记入历史
     setDraft('')
   }
 
-  // v0.4.0 改动 5: 指令预测 ghost 完成 — draft 的 prefix 在 history+PRESETS 找首个 match
-  // (history 优先), 在 input 右侧灰色显示后缀. Tab → 接受后缀 + 立即 submit.
-  const ghostCompletion = useMemo<string | null>(() => {
-    if (!draft || draft.length < 1) return null
-    const lower = draft.toLowerCase()
-    const candidates = [...inputHistory, ...COMMAND_PRESETS]
-    for (const c of candidates) {
-      if (c.toLowerCase().startsWith(lower) && c !== draft) return c
-    }
-    return null
-  }, [draft, inputHistory])
-
   const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
-    if (e.key === 'Tab' && ghostCompletion) {
-      // 用户要 "tab 一下 enter 直接发送" → tab 接受 + 立即 submit
-      e.preventDefault()
-      setDraft(ghostCompletion)
-      submitChat(ghostCompletion) // override draft 立即用补全的文本提交
-      return
-    }
     if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
       e.preventDefault()
       submitChat()
@@ -1105,29 +1043,15 @@ function App(): React.JSX.Element {
               {currentModel ? currentModel.modelId : '加载中…'}
             </button>
           </div>
-          {/* v0.4.0 改动 5: input + ghost overlay (input z-index=2 transparent bg,
-              ghost z-index=1 paper bg, prefix 透明留住宽度, suffix 灰色显示补全).
-              Tab → 接受 + 立即提交 (handleInputKeyDown 处理). */}
-          <div className="chat-input-wrap">
-            <input
-              className="chat-input"
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={handleInputKeyDown}
-              autoFocus
-              disabled={isInputDisabled}
-              placeholder={placeholder}
-            />
-            {ghostCompletion && !isInputDisabled && (
-              <div className="chat-input-ghost" aria-hidden="true">
-                <span className="chat-input-ghost-prefix">{draft}</span>
-                <span className="chat-input-ghost-suffix">
-                  {ghostCompletion.slice(draft.length)}
-                </span>
-                <span className="chat-input-ghost-tab">TAB</span>
-              </div>
-            )}
-          </div>
+          <input
+            className="chat-input"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={handleInputKeyDown}
+            autoFocus
+            disabled={isInputDisabled}
+            placeholder={placeholder}
+          />
         </div>
       )}
       {/* v0.4.0 改动 1: vision modal + tavily modal 已删 — 全部迁移到 Settings 窗口 */}

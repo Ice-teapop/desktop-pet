@@ -1076,8 +1076,14 @@ function setChatOpen(open: boolean): void {
   const minX = workArea.x
   const maxX = workArea.x + workArea.width - newW
   newX = Math.max(minX, Math.min(newX, maxX))
+  // v0.4.0 fix: y 也要 clamp — 防 drag/wake/restore 之前把 pet y 推出屏后,
+  // chat:set-open setBounds 仍然用了 stale y → pet 在 chat 打开后仍 invisible.
+  // 即使 drag 现在有了 clamp, 这里 belt-and-suspenders 兜底 (B 级安全).
+  const minY = workArea.y
+  const maxY = workArea.y + workArea.height - WIN_HEIGHT
+  const clampedY = Math.max(minY, Math.min(y, maxY))
 
-  petWindow.setBounds({ x: newX, y, width: newW, height: WIN_HEIGHT }, true)
+  petWindow.setBounds({ x: newX, y: clampedY, width: newW, height: WIN_HEIGHT }, true)
   reapplyMacVisibility(petWindow)
 
   if (open) {
@@ -1360,7 +1366,25 @@ function registerIpc(): void {
     // renderer 端 handlePointerUp 已确保 mini pointerup === setPetMode('full')。
     if (petMode === 'mini') return
     const [x, y] = win.getPosition()
-    win.setPosition(x + Math.round(dx), y + Math.round(dy))
+    const [w] = win.getSize()
+    const targetX = x + Math.round(dx)
+    const targetY = y + Math.round(dy)
+    // v0.4.0 fix: 屏幕边界 clamp — 防止 drag 把 pet 推出屏外, 后续 chat:set-open
+    // 走 setBounds 用 stale x 永远不会 ensurePetVisible 重新拉回 (诊断报告 a 级).
+    // workArea 用 cursor 当前所在 display 而不是 win 当前 — 因为 win 可能已在屏外
+    // (BrowserWindow.getBounds 返回上次合法值, getDisplayMatching 用屏外坐标会落到
+    // primary; getCursorScreenPoint 总是用户当前正在拖的 display).
+    const cursor = screen.getCursorScreenPoint()
+    const wa = screen.getDisplayNearestPoint(cursor).workArea
+    // 露出最少 40×40 像素 (而不是 0) — 全藏屏外可能 user 找不到, drag 都看不到 grab handle
+    const MIN_VISIBLE = 40
+    const minX = wa.x - (w - MIN_VISIBLE)
+    const maxX = wa.x + wa.width - MIN_VISIBLE
+    const minY = wa.y
+    const maxY = wa.y + wa.height - MIN_VISIBLE
+    const clampedX = Math.max(minX, Math.min(targetX, maxX))
+    const clampedY = Math.max(minY, Math.min(targetY, maxY))
+    win.setPosition(clampedX, clampedY)
     // M8: 拖拽 pet = user 主动 interaction → wake from sleep
     stateMachine.wakeFromSleep()
   })
