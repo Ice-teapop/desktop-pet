@@ -645,11 +645,14 @@ export const FETCH_URL: ToolDef = {
 export const GET_WEATHER: ToolDef = {
   name: 'get_weather',
   description:
-    'Get current weather + next 12h forecast for a location. ' +
-    'Use when user asks "天气怎么样" / "现在多少度" / "明天下雨吗" / "weather in Tokyo" etc. ' +
-    'Provider: Open-Meteo (free, no API key). Resolves city name via geocoding then ' +
-    'fetches forecast. Returns temperature (°C), apparent temp, humidity, wind, ' +
-    'condition (中文), day/night flag, plus 12 hourly forecast points.',
+    'REAL-TIME weather lookup for a city. **MUST CALL** when user mentions weather, ' +
+    'temperature, rain, snow, "天气", "多少度", "下雨", "热不热", "weather", or asks ' +
+    'about outdoor activities where weather matters (爬山/picnic/出门). ' +
+    'NEVER guess. NEVER say "API is unavailable" or "weather service down" — ' +
+    'just call this tool. Provider: Open-Meteo (always available, no key needed). ' +
+    'Returns current temperature (°C), apparent temp, humidity, wind, condition (中文), ' +
+    'day/night flag, plus 12 hourly forecast points (covers user questions about ' +
+    'rest of day or tomorrow morning).',
   input_schema: {
     type: 'object',
     properties: {
@@ -657,7 +660,8 @@ export const GET_WEATHER: ToolDef = {
         type: 'string',
         description:
           'City / region name in any language. Examples: "北京", "Beijing", "New York", ' +
-          '"San Francisco, CA", "Tokyo". Resolved via Open-Meteo geocoding API.'
+          '"San Francisco, CA", "Tokyo", "Melbourne". If user did not specify a city, ' +
+          'ASK them which city before calling — do not guess location.'
       }
     },
     required: ['location']
@@ -2394,6 +2398,7 @@ async function execGetWeather(input: unknown): Promise<ToolResult> {
     return { ok: false, error: 'location must be a non-empty string' }
   }
   const location = obj.location.trim()
+  console.log(`[get_weather] location="${location}" — start`)
   await logToolAction({
     tool: 'get_weather',
     argsSummary: `location=${location}`,
@@ -2405,15 +2410,21 @@ async function execGetWeather(input: unknown): Promise<ToolResult> {
     const geoUrl =
       `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(location)}` +
       `&count=1&language=zh&format=json`
+    console.log(`[get_weather] GET ${geoUrl}`)
     const geoResp = await fetch(geoUrl, { signal: AbortSignal.timeout(WEATHER_TIMEOUT_MS) })
     if (!geoResp.ok) {
-      return { ok: false, error: `geocoding 失败 HTTP ${geoResp.status}` }
+      console.warn(`[get_weather] geocoding HTTP ${geoResp.status}`)
+      return { ok: false, error: `geocoding HTTP ${geoResp.status}: 服务暂不可用，告知用户稍后再试` }
     }
     const geoJson = (await geoResp.json()) as GeocodingResult
     if (!geoJson.results || geoJson.results.length === 0) {
-      return { ok: false, error: `没找到 "${location}"，换个名字试 (e.g. "Beijing" / "北京市")` }
+      console.log(`[get_weather] no geocoding result for "${location}"`)
+      return { ok: false, error: `没找到城市 "${location}"，换个名字试 (e.g. "Beijing" / "北京市")` }
     }
     const place = geoJson.results[0]
+    console.log(
+      `[get_weather] geocoded "${location}" → ${place.name} (${place.latitude}, ${place.longitude})`
+    )
 
     // 2. Forecast
     const fcastUrl =
@@ -2424,9 +2435,11 @@ async function execGetWeather(input: unknown): Promise<ToolResult> {
       signal: AbortSignal.timeout(WEATHER_TIMEOUT_MS)
     })
     if (!fcastResp.ok) {
-      return { ok: false, error: `forecast 失败 HTTP ${fcastResp.status}` }
+      console.warn(`[get_weather] forecast HTTP ${fcastResp.status}`)
+      return { ok: false, error: `forecast HTTP ${fcastResp.status}: 服务暂不可用` }
     }
     const fc = (await fcastResp.json()) as ForecastResult
+    console.log(`[get_weather] OK ${place.name} ${fc.current.temperature_2m}°C`)
 
     // 3. Format
     const placeName = [place.name, place.admin1, place.country].filter(Boolean).join(', ')
@@ -2459,7 +2472,14 @@ async function execGetWeather(input: unknown): Promise<ToolResult> {
     return { ok: true, content: lines.join('\n') }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    return { ok: false, error: `获取天气失败: ${msg}` }
+    const isTimeout = err instanceof Error && err.name === 'TimeoutError'
+    console.error(`[get_weather] error: ${msg}`, err)
+    return {
+      ok: false,
+      error: isTimeout
+        ? `获取天气超时 (>${WEATHER_TIMEOUT_MS}ms). 网络慢或 Open-Meteo 不可达, 告知用户稍后再试.`
+        : `获取天气失败: ${msg}`
+    }
   }
 }
 
