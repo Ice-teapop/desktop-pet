@@ -318,3 +318,83 @@
   gap: 8px;
   margin-top: 14px;
 }
+
+/* —— v0.4.0 Provider card 3-state (active / configured / unconfigured) ——
+ * 替代旧 "API Keys + 桌宠行为 dropdown" 双 section 设计.
+ * 用户看到的: 每个 provider 一个卡, 当前激活卡有绿 ● + model dropdown 嵌入,
+ * 其它已配 key 的卡有 "切换到此 →" 按钮, 未配 key 卡灰 dim 突出 input.
+ */
+.provider-card {
+  padding: 14px;
+  margin: 12px 0;
+  background: var(--paper);
+  border: 2px solid var(--coral);
+  clip-path: var(--clip-pixel-card);
+  filter: drop-shadow(2px 2px 0 var(--coral-deep));
+  transition: filter 120ms steps(2);
+}
+.provider-card--active {
+  background: var(--coral-soft);
+  border-color: var(--coral-deep);
+  filter: drop-shadow(4px 4px 0 var(--coral-deep));
+}
+.provider-card--unconfigured {
+  border-style: dashed;
+  filter: none;
+}
+/* CR Issue 2 fix: opacity 只 dim header + description, 不吃 input/select/button
+ * — 未配置卡的主操作就是 paste key, input 必须清晰可读 */
+.provider-card--unconfigured > .row > label:not(:has(input)),
+.provider-card--unconfigured > .hint {
+  opacity: 0.65;
+}
+.provider-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.provider-card-header > label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: bold;
+  font-size: 13px;
+}
+
+/* 绿 ● "当前使用" chip */
+.chip-current {
+  display: inline-block;
+  font-size: 10.5px;
+  padding: 2px 8px;
+  background: #6db33f;
+  color: #fff;
+  border: 2px solid #4d8327;
+  font-family: var(--fnt-cn);
+  letter-spacing: 0.3px;
+  clip-path: var(--clip-pixel-card);
+}
+
+/* "切换到此 →" 按钮 — 已配 key 但非 active 时显示 */
+.settings-app button.btn-switch-provider {
+  font-size: 11px;
+  padding: 4px 10px;
+  background: var(--paper);
+  color: var(--coral-deep);
+  border-color: var(--coral);
+}
+.settings-app button.btn-switch-provider:hover:not(:disabled) {
+  /* CR Issue 3 fix: 不用 coral-soft (跟 active card bg 撞色让用户以为切了),
+   * 改实色 + 白字让按钮自身变暗一档表达 hover */
+  background: var(--coral);
+  color: #fff;
+}
+
+/* fallback hint 灰小字 */
+.provider-fallback-hint {
+  margin-top: 8px;
+  font-size: 10.5px;
+  color: var(--muted);
+  font-style: italic;
+}

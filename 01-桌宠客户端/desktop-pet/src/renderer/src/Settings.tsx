@@ -256,25 +256,71 @@ function Settings(): React.JSX.Element {
 
       {/* —— 1. API Keys (M7-5 multi-provider) —— */}
       <section>
-        <h2>API Keys</h2>
+        <h2>AI 引擎</h2>
         <p className="hint">
-          至少配一个 LLM provider 让桌宠开口对话。所有 key 用 Electron safeStorage
-          （macOS Keychain backed AES-256）加密落盘，绝不上传任何位置。
+          配 key + 切当前对话用哪家. 至少配一个让桌宠开口. Key 用 Electron safeStorage
+          (macOS Keychain backed AES-256) 加密落盘, 绝不上传.
         </p>
 
         {PROVIDER_ORDER.map((providerId) => {
           const info = PROVIDERS[providerId]
           const configured = providerKeyStates?.[providerId] ?? false
           const draft = providerKeyDrafts[providerId] || ''
+          const isActive = configured && selectedModel?.provider === providerId
+          const state = isActive
+            ? 'active'
+            : configured
+              ? 'configured'
+              : 'unconfigured'
           return (
-            <div key={providerId} className="provider-card">
-              <div className="row">
-                <label>{info.label}</label>
-                <span className={`badge ${configured ? 'badge-ok' : 'badge-muted'}`}>
-                  {configured ? '已配置' : '未配置'}
-                </span>
+            <div
+              key={providerId}
+              className={`provider-card provider-card--${state}`}
+            >
+              <div className="row provider-card-header">
+                <label>
+                  {isActive && <span className="chip-current">● 当前使用</span>}
+                  {info.label}
+                </label>
+                {configured && !isActive && (
+                  <button
+                    className="btn-switch-provider"
+                    onClick={() => handleProviderChange(providerId)}
+                  >
+                    切换到此 →
+                  </button>
+                )}
+                {!configured && (
+                  <span className="badge badge-muted">未配置</span>
+                )}
               </div>
               <p className="hint">{info.description}</p>
+
+              {/* Model dropdown — 仅 active 时展开 (避免 6 个卡都展开噪音) */}
+              {isActive && selectedModel && (
+                <div className="row">
+                  <label>当前模型</label>
+                  <select
+                    value={selectedModel.modelId}
+                    onChange={(e) => handleModelChange(e.target.value)}
+                    className="profile-input"
+                  >
+                    {modelsForProvider(providerId).map((m) => {
+                      const tags: string[] = []
+                      if (m.isReasoning) tags.push('推理')
+                      if (!m.supportsTools) tags.push('无 tool')
+                      if (!m.supportsVision) tags.push('无 vision')
+                      return (
+                        <option key={m.id} value={m.id}>
+                          {m.label}
+                          {tags.length > 0 ? `(${tags.join(' / ')})` : ''}
+                        </option>
+                      )
+                    })}
+                  </select>
+                </div>
+              )}
+
               <div className="row">
                 <input
                   type="password"
@@ -305,9 +351,20 @@ function Settings(): React.JSX.Element {
               <p className="hint">
                 注册：<code>{info.registrationUrl}</code>
               </p>
+              {isActive && (
+                <p className="hint provider-fallback-hint">
+                  ⓘ 当前 provider 过载时自动 fallback 到其它已配 provider 继续对话.
+                  切换 provider = 新对话开始 (跨家历史不兼容).
+                </p>
+              )}
             </div>
           )
         })}
+        {!selectedModel && (
+          <p className="hint" style={{ marginTop: 12 }}>
+            加载 provider/model 状态中...
+          </p>
+        )}
 
         {/* —— Tavily 联网搜索（不是 LLM provider，单独 card） —— */}
         <div className="provider-card" style={{ marginTop: 16 }}>
@@ -356,63 +413,13 @@ function Settings(): React.JSX.Element {
         </div>
       </section>
 
-      {/* —— 2. Pet Behavior（M7-5 provider + model cascade） —— */}
+      {/* —— 2. 识别 / 自动化 (provider + model cascade 已搬到 section 1 卡片) —— */}
       <section>
-        <h2>桌宠行为</h2>
-
-        {selectedModel ? (
-          <>
-            <div className="row">
-              <label>当前 provider</label>
-              <select
-                value={selectedModel.provider}
-                onChange={(e) => handleProviderChange(e.target.value as Provider)}
-                className="profile-input"
-              >
-                {PROVIDER_ORDER.map((p) => {
-                  const configured = providerKeyStates?.[p] ?? false
-                  return (
-                    <option key={p} value={p}>
-                      {PROVIDERS[p].label}
-                      {!configured ? '（未配 key）' : ''}
-                    </option>
-                  )
-                })}
-              </select>
-            </div>
-
-            <div className="row">
-              <label>对话模型</label>
-              <select
-                value={selectedModel.modelId}
-                onChange={(e) => handleModelChange(e.target.value)}
-                className="profile-input"
-              >
-                {modelsForProvider(selectedModel.provider).map((m) => {
-                  const tags: string[] = []
-                  if (m.isReasoning) tags.push('推理')
-                  if (!m.supportsTools) tags.push('无 tool')
-                  if (!m.supportsVision) tags.push('无 vision')
-                  return (
-                    <option key={m.id} value={m.id}>
-                      {m.label}
-                      {tags.length > 0 ? `（${tags.join(' / ')}）` : ''}
-                    </option>
-                  )
-                })}
-              </select>
-            </div>
-          </>
-        ) : (
-          // 启动 race window —— selectedModel IPC 还没到达。显示 loading 而不是 dropdown
-          // fallback 'anthropic'（误导：user 真实选可能是 OpenAI 等）。disabled 也防点击
-          // 在 main 处理完前提交。Officer A + B 都 flag 过 fallback 误导问题。
-          <p className="hint">加载 provider/model 状态中...</p>
-        )}
-
+        <h2>识别 / 自动化</h2>
         <p className="hint">
-          切 provider 自动开新对话（tool 调用历史跨 provider 不兼容）。切同 provider
-          不同 model 保留对话历史。
+          桌宠通过观察前台 App 自动识别你在干啥 (写代码 / 写文档 / 聊天 / 听音乐).
+          活动分类用 Anthropic Claude Haiku 4.5 hardcoded (cost/speed 最优), 不
+          跟随上面 provider 选择切换.
         </p>
 
         <div className="row" style={{ marginTop: 14 }}>
@@ -437,10 +444,6 @@ function Settings(): React.JSX.Element {
             <span>严格 LLM 识别（关 fast-path bundleID 白名单）</span>
           </label>
         </div>
-        <p className="hint">
-          活动分类用 Anthropic Claude Haiku 4.5 hardcoded（cost/speed 最优）——
-          不跟随上面 provider 选择切换。
-        </p>
       </section>
 
       {/* —— 3. Agentic Tools —— */}
