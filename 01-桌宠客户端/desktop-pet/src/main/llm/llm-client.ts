@@ -408,6 +408,12 @@ export class LlmClient {
         })
       } catch (err) {
         if (aborted || abortController.signal.aborted) return
+        // Debug: dump err 顶级 keys + sample 让 classifyError 失败可追
+        const errKeys = err && typeof err === 'object' ? Object.keys(err) : []
+        const errAny = err as { name?: string; message?: string; statusCode?: number; responseBody?: unknown; lastError?: { statusCode?: number; responseBody?: unknown } }
+        console.log(
+          `[llm-client] raw err keys=[${errKeys.join(',')}] name=${errAny?.name} statusCode=${errAny?.statusCode} lastError.statusCode=${errAny?.lastError?.statusCode} responseBody=${String(errAny?.responseBody ?? '').slice(0, 100)} lastError.body=${String(errAny?.lastError?.responseBody ?? '').slice(0, 100)}`
+        )
         handler.onError(classifyError(err))
       }
     })()
@@ -428,19 +434,37 @@ export class LlmClient {
  * 等）：statusCode 区分；非 APICallError 看 message 关键字归类网络问题。
  */
 function classifyError(err: unknown): ChatError {
-  // **v0.4.0 fix**: APICallError.isInstance 在某些场景 fail (AI SDK RetryError wrap /
-  // module duplication 让 instanceof 不命中) → 真 529 被归 'unknown' → fallback chain
-  // 不触发. 改 duck-type + responseBody 字符串匹配兜底, 多层 unwrap.
-  // 实测 monitor 看到 `kind=unknown` 但 responseBody 含 'overloaded_error' 就是这.
-  const anyErr = err as {
+  // **v0.4.0 fix**: AI SDK 把 HTTP 错误 (529 / 429) 包成 AI_NoOutputGeneratedError /
+  // RetryError 等高层 wrapper, 真 APICallError 藏在 err.cause / err.lastError.
+  // APICallError.isInstance 顶层 fail → instanceof 不命中. 解法: 沿 cause + lastError
+  // 链 walk 收集所有候选 (顶层 + cause + lastError + cause.lastError ...), 任一层
+  // 命中 statusCode / responseBody 'overloaded_error' 就归类.
+  // 实测 dev log: name=AI_NoOutputGeneratedError, keys=[name,cause], cause 内含真 APICallError.
+
+  // 收集错误链上的候选对象 (顶层 + cause chain + lastError chain), 最多 5 层防环
+  type AnyErrLike = {
     statusCode?: number
     message?: string
-    responseBody?: string
+    responseBody?: unknown
     responseHeaders?: Record<string, string | undefined>
+    cause?: unknown
     lastError?: unknown
+    name?: string
+  }
+  const chain: AnyErrLike[] = []
+  const visited = new Set<unknown>()
+  let cur: unknown = err
+  for (let i = 0; i < 5 && cur && !visited.has(cur); i++) {
+    visited.add(cur)
+    if (typeof cur === 'object') {
+      chain.push(cur as AnyErrLike)
+      const o = cur as AnyErrLike
+      // 优先 cause (Error wrap), 再 lastError (AI SDK RetryError)
+      cur = o.cause ?? o.lastError
+    } else break
   }
 
-  // AI SDK isInstance 优先 (类型最准, 有 message 等字段)
+  // AI SDK isInstance 优先 (顶层是 APICallError 时类型最准)
   if (APICallError.isInstance(err)) {
     const status = err.statusCode
     if (status === 401 || status === 403) return { kind: 'invalid-api-key' }
@@ -452,30 +476,31 @@ function classifyError(err: unknown): ChatError {
     return { kind: 'api', message: err.message }
   }
 
-  // Duck type 兜底: 检查 statusCode (可能 wrap 在 lastError 内 — RetryError pattern)
-  const inner = anyErr?.lastError as {
-    statusCode?: number
-    message?: string
-    responseBody?: string
-  } | undefined
-  const status = anyErr?.statusCode ?? inner?.statusCode
-  if (status === 401 || status === 403) return { kind: 'invalid-api-key' }
-  if (status === 429) {
-    const retry = anyErr?.responseHeaders?.['retry-after']
-    return { kind: 'rate-limited', retryAfterSec: retry ? Number(retry) : undefined }
+  // 链中任一层有 statusCode → 归类
+  for (const c of chain) {
+    const status = c?.statusCode
+    if (status === 401 || status === 403) return { kind: 'invalid-api-key' }
+    if (status === 429) {
+      const retry = c?.responseHeaders?.['retry-after']
+      return { kind: 'rate-limited', retryAfterSec: retry ? Number(retry) : undefined }
+    }
+    if (status === 503 || status === 529) return { kind: 'overloaded' }
   }
-  if (status === 503 || status === 529) return { kind: 'overloaded' }
 
   // responseBody 字符串匹配 (Anthropic 'overloaded_error' / 'rate_limit_error')
-  const body = String(anyErr?.responseBody ?? inner?.responseBody ?? '')
-  if (body.includes('overloaded')) return { kind: 'overloaded' }
-  if (body.includes('rate_limit')) return { kind: 'rate-limited' }
+  for (const c of chain) {
+    const body = String(c?.responseBody ?? '')
+    if (body.includes('overloaded')) return { kind: 'overloaded' }
+    if (body.includes('rate_limit')) return { kind: 'rate-limited' }
+  }
 
-  // 普通 error message 兜底
-  const msg = (anyErr?.message ?? inner?.message ?? '').toLowerCase()
-  if (msg.includes('overloaded')) return { kind: 'overloaded' }
-  if (msg.includes('rate limit') || msg.includes('rate_limit')) {
-    return { kind: 'rate-limited' }
+  // 普通 message 兜底
+  for (const c of chain) {
+    const msg = (c?.message ?? '').toLowerCase()
+    if (msg.includes('overloaded')) return { kind: 'overloaded' }
+    if (msg.includes('rate limit') || msg.includes('rate_limit')) {
+      return { kind: 'rate-limited' }
+    }
   }
 
   if (err instanceof Error) {
