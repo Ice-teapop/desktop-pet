@@ -69,7 +69,116 @@ export const en: I18nDict = {
   'tool.status.error': 'failed',
 
   // —— Settings ——
+  'settings.h1': 'DeskPet Settings',
   'settings.section.ai_engine': 'AI engine',
+  'settings.section.recognition': 'Activity recognition',
+  'settings.section.agentic': 'Agentic tools (M4)',
+  'settings.section.trust_dirs': 'Trusted folders + audit log',
+  'settings.section.user_profile': 'User profile',
+  'settings.section.memory': 'Cross-session memory',
+  'settings.section.about': 'About',
+  // Toast
+  'settings.toast.key_saved': '{0} key saved (encrypted)',
+  'settings.toast.key_cleared': '{0} key cleared',
+  'settings.toast.switched_provider': 'Switched to {0} (cross-provider opens a new conversation)',
+  'settings.toast.tavily_saved': 'Tavily key saved (encrypted)',
+  'settings.toast.tavily_cleared': 'Tavily key cleared',
+  'settings.toast.vision_revoked': 'Screen awareness consent revoked',
+  'settings.toast.vision_consent_enabled': 'Consent accepted + screen awareness enabled',
+  'settings.toast.audit_cleared': 'Audit log cleared',
+  'settings.toast.audit_clear_failed': 'Clear failed: {0}',
+  'settings.toast.memory_saved': 'Long-term memory saved',
+  'settings.toast.memory_save_failed': 'Save failed: {0}',
+  'settings.toast.memory_cleared': 'Long-term memory cleared',
+  'settings.toast.memory_clear_failed': 'Clear failed: {0}',
+  'settings.toast.chat_history_cleared': 'Chat history cleared (incl. pet UI)',
+  'settings.toast.chat_history_clear_failed': 'Clear failed: {0}',
+  'settings.toast.profile_saved': 'User profile saved',
+  'settings.toast.profile_save_failed': 'Save failed: {0}',
+  'settings.toast.wizard_reset': 'Reset — AI will rerun the wizard on next chat',
+  'settings.toast.wizard_reset_failed': 'Reset failed: {0}',
+  'settings.toast.persistent_revoked': 'Revoked permanent trust: {0}',
+  'settings.toast.persistent_revoke_failed': 'Revoke failed: {0}',
+  'settings.toast.session_dirs_cleared': 'Session trusted dirs cleared',
+  // Tavily card
+  'settings.tavily.label': 'Tavily web search (optional)',
+  'settings.tavily.configured': 'configured',
+  'settings.tavily.unconfigured': 'unconfigured',
+  'settings.tavily.hint':
+    'When set, AI can call the web_search tool (free 1000/month). Privacy: queries go to api.tavily.com.',
+  'settings.tavily.placeholder': 'tvly-...',
+  'settings.tavily.registration': 'Register:',
+  // Recognition section
+  'settings.recognition.hint':
+    "DeskPet watches your front app to figure out what you're doing (coding / writing / chatting / music). Classification uses Anthropic Claude Haiku 4.5 hardcoded (best cost/speed), independent of the provider you pick above.",
+  'settings.recognition.follow_front': 'Auto-detect activity from front app',
+  'settings.recognition.strict_llm': 'Strict LLM classify (disable fast-path bundleID allowlist)',
+  // Agentic section
+  'settings.agentic.label': 'Screen awareness + all tools',
+  'settings.agentic.status_enabled': 'enabled',
+  'settings.agentic.status_disabled': 'consented but toggle off',
+  'settings.agentic.status_no_consent': 'no consent',
+  'settings.agentic.consent_hint':
+    "⚠️ When enabled, AI will screenshot and send to Anthropic when you ask things like \"look at my screen\". Not stored locally, can be turned off any time. Consent required.",
+  'settings.agentic.consent_accept': 'Accept + enable',
+  'settings.agentic.enable': 'Enable',
+  'settings.agentic.disable': 'Disable',
+  'settings.agentic.revoke': 'Revoke consent',
+  'settings.agentic.tools_summary': 'Tools currently available to AI (16 total)',
+  'settings.agentic.tools_li_1': '— context capture',
+  'settings.agentic.tools_li_2': '— browser + clipboard',
+  'settings.agentic.tools_li_3': '— file read',
+  'settings.agentic.tools_li_4': '— file write (delete always prompts)',
+  'settings.agentic.tools_li_5': '— shell commands (safe allowlist silent / others prompt / dangerous always denied)',
+  'settings.agentic.tools_li_6': '— system preferences',
+  'settings.agentic.tools_li_7': '— network',
+  // Trust dirs section
+  'settings.trust.persistent_label': 'Permanent trusted folders',
+  'settings.trust.persistent_empty':
+    '(none — folders you mark "Trust permanently" in approval modal show up here)',
+  'settings.trust.persistent_revoke': 'Revoke',
+  'settings.trust.session_label': 'Session trusted folders',
+  'settings.trust.session_count': '{0} total',
+  'settings.trust.session_clear': 'Clear',
+  'settings.trust.note':
+    "Note: visible top-level folders under HOME (~/Documents etc.) are trusted by default and don't appear here — that's the baseline and can't be revoked.",
+  'settings.audit.label': 'Audit log',
+  'settings.audit.reveal': 'Reveal in Finder',
+  'settings.audit.clear': 'Clear',
+  'settings.audit.hint':
+    '~/Library/Application Support/DeskPet/audit.log — JSONL append-only, auto-rotates at 5MB; local-only, not uploaded.',
+  // User profile section
+  'settings.profile.status_label': 'Status',
+  'settings.profile.status_set': 'set',
+  'settings.profile.status_unset': 'not set (AI will run wizard on next chat)',
+  'settings.profile.name_label': 'Name',
+  'settings.profile.name_placeholder': '(e.g. Han)',
+  'settings.profile.about_label': 'About you',
+  'settings.profile.about_placeholder': '(work / projects / interests / stack / habits …)',
+  'settings.profile.persona_label': 'Pet conversation style',
+  'settings.profile.persona_custom_label': 'Custom style notes',
+  'settings.profile.persona_custom_placeholder':
+    '(e.g.: mix Chinese/English tech terms, keep replies short, no emoji…)',
+  'settings.profile.save': 'Save profile',
+  'settings.profile.reset_wizard': 'Reset wizard (let AI ask again)',
+  'settings.profile.loading': 'Loading...',
+  // Memory section
+  'settings.memory.history_label': 'Chat history',
+  'settings.memory.history_clear': 'Clear chat history',
+  'settings.memory.history_hint':
+    'Keeps the last 10 turn pairs; pet auto-restores after restart so chat context survives. The button above also clears the pet chat UI.',
+  'settings.memory.long_label': 'Long-term memory (editable)',
+  'settings.memory.reread': 'Reread from disk',
+  'settings.memory.clear_all': 'Clear all',
+  'settings.memory.save': 'Save',
+  'settings.memory.hint':
+    "AI's remember tool auto-appends here. You can edit directly — one fact per line, AI will see it next chat. Markdown freeform.",
+  'settings.memory.placeholder':
+    '(empty — AI has no notes yet; you can write some yourself. One fact per line)',
+  // About section
+  'settings.about.body':
+    'DeskPet · transparent always-on-top character + multi-modal AI (pick from 6 providers)',
+  'settings.about.shortcuts': 'Shortcuts: {0} open this panel · {1} show/hide pet · {2} quit',
   'settings.ai_engine_hint':
     'Configure keys + pick which one to chat with. At least one is needed. Keys are encrypted via Electron safeStorage (Keychain-backed AES-256 on macOS), never uploaded.',
   'settings.chip_current': '● current',

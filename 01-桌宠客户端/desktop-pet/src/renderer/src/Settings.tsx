@@ -21,6 +21,7 @@ import type { VisionState } from '../../shared/vision-types'
 import type { TavilyState } from '../../shared/tavily-types'
 import type { PrefsState, TrustedDirsState } from '../../shared/settings-types'
 import type { ProviderBalance } from '../../shared/provider-balance-types'
+import { t } from '../../shared/i18n'
 import {
   PERSONA_PRESET_LABELS,
   type PersonaPreset,
@@ -127,12 +128,12 @@ function Settings(): React.JSX.Element {
     if (!trimmed) return
     window.api.submitProviderKey(provider, trimmed)
     setProviderKeyDrafts((prev) => ({ ...prev, [provider]: '' }))
-    showToast(`${PROVIDERS[provider].label} key 已加密保存`)
+    showToast(t('settings.toast.key_saved', PROVIDERS[provider].label))
   }
   const handleProviderReset = (provider: Provider): void => {
     window.api.resetProviderKey(provider)
     setProviderKeyDrafts((prev) => ({ ...prev, [provider]: '' }))
-    showToast(`${PROVIDERS[provider].label} key 已清除`)
+    showToast(t('settings.toast.key_cleared', PROVIDERS[provider].label))
   }
   // 改动 5 [#5] 查余额 — 点击触发, 写 balanceLoading + 结果到 providerBalances.
   const handleFetchBalance = async (provider: Provider): Promise<void> => {
@@ -150,7 +151,7 @@ function Settings(): React.JSX.Element {
     if (!selectedModel || selectedModel.provider === newProvider) return
     const defaultSel = defaultModelForProvider(newProvider)
     window.api.setSelectedModel(defaultSel)
-    showToast(`已切到 ${PROVIDERS[newProvider].label}（跨 provider 自动开新对话）`)
+    showToast(t('settings.toast.switched_provider', PROVIDERS[newProvider].label))
   }
   const handleModelChange = (newModelId: string): void => {
     if (!selectedModel || selectedModel.modelId === newModelId) return
@@ -163,18 +164,18 @@ function Settings(): React.JSX.Element {
     if (!trimmed) return
     window.api.submitTavilyKey(trimmed)
     setTavilyKeyDraft('')
-    showToast('Tavily key 已加密保存')
+    showToast(t('settings.toast.tavily_saved'))
   }
   const handleTavilyReset = (): void => {
     window.api.resetTavilyKey()
     setTavilyKeyDraft('')
-    showToast('Tavily key 已清除')
+    showToast(t('settings.toast.tavily_cleared'))
   }
 
   // —— Vision actions ——
   const handleRevokeVision = (): void => {
     window.api.revokeVisionConsent()
-    showToast('已撤销屏幕感知 consent')
+    showToast(t('settings.toast.vision_revoked'))
   }
   const handleToggleVision = (enable: boolean): void => {
     window.api.setVisionEnabled(enable)
@@ -184,7 +185,7 @@ function Settings(): React.JSX.Element {
   const handleRevealAudit = (): void => window.api.revealAuditLogInFinder()
   const handleClearAudit = async (): Promise<void> => {
     const r = await window.api.clearAuditLog()
-    showToast(r.ok ? '审计日志已清空' : `清空失败：${r.error}`)
+    showToast(r.ok ? t('settings.toast.audit_cleared') : t('settings.toast.audit_clear_failed', r.error))
   }
 
   // —— M5-2 Memory actions（inline 编辑） ——
@@ -208,9 +209,9 @@ function Settings(): React.JSX.Element {
     if (r.ok) {
       setMemoryContent(memoryDraft)
       setMemoryDirty(false)
-      showToast('长期记忆已保存')
+      showToast(t('settings.toast.memory_saved'))
     } else {
-      showToast(`保存失败：${r.error}`)
+      showToast(t('settings.toast.memory_save_failed', r.error))
     }
   }
   const handleClearMemory = async (): Promise<void> => {
@@ -219,14 +220,14 @@ function Settings(): React.JSX.Element {
       setMemoryContent('')
       setMemoryDraft('')
       setMemoryDirty(false)
-      showToast('长期记忆已清空')
+      showToast(t('settings.toast.memory_cleared'))
     } else {
-      showToast(`清空失败：${r.error}`)
+      showToast(t('settings.toast.memory_clear_failed', r.error))
     }
   }
   const handleClearChatHistory = async (): Promise<void> => {
     const r = await window.api.clearChatHistory()
-    showToast(r.ok ? '对话历史已清空（含桌宠 UI）' : `清空失败：${r.error}`)
+    showToast(r.ok ? t('settings.toast.chat_history_cleared') : t('settings.toast.chat_history_clear_failed', r.error))
   }
 
   // —— M5-3 profile actions ——
@@ -243,29 +244,29 @@ function Settings(): React.JSX.Element {
     const r = await window.api.saveUserProfile(profile)
     if (r.ok) {
       setProfileDirty(false)
-      showToast('用户档案已保存')
+      showToast(t('settings.toast.profile_saved'))
     } else {
-      showToast(`保存失败：${r.error}`)
+      showToast(t('settings.toast.profile_save_failed', r.error))
     }
   }
   const handleResetWizard = async (): Promise<void> => {
     const r = await window.api.resetUserProfileSetup()
     if (r.ok) {
       setProfileDirty(false)
-      showToast('已重置 —— 下次对话 AI 会重走 wizard 流程')
+      showToast(t('settings.toast.wizard_reset'))
     } else {
-      showToast(`重置失败：${r.error}`)
+      showToast(t('settings.toast.wizard_reset_failed', r.error))
     }
   }
 
   // —— Trusted dirs ——
   const handleRevokePersistent = async (dir: string): Promise<void> => {
     const r = await window.api.revokeTrustedDirPersistent(dir)
-    showToast(r.ok ? `已撤销永久信任：${dir}` : `撤销失败：${r.error}`)
+    showToast(r.ok ? t('settings.toast.persistent_revoked', dir) : t('settings.toast.persistent_revoke_failed', r.error))
   }
   const handleRevokeAllSession = (): void => {
     window.api.revokeAllSessionTrustedDirs()
-    showToast('会话信任目录已清空')
+    showToast(t('settings.toast.session_dirs_cleared'))
   }
 
   // —— Prefs setters（非 model 类，model 走 setSelectedModel） ——
@@ -275,15 +276,12 @@ function Settings(): React.JSX.Element {
   // —— Render ——
   return (
     <div className="settings-app">
-      <h1>DeskPet 设置</h1>
+      <h1>{t('settings.h1')}</h1>
 
       {/* —— 1. API Keys (M7-5 multi-provider) —— */}
       <section>
-        <h2>AI 引擎</h2>
-        <p className="hint">
-          配 key + 切当前对话用哪家. 至少配一个让桌宠开口. Key 用 Electron safeStorage
-          (macOS Keychain backed AES-256) 加密落盘, 绝不上传.
-        </p>
+        <h2>{t('settings.section.ai_engine')}</h2>
+        <p className="hint">{t('settings.ai_engine_hint')}</p>
 
         {PROVIDER_ORDER.map((providerId) => {
           const info = PROVIDERS[providerId]
@@ -302,7 +300,7 @@ function Settings(): React.JSX.Element {
             >
               <div className="row provider-card-header">
                 <label>
-                  {isActive && <span className="chip-current">● 当前使用</span>}
+                  {isActive && <span className="chip-current">{t('settings.chip_current')}</span>}
                   {info.label}
                 </label>
                 {configured && !isActive && (
@@ -310,11 +308,11 @@ function Settings(): React.JSX.Element {
                     className="btn-switch-provider"
                     onClick={() => handleProviderChange(providerId)}
                   >
-                    切换到此 →
+                    {t('settings.switch_to')}
                   </button>
                 )}
                 {!configured && (
-                  <span className="badge badge-muted">未配置</span>
+                  <span className="badge badge-muted">{t('settings.unconfigured')}</span>
                 )}
               </div>
               <p className="hint">{info.description}</p>
@@ -337,7 +335,7 @@ function Settings(): React.JSX.Element {
                   : [selectedModel.modelId, ...modelIds]
                 return (
                   <div className="row">
-                    <label>当前模型</label>
+                    <label>{t('settings.current_model')}</label>
                     <select
                       value={selectedModel.modelId}
                       onChange={(e) => handleModelChange(e.target.value)}
@@ -346,9 +344,9 @@ function Settings(): React.JSX.Element {
                       {idsWithCurrent.map((id) => {
                         const meta = metaById.get(id)
                         const tags: string[] = []
-                        if (meta?.isReasoning) tags.push('推理')
-                        if (meta && !meta.supportsTools) tags.push('无 tool')
-                        if (meta && !meta.supportsVision) tags.push('无 vision')
+                        if (meta?.isReasoning) tags.push(t('settings.tag_reasoning'))
+                        if (meta && !meta.supportsTools) tags.push(t('settings.tag_no_tool'))
+                        if (meta && !meta.supportsVision) tags.push(t('settings.tag_no_vision'))
                         const label = meta?.label ?? id
                         return (
                           <option key={id} value={id}>
@@ -368,7 +366,7 @@ function Settings(): React.JSX.Element {
                   className="profile-input"
                   placeholder={
                     configured
-                      ? '粘贴新 key 覆盖（留空不动）'
+                      ? t('settings.placeholder_overwrite')
                       : placeholderFromKeyPattern(info.keyPattern)
                   }
                   value={draft}
@@ -379,27 +377,27 @@ function Settings(): React.JSX.Element {
                   disabled={!draft.trim()}
                   className="primary"
                 >
-                  保存
+                  {t('settings.save')}
                 </button>
                 <button
                   onClick={() => handleProviderReset(providerId)}
                   disabled={!configured}
                   className="danger"
                 >
-                  清除
+                  {t('settings.clear')}
                 </button>
               </div>
               <p className="hint">
-                注册：<code>{info.registrationUrl}</code>
+                {t('settings.registration')}<code>{info.registrationUrl}</code>
               </p>
               {/* 改动 5 [#5] 余额 / 用量行 — 只 configured 才显示 */}
               {configured && (
                 <div className="row provider-balance-row">
-                  <label>余额 / 用量</label>
+                  <label>{t('settings.balance_label')}</label>
                   {(() => {
                     const b = providerBalances[providerId]
                     const loading = balanceLoading[providerId]
-                    if (loading) return <span className="hint">查询中...</span>
+                    if (loading) return <span className="hint">{t('settings.balance_loading')}</span>
                     if (b?.kind === 'ok') {
                       return (
                         <>
@@ -408,7 +406,7 @@ function Settings(): React.JSX.Element {
                             className="btn-link"
                             onClick={() => handleFetchBalance(providerId)}
                           >
-                            ↻ 刷新
+                            {t('settings.balance_refresh')}
                           </button>
                         </>
                       )
@@ -424,7 +422,7 @@ function Settings(): React.JSX.Element {
                               window.open(info.usageDashboardUrl, '_blank')
                             }}
                           >
-                            打开官方面板
+                            {t('settings.balance_dashboard_link')}
                           </a>
                         </span>
                       )
@@ -439,7 +437,7 @@ function Settings(): React.JSX.Element {
                             className="btn-link"
                             onClick={() => handleFetchBalance(providerId)}
                           >
-                            ↻ 重试
+                            {t('settings.balance_retry')}
                           </button>
                         </>
                       )
@@ -450,11 +448,11 @@ function Settings(): React.JSX.Element {
                         className="btn-link"
                         onClick={() => handleFetchBalance(providerId)}
                       >
-                        查余额
+                        {t('settings.balance_check')}
                       </button>
                     ) : (
                       <span className="hint">
-                        无公开 API →{' '}
+                        {t('settings.balance_no_api')}{' '}
                         <a
                           href="#"
                           onClick={(e) => {
@@ -462,7 +460,7 @@ function Settings(): React.JSX.Element {
                             window.open(info.usageDashboardUrl, '_blank')
                           }}
                         >
-                          官方面板
+                          {t('settings.balance_dashboard')}
                         </a>
                       </span>
                     )
@@ -471,8 +469,7 @@ function Settings(): React.JSX.Element {
               )}
               {isActive && (
                 <p className="hint provider-fallback-hint">
-                  ⓘ 当前 provider 过载时自动 fallback 到其它已配 provider 继续对话.
-                  切换 provider = 新对话开始 (跨家历史不兼容).
+                  {t('settings.fallback_hint')}
                 </p>
               )}
             </div>
@@ -480,32 +477,29 @@ function Settings(): React.JSX.Element {
         })}
         {!selectedModel && (
           <p className="hint" style={{ marginTop: 12 }}>
-            加载 provider/model 状态中...
+            {t('settings.loading_state')}
           </p>
         )}
 
         {/* —— Tavily 联网搜索（不是 LLM provider，单独 card） —— */}
         <div className="provider-card" style={{ marginTop: 16 }}>
           <div className="row">
-            <label>Tavily 联网搜索（可选）</label>
+            <label>{t('settings.tavily.label')}</label>
             <span
               className={`badge ${tavilyState?.kind === 'configured' ? 'badge-ok' : 'badge-muted'}`}
             >
-              {tavilyState?.kind === 'configured' ? '已配置' : '未配置'}
+              {tavilyState?.kind === 'configured' ? t('settings.tavily.configured') : t('settings.tavily.unconfigured')}
             </span>
           </div>
-          <p className="hint">
-            设了之后 AI 可调 web_search tool 联网查询（免费 1000 次/月）。隐私：
-            query 发 api.tavily.com。
-          </p>
+          <p className="hint">{t('settings.tavily.hint')}</p>
           <div className="row">
             <input
               type="password"
               className="profile-input"
               placeholder={
                 tavilyState?.kind === 'configured'
-                  ? '粘贴新 key 覆盖（留空不动）'
-                  : 'tvly-...'
+                  ? t('settings.placeholder_overwrite')
+                  : t('settings.tavily.placeholder')
               }
               value={tavilyKeyDraft}
               onChange={(e) => setTavilyKeyDraft(e.target.value)}
@@ -515,30 +509,26 @@ function Settings(): React.JSX.Element {
               disabled={!tavilyKeyDraft.trim()}
               className="primary"
             >
-              保存
+              {t('settings.save')}
             </button>
             <button
               onClick={handleTavilyReset}
               disabled={tavilyState?.kind !== 'configured'}
               className="danger"
             >
-              清除
+              {t('settings.clear')}
             </button>
           </div>
           <p className="hint">
-            注册：<code>tavily.com</code>
+            {t('settings.tavily.registration')}<code>tavily.com</code>
           </p>
         </div>
       </section>
 
       {/* —— 2. 识别 / 自动化 (provider + model cascade 已搬到 section 1 卡片) —— */}
       <section>
-        <h2>识别 / 自动化</h2>
-        <p className="hint">
-          桌宠通过观察前台 App 自动识别你在干啥 (写代码 / 写文档 / 聊天 / 听音乐).
-          活动分类用 Anthropic Claude Haiku 4.5 hardcoded (cost/speed 最优), 不
-          跟随上面 provider 选择切换.
-        </p>
+        <h2>{t('settings.section.recognition')}</h2>
+        <p className="hint">{t('settings.recognition.hint')}</p>
 
         <div className="row" style={{ marginTop: 14 }}>
           <label>
@@ -548,7 +538,7 @@ function Settings(): React.JSX.Element {
               onChange={(e) => handleSetFollow(e.target.checked)}
               disabled={!prefs}
             />
-            <span>跟随前台 App 自动识别活动状态</span>
+            <span>{t('settings.recognition.follow_front')}</span>
           </label>
         </div>
         <div className="row">
@@ -559,16 +549,16 @@ function Settings(): React.JSX.Element {
               onChange={(e) => handleSetFastPath(!e.target.checked)}
               disabled={!prefs || !prefs.followFrontApp}
             />
-            <span>严格 LLM 识别（关 fast-path bundleID 白名单）</span>
+            <span>{t('settings.recognition.strict_llm')}</span>
           </label>
         </div>
       </section>
 
       {/* —— 3. Agentic Tools —— */}
       <section>
-        <h2>Agentic 工具（M4）</h2>
+        <h2>{t('settings.section.agentic')}</h2>
         <div className="row">
-          <label>屏幕感知 + 全部 tools</label>
+          <label>{t('settings.agentic.label')}</label>
           <span
             className={`badge ${
               visionState?.kind === 'enabled'
@@ -579,69 +569,68 @@ function Settings(): React.JSX.Element {
             }`}
           >
             {visionState?.kind === 'enabled'
-              ? '启用中'
+              ? t('settings.agentic.status_enabled')
               : visionState?.kind === 'disabled'
-                ? '已 consent 但 toggle 关'
-                : '未 consent'}
+                ? t('settings.agentic.status_disabled')
+                : t('settings.agentic.status_no_consent')}
           </span>
         </div>
         {visionState?.kind === 'disabled-no-consent' && (
           <div className="row" style={{ flexDirection: 'column', gap: 6 }}>
             <p className="hint" style={{ margin: 0 }}>
-              ⚠️ 启用后 AI 会在你问"看看屏幕"等问题时截屏发往 Anthropic. 本地不存盘,
-              可随时关. 同意才能继续.
+              {t('settings.agentic.consent_hint')}
             </p>
             <div className="row" style={{ marginTop: 4 }}>
               <button
                 onClick={() => {
                   window.api.acceptVisionConsentAndEnable()
-                  showToast('已同意 consent + 启用屏幕感知')
+                  showToast(t('settings.toast.vision_consent_enabled'))
                 }}
               >
-                同意并启用
+                {t('settings.agentic.consent_accept')}
               </button>
             </div>
           </div>
         )}
         {visionState?.kind === 'disabled' && (
           <div className="row">
-            <button onClick={() => handleToggleVision(true)}>启用</button>
+            <button onClick={() => handleToggleVision(true)}>{t('settings.agentic.enable')}</button>
             <button onClick={handleRevokeVision} className="danger">
-              撤销 consent
+              {t('settings.agentic.revoke')}
             </button>
           </div>
         )}
         {visionState?.kind === 'enabled' && (
           <div className="row">
-            <button onClick={() => handleToggleVision(false)}>关闭</button>
+            <button onClick={() => handleToggleVision(false)}>{t('settings.agentic.disable')}</button>
             <button onClick={handleRevokeVision} className="danger">
-              撤销 consent
+              {t('settings.agentic.revoke')}
             </button>
           </div>
         )}
         <details className="tool-list-details">
-          <summary>当前 AI 可用工具（共 16 个）</summary>
+          <summary>{t('settings.agentic.tools_summary')}</summary>
           <ul className="tool-list">
             <li>
-              <b>view_screen</b> / read_clipboard / current_app_info —— 上下文采集
+              <b>view_screen</b> / read_clipboard / current_app_info {t('settings.agentic.tools_li_1')}
             </li>
             <li>
-              <b>open_url</b> / copy_to_clipboard —— 浏览器 + 剪贴板
+              <b>open_url</b> / copy_to_clipboard {t('settings.agentic.tools_li_2')}
             </li>
             <li>
-              <b>read_file</b> / list_directory / find_files —— 文件读取
+              <b>read_file</b> / list_directory / find_files {t('settings.agentic.tools_li_3')}
             </li>
             <li>
-              <b>write_file</b> / create_directory / delete_file —— 文件写入（delete 必弹审批）
+              <b>write_file</b> / create_directory / delete_file {t('settings.agentic.tools_li_4')}
             </li>
             <li>
-              <b>run_command</b> —— shell 命令（safe 白名单静默 / 其它弹审批 / 危险命令永拒）
+              <b>run_command</b> {t('settings.agentic.tools_li_5')}
             </li>
             <li>
-              <b>open_system_settings</b> / read_system_preference —— 系统设置
+              <b>open_system_settings</b> / read_system_preference {t('settings.agentic.tools_li_6')}
             </li>
             <li>
-              <b>fetch_url</b> / web_search —— 网络
+              <b>fetch_url</b> / web_search {t('settings.agentic.tools_li_7')}
             </li>
           </ul>
         </details>
@@ -649,9 +638,9 @@ function Settings(): React.JSX.Element {
 
       {/* —— 4. Trust & Audit —— */}
       <section>
-        <h2>信任目录 + 审计日志</h2>
+        <h2>{t('settings.section.trust_dirs')}</h2>
         <div className="row">
-          <label>永久信任目录（持久化）</label>
+          <label>{t('settings.trust.persistent_label')}</label>
         </div>
         {trustedDirs && trustedDirs.persistent.length > 0 ? (
           <ul className="dir-list">
@@ -659,24 +648,24 @@ function Settings(): React.JSX.Element {
               <li key={d}>
                 <code>{d}</code>
                 <button className="small danger" onClick={() => handleRevokePersistent(d)}>
-                  撤销
+                  {t('settings.trust.persistent_revoke')}
                 </button>
               </li>
             ))}
           </ul>
         ) : (
-          <p className="hint">（无 —— 用户在审批 modal 上点「永久信任」后会出现在这里）</p>
+          <p className="hint">{t('settings.trust.persistent_empty')}</p>
         )}
         <div className="row">
-          <label>本会话信任目录</label>
+          <label>{t('settings.trust.session_label')}</label>
           <span className="badge badge-muted">
-            {trustedDirs ? `${trustedDirs.session.length} 个` : '...'}
+            {trustedDirs ? t('settings.trust.session_count', String(trustedDirs.session.length)) : '...'}
           </span>
           <button
             onClick={handleRevokeAllSession}
             disabled={!trustedDirs || trustedDirs.session.length === 0}
           >
-            清空
+            {t('settings.trust.session_clear')}
           </button>
         </div>
         {trustedDirs && trustedDirs.session.length > 0 && (
@@ -688,58 +677,52 @@ function Settings(): React.JSX.Element {
             ))}
           </ul>
         )}
-        <p className="hint">
-          注：HOME 下 visible 顶级目录（~/Documents 等）默认信任，不在此列表里 ——
-          那是基线，不能撤销。
-        </p>
+        <p className="hint">{t('settings.trust.note')}</p>
         <div className="row">
-          <label>审计日志</label>
-          <button onClick={handleRevealAudit}>在 Finder 显示</button>
+          <label>{t('settings.audit.label')}</label>
+          <button onClick={handleRevealAudit}>{t('settings.audit.reveal')}</button>
           <button onClick={handleClearAudit} className="danger">
-            清空
+            {t('settings.audit.clear')}
           </button>
         </div>
-        <p className="hint">
-          ~/Library/Application Support/DeskPet/audit.log —— JSONL append-only，
-          5MB 自动滚动；仅本地，不上传。
-        </p>
+        <p className="hint">{t('settings.audit.hint')}</p>
       </section>
 
       {/* —— 5. 用户档案（M5-3） —— */}
       <section>
-        <h2>用户档案</h2>
+        <h2>{t('settings.section.user_profile')}</h2>
         {profile ? (
           <>
             <div className="row">
-              <label>状态</label>
+              <label>{t('settings.profile.status_label')}</label>
               <span
                 className={`badge ${profile.setupCompleted ? 'badge-ok' : 'badge-warn'}`}
               >
-                {profile.setupCompleted ? '已设置' : '未设置（下次对话 AI 会走 wizard）'}
+                {profile.setupCompleted ? t('settings.profile.status_set') : t('settings.profile.status_unset')}
               </span>
             </div>
             <div className="row">
-              <label>称呼</label>
+              <label>{t('settings.profile.name_label')}</label>
               <input
                 type="text"
                 className="profile-input"
                 value={profile.name}
                 onChange={(e) => updateProfileField('name', e.target.value)}
-                placeholder="（如 Han）"
+                placeholder={t('settings.profile.name_placeholder')}
               />
             </div>
             <div className="row">
-              <label>关于你</label>
+              <label>{t('settings.profile.about_label')}</label>
               <textarea
                 className="profile-textarea"
                 value={profile.about}
                 onChange={(e) => updateProfileField('about', e.target.value)}
-                placeholder="（工作 / 项目 / 兴趣 / 技术栈 / 习惯 …）"
+                placeholder={t('settings.profile.about_placeholder')}
                 rows={3}
               />
             </div>
             <div className="row">
-              <label>桌宠对话风格</label>
+              <label>{t('settings.profile.persona_label')}</label>
               <select
                 className="profile-input"
                 value={profile.personaPreset}
@@ -755,12 +738,12 @@ function Settings(): React.JSX.Element {
               </select>
             </div>
             <div className="row">
-              <label>自定义风格补充</label>
+              <label>{t('settings.profile.persona_custom_label')}</label>
               <textarea
                 className="profile-textarea"
                 value={profile.personaCustom}
                 onChange={(e) => updateProfileField('personaCustom', e.target.value)}
-                placeholder="（如：喜欢中英混用术语、回答尽量短、不要 emoji…）"
+                placeholder={t('settings.profile.persona_custom_placeholder')}
                 rows={2}
               />
             </div>
@@ -770,56 +753,50 @@ function Settings(): React.JSX.Element {
                 disabled={!profileDirty}
                 className="primary"
               >
-                保存档案
+                {t('settings.profile.save')}
               </button>
               <button onClick={handleResetWizard} className="danger">
-                重置 wizard（让 AI 重问一遍）
+                {t('settings.profile.reset_wizard')}
               </button>
             </div>
           </>
         ) : (
-          <p className="hint">加载中...</p>
+          <p className="hint">{t('settings.profile.loading')}</p>
         )}
       </section>
 
       {/* —— 6. 记忆（M5-2） —— */}
       <section>
-        <h2>跨会话记忆</h2>
+        <h2>{t('settings.section.memory')}</h2>
         <div className="row">
-          <label>对话历史</label>
+          <label>{t('settings.memory.history_label')}</label>
           <button onClick={handleClearChatHistory} className="danger">
-            清空对话历史
+            {t('settings.memory.history_clear')}
           </button>
         </div>
-        <p className="hint">
-          保留最近 10 对话往复；桌宠重启后自动恢复让对话不丢上下文。点上面按钮
-          会同步清空桌宠对话区 UI。
-        </p>
+        <p className="hint">{t('settings.memory.history_hint')}</p>
 
         <div className="row" style={{ marginTop: 14 }}>
-          <label>长期记忆（可直接编辑）</label>
-          <button onClick={refreshMemory}>从盘上重读</button>
+          <label>{t('settings.memory.long_label')}</label>
+          <button onClick={refreshMemory}>{t('settings.memory.reread')}</button>
           <button onClick={handleClearMemory} className="danger">
-            清空全部
+            {t('settings.memory.clear_all')}
           </button>
           <button
             onClick={handleSaveMemory}
             disabled={!memoryDirty}
             className="primary"
           >
-            保存
+            {t('settings.memory.save')}
           </button>
         </div>
-        <p className="hint">
-          AI 调 <code>remember</code> tool 时自动追加到这里。你也可以直接改 ——
-          每行一条事实，AI 下次对话会看到。markdown 格式自由发挥。
-        </p>
+        <p className="hint">{t('settings.memory.hint')}</p>
         {memoryLoaded && (
           <textarea
             className="memory-editor"
             value={memoryDraft}
             onChange={(e) => handleMemoryChange(e.target.value)}
-            placeholder="（空 —— AI 还没记下任何东西；你也可以手动写。每行一条事实）"
+            placeholder={t('settings.memory.placeholder')}
             rows={10}
           />
         )}
@@ -827,10 +804,10 @@ function Settings(): React.JSX.Element {
 
       {/* —— 7. About —— */}
       <section>
-        <h2>关于</h2>
-        <p>DeskPet 智能桌宠助手 · 透明置顶桌宠 + 多模态 AI（6 provider 多家选）</p>
+        <h2>{t('settings.section.about')}</h2>
+        <p>{t('settings.about.body')}</p>
         <p className="hint">
-          快捷键：<code>⌘+,</code> 打开本面板 · <code>⌘+⇧+P</code> 显示/隐藏桌宠 · <code>⌘+Q</code> 退出
+          {t('settings.about.shortcuts', '⌘+,', '⌘+⇧+P', '⌘+Q')}
         </p>
       </section>
 
