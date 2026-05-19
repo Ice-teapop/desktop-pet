@@ -25,7 +25,10 @@
     "build:unpack": "npm run build && electron-builder --dir",
     "build:win": "npm run build && electron-builder --win",
     "build:mac": "electron-vite build && electron-builder --mac",
-    "build:linux": "electron-vite build && electron-builder --linux"
+    "build:linux": "electron-vite build && electron-builder --linux",
+    "build:mac:en": "DESKPET_LOCALE=en electron-vite build && electron-builder --mac -c.productName=DeskPet-EN -c.appId=com.deskpet.en",
+    "build:win:en": "DESKPET_LOCALE=en npm run build && electron-builder --win -c.productName=DeskPet-EN -c.appId=com.deskpet.en",
+    "build:linux:en": "DESKPET_LOCALE=en electron-vite build && electron-builder --linux -c.productName=DeskPet-EN -c.appId=com.deskpet.en"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.78",

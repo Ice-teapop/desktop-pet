@@ -124,6 +124,7 @@ import {
   getCachedAvailableModels
 } from './llm/available-models'
 import { fetchProviderBalance } from './llm/provider-balance'
+import { LOCALE } from '../shared/i18n'
 // M7-4: llm/tools 老 ToolDef + buildToolsForContext + executeTool 路径已被
 // llm-client.ts 内部 buildToolSetForContext (AI SDK ToolSet) 取代 —— chat:submit
 // handler 只传 toolContext 给 LlmClient，SDK 自己跑 tool loop。tools.ts 老 export
@@ -2414,6 +2415,14 @@ function acquireSingleInstance(): boolean {
   return false
 }
 
+// EN/ZH 数据隔离: app.setName 决定 app.getPath('userData') 自动算出的目录名.
+// 必须在所有 app.getPath / 任何 Electron API 触发 userData 创建**之前**调.
+// 打包时 productName 由 electron-builder.yml/CLI 注入 plist, Electron 自动用;
+// dev 模式没 plist, 这里显式 setName 保证两个 locale 各自隔离 userData.
+if (LOCALE === 'en') {
+  app.setName('DeskPet-EN')
+}
+
 if (!acquireSingleInstance()) {
   if (is.dev) {
     // 等老 process 收到 second-instance event 自杀 → 锁释放 → 重试
@@ -2430,7 +2439,7 @@ if (!acquireSingleInstance()) {
 }
 
 app.whenReady().then(async () => {
-  electronApp.setAppUserModelId('com.deskpet.desktop-pet')
+  electronApp.setAppUserModelId(LOCALE === 'en' ? 'com.deskpet.en' : 'com.deskpet.desktop-pet')
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
