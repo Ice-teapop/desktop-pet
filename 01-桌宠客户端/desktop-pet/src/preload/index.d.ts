@@ -115,6 +115,10 @@ export interface DeskPetAPI {
   onAvailableModels(listener: (modelsByProvider: Record<string, string[]>) => void): () => void
   // 改动 5 [#5] provider 余额查询
   fetchProviderBalance(provider: Provider): Promise<ProviderBalance>
+  // 改动 8 [#7] 更新检查 — main 启动 30s 后自动 + tray 手动. upToDate=true → "已是最新".
+  onUpdateAvailable(
+    listener: (event: { version: string; htmlUrl: string; upToDate?: boolean }) => void
+  ): () => void
 }
 
 export type {

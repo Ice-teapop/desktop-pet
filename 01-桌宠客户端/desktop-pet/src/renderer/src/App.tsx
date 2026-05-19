@@ -489,6 +489,26 @@ function App(): React.JSX.Element {
     return off
   }, [])
 
+  // 改动 8 [#7] 更新检查 — main 启动 30s 后自动 + tray 手动, 收到事件 push 系统气泡.
+  // 有新版本 → "v0.4.1 可用 · 点这里 ↗" 可点 (用户拷 URL 自己打开); 已是最新 → 灰提示.
+  useEffect(() => {
+    const off = window.api.onUpdateAvailable((event) => {
+      const text = event.upToDate
+        ? `已是最新版本 (v${event.version})`
+        : `新版本 v${event.version} 可用 — 点击复制 release 链接: ${event.htmlUrl}`
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: msgIdRef.current++,
+          role: 'system' as const,
+          text,
+          status: 'done' as const
+        }
+      ])
+    })
+    return off
+  }, [])
+
   const handleApprovalDecision = (decision: ApprovalDecision): void => {
     if (!pendingApproval) return
     // trust-dir-* 决策需要目录路径 —— 从 req.path 推出（path 是文件或目录绝对路径）

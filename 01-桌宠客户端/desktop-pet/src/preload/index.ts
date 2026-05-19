@@ -397,6 +397,18 @@ const api = {
   // 改动 5 [#5] provider 余额查询 — 当前仅 DeepSeek 真查, 其他返 'unsupported'.
   fetchProviderBalance(provider: Provider): Promise<unknown> {
     return ipcRenderer.invoke('provider-balance:request', provider)
+  },
+  // 改动 8 [#7] 更新检查 — main 启动 30s 后自动跑一次, tray 也有手动入口.
+  // upToDate=true → renderer 显"已是最新"; 否则有 version + htmlUrl → 显"v0.x.y, 去更新"
+  onUpdateAvailable(
+    listener: (event: { version: string; htmlUrl: string; upToDate?: boolean }) => void
+  ): () => void {
+    const handler = (
+      _e: IpcRendererEvent,
+      payload: { version: string; htmlUrl: string; upToDate?: boolean }
+    ): void => listener(payload)
+    ipcRenderer.on('update:available', handler)
+    return () => ipcRenderer.off('update:available', handler)
   }
 }
 

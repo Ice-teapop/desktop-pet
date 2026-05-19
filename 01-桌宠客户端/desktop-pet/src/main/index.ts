@@ -118,6 +118,7 @@ import { loadTheme } from './storage/theme'
 import { ActiveAppMonitor } from './services/active-app'
 import { createSettingsWindow } from './services/settings-window'
 import { processDroppedFiles } from './services/dropped-files'
+import { checkForUpdate } from './services/update-check'
 import {
   getAllAvailableModels,
   getCachedAvailableModels
@@ -1369,6 +1370,10 @@ function buildTrayMenu(): Menu {
       label: 'Demo: 思考 → 庆祝 → 待机',
       click: () => stateMachine.demoCycle()
     },
+    {
+      label: `检查更新（当前 v${app.getVersion()}）`,
+      click: () => void runUpdateCheck('manual')
+    },
     { type: 'separator' },
     {
       label: '退出 DeskPet',
@@ -1432,6 +1437,32 @@ function createTray(): void {
   tray.setToolTip('DeskPet 桌宠')
   tray.setContextMenu(buildTrayMenu())
   tray.on('click', togglePetVisibility)
+}
+
+/**
+ * 改动 8 [#7] 检查更新 — 检查 GitHub Releases, 有新版本就 push 通知给 renderer.
+ *
+ * 触发源:
+ *  - 'auto': 启动 30s 后自动跑一次 (一天最多一次, 不缓存因开新进程就重置)
+ *  - 'manual': 用户从 tray "检查更新…" 触发, 即使没新版本也 toast 反馈"已是最新"
+ */
+async function runUpdateCheck(source: 'auto' | 'manual'): Promise<void> {
+  const result = await checkForUpdate()
+  if (!isWinAlive()) return
+  if (result.available && result.version && result.htmlUrl) {
+    // 推 IPC 让 renderer 出系统气泡 + 可点击的 link.
+    petWindow!.webContents.send('update:available', {
+      version: result.version,
+      htmlUrl: result.htmlUrl
+    })
+  } else if (source === 'manual') {
+    // 手动触发但没新版 → 给个反馈 (auto 不打扰)
+    petWindow!.webContents.send('update:available', {
+      version: app.getVersion(),
+      htmlUrl: '',
+      upToDate: true
+    })
+  }
 }
 
 function registerIpc(): void {
@@ -2533,6 +2564,11 @@ app.whenReady().then(async () => {
       console.warn('[tray] available-models cache load failed:', err)
     }
   })()
+  // 改动 8 [#7]: 启动 30s 后 fire-and-forget 检查 GitHub Releases 最新版本.
+  // 30s 是给桌宠先飘出来 + 用户先适应; 太早抢用户 attention 不友好.
+  setTimeout(() => {
+    void runUpdateCheck('auto')
+  }, 30_000)
   watchScreenEvents()
   watchPowerEvents()
 
