@@ -15,15 +15,18 @@
 import { BrowserWindow, clipboard, shell } from 'electron'
 import { exec, execFile } from 'child_process'
 import { promises as fs } from 'fs'
+import path from 'node:path'
 import { promisify } from 'util'
 import { lookup } from 'dns/promises'
 import { isIP } from 'net'
 import { fetch as undiciFetch, Agent } from 'undici'
 import { Document, HeadingLevel, Packer, Paragraph, TextRun } from 'docx'
 import ExcelJS from 'exceljs'
+import mammoth from 'mammoth'
+import { PDFParse } from 'pdf-parse'
 import PDFDocument from 'pdfkit'
 import type { ActivityState } from '../../shared/chat-types'
-import type { SelectedModel } from '../../shared/provider-types'
+import { findModel, type SelectedModel } from '../../shared/provider-types'
 import {
   PET_ANIMATIONS,
   isPetAnimation,
@@ -858,7 +861,7 @@ export async function executeTool(
     case 'current_app_info':
       return execCurrentAppInfo(ctx)
     case 'read_file':
-      return await execReadFile(input)
+      return await execReadFile(input, ctx)
     case 'list_directory':
       return await execListDirectory(input)
     case 'write_file':
@@ -1195,7 +1198,7 @@ async function requestPathApprovalInner(
   return { ok: true, absPath: safety.absPath }
 }
 
-async function execReadFile(input: unknown): Promise<ToolResult> {
+async function execReadFile(input: unknown, ctx: ToolContext): Promise<ToolResult> {
   if (typeof input !== 'object' || input === null) {
     return { ok: false, error: 'input must be { path: string }' }
   }
@@ -1234,17 +1237,127 @@ async function execReadFile(input: unknown): Promise<ToolResult> {
     const isGif = magicHex.startsWith('474946383')
     const isWebp =
       magicHex.startsWith('52494646') && sniff.subarray(8, 12).toString() === 'WEBP'
-    if (hasNull || isPdf || isZipOffice || isPng || isJpeg || isGif || isWebp) {
-      const kind = isPdf
-        ? 'PDF'
-        : isZipOffice
-          ? 'Office 文档 (docx/xlsx/pptx 是 ZIP 包装的 XML)'
-          : isPng || isJpeg || isGif || isWebp
-            ? '图片'
-            : '二进制'
+    // v0.4.3+ 二进制按类型 dispatch 到对应 parser (替代之前的"一律拒"):
+    //  - PDF        → pdf-parse 提取文本
+    //  - DOCX       → mammoth 提取 raw text (剥 XML 标签)
+    //  - XLSX       → exceljs 读 sheets → CSV-style 文本
+    //  - PPTX       → 没装 parser, 仍 reject
+    //  - 图片        → 模型 supportsVision 时返回 ToolContentBlock image; 否则 reject
+    //  - 其他 null-byte 二进制 → reject (未知格式)
+    const ext = path.extname(gate.absPath).toLowerCase().slice(1)
+    if (isPdf || ext === 'pdf') {
+      const parser = new PDFParse({ data: await fs.readFile(gate.absPath) })
+      try {
+        const result = await parser.getText()
+        const totalChars = result.text.length
+        const truncated = totalChars > READ_FILE_MAX
+        const body = truncated ? result.text.slice(0, READ_FILE_MAX) : result.text
+        const header = `[PDF 解析: ${result.pages.length} 页, ${totalChars} 字符${truncated ? ` (截断到 ${READ_FILE_MAX})` : ''}]\n\n`
+        return {
+          ok: true,
+          content: wrapUntrusted('file', { path: gate.absPath }, header + body)
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        return { ok: false, error: `PDF 解析失败: ${msg}` }
+      } finally {
+        await parser.destroy().catch(() => {})
+      }
+    }
+    if (isZipOffice && ext === 'docx') {
+      try {
+        const result = await mammoth.extractRawText({ path: gate.absPath })
+        const totalChars = result.value.length
+        const truncated = totalChars > READ_FILE_MAX
+        const body = truncated ? result.value.slice(0, READ_FILE_MAX) : result.value
+        const warnings = result.messages
+          .filter((m) => m.type === 'warning')
+          .slice(0, 3)
+          .map((m) => m.message)
+        const header = `[DOCX 解析: ${totalChars} 字符${truncated ? ` (截断到 ${READ_FILE_MAX})` : ''}${warnings.length ? `, ${warnings.length} 警告` : ''}]\n\n`
+        return {
+          ok: true,
+          content: wrapUntrusted('file', { path: gate.absPath }, header + body)
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        return { ok: false, error: `DOCX 解析失败: ${msg}` }
+      }
+    }
+    if (isZipOffice && ext === 'xlsx') {
+      try {
+        const wb = new ExcelJS.Workbook()
+        await wb.xlsx.readFile(gate.absPath)
+        const sheetLines: string[] = []
+        let totalCells = 0
+        wb.worksheets.forEach((ws) => {
+          sheetLines.push(`## Sheet: ${ws.name} (${ws.rowCount} rows × ${ws.columnCount} cols)`)
+          ws.eachRow({ includeEmpty: false }, (row) => {
+            const cells: string[] = []
+            row.eachCell({ includeEmpty: false }, (cell) => {
+              const v = cell.value
+              cells.push(v == null ? '' : String(v))
+              totalCells++
+            })
+            if (cells.length > 0) sheetLines.push(cells.join('\t'))
+          })
+          sheetLines.push('')
+        })
+        const fullText = sheetLines.join('\n')
+        const truncated = fullText.length > READ_FILE_MAX
+        const body = truncated ? fullText.slice(0, READ_FILE_MAX) : fullText
+        const header = `[XLSX 解析: ${wb.worksheets.length} sheet(s), ${totalCells} 非空 cell${truncated ? `, 截断到 ${READ_FILE_MAX} 字符` : ''}]\n\n`
+        return {
+          ok: true,
+          content: wrapUntrusted('file', { path: gate.absPath }, header + body)
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        return { ok: false, error: `XLSX 解析失败: ${msg}` }
+      }
+    }
+    if (isZipOffice && ext === 'pptx') {
       return {
         ok: false,
-        error: `${kind} 文件无法以文本方式读取: ${gate.absPath}\n建议: (1) 路径直接告诉用户当引用; (2) 用户复制其中文字粘贴过来; (3) 若是图片可让用户开 vision tool 调 view_screen 截图分析.`
+        error: `PPTX 当前没装 parser (pptx2json 等). 请用户截图发过来 (vision tool) 或复制粘贴关键文字.`
+      }
+    }
+    if (isPng || isJpeg || isGif || isWebp) {
+      const cap = findModel(ctx.selectedModel)
+      if (!cap?.supportsVision) {
+        return {
+          ok: false,
+          error: `当前 model (${ctx.selectedModel.provider}/${ctx.selectedModel.modelId}) 不支持 vision input. 切换到 supports-vision model (如 Claude / GPT-4o / Gemini) 后再调.`
+        }
+      }
+      try {
+        const buf = await fs.readFile(gate.absPath)
+        // Anthropic image_block 上限 5MB encoded; base64 体积 +33% → raw cap ~3.75MB
+        const MAX_IMG_RAW = 3.5 * 1024 * 1024
+        if (buf.length > MAX_IMG_RAW) {
+          return {
+            ok: false,
+            error: `图片太大 (${(buf.length / 1024 / 1024).toFixed(1)}MB > 3.5MB raw / ~5MB base64 上限). 让用户压缩或裁切.`
+          }
+        }
+        const mediaType: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp' =
+          isPng ? 'image/png' : isJpeg ? 'image/jpeg' : isGif ? 'image/gif' : 'image/webp'
+        return {
+          ok: true,
+          content: [
+            { type: 'text', text: `[图片: ${gate.absPath} (${(buf.length / 1024).toFixed(0)}KB ${mediaType})]` },
+            { type: 'image', source: { type: 'base64', media_type: mediaType, data: buf.toString('base64') } }
+          ]
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        return { ok: false, error: `图片读取失败: ${msg}` }
+      }
+    }
+    if (hasNull) {
+      return {
+        ok: false,
+        error: `未知二进制格式 (.${ext}), 不可读取. 让用户告知文件类型 + 自处理.`
       }
     }
     const raw = await fs.readFile(gate.absPath, 'utf8')
