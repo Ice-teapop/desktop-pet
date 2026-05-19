@@ -1226,6 +1226,18 @@ function createPetWindow(): void {
     startVisibilityWatchdog()
   })
 
+  // v0.4.3+ DnD 调试: renderer console.log 转发到 main stdout, 让用户不开 DevTools
+  // 也能看到 [dnd] 日志. 仅 dev 模式启用 (prod 不污染 user 日志).
+  if (is.dev) {
+    win.webContents.on('console-message', (event) => {
+      const msg = event.message ?? ''
+      // 只 forward [dnd] / [renderer] 前缀的, 不然 React HMR 噪音太多
+      if (msg.startsWith('[dnd]') || msg.startsWith('[renderer]')) {
+        console.log('[renderer]', msg)
+      }
+    })
+  }
+
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     win.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
