@@ -447,6 +447,45 @@ function App(): React.JSX.Element {
     }
   }, [])
 
+  // v0.4.3+ Tray drop-files fallback: 透明 NSPanel 不接 HTML5 drop, 改走 macOS
+  // 原生 Tray drop event. main 在 tray.on('drop-files') 拿到路径直接送过来 — 跳
+  // 过 renderer drag pipeline, 直接走 chat:drop-files IPC + 跟 .stage onDrop 同
+  // 一份后续 (push user msg + submitChat).
+  useEffect(() => {
+    const off = window.api.onTrayDropFiles((paths) => {
+      console.log('[dnd] tray drop-files received', paths.length, 'file(s)')
+      if (paths.length === 0) return
+      void (async (): Promise<void> => {
+        const result = await window.api.dropFiles(paths)
+        if (result.accepted.length === 0 && result.rejected.length > 0) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: msgIdRef.current++,
+              role: 'system' as const,
+              text:
+                `⚠️ 拖入的 ${result.rejected.length} 个文件全部被拒:\n` +
+                result.rejected.map((r) => `• ${r.path} — ${r.reason}`).join('\n'),
+              status: 'done' as const
+            }
+          ])
+          return
+        }
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: msgIdRef.current++,
+            role: 'user' as const,
+            text: result.summary,
+            status: 'done' as const
+          }
+        ])
+        window.api.submitChat(result.summary)
+      })()
+    })
+    return off
+  }, [])
+
   // v0.4.0 改动 1: tray 点 "屏幕感知" toggle 但用户没 consent → 改成直接打开 Settings,
   // vision consent UI 已迁到 Settings 窗口的「Agentic 工具」section.
   useEffect(() => {

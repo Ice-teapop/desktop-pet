@@ -388,6 +388,13 @@ const api = {
   getPathForFile(file: File): string {
     return webUtils.getPathForFile(file)
   },
+  // v0.4.3+ DnD 回退: macOS 透明 NSPanel 不接 HTML5 drop, 改用 menu bar tray
+  // 图标作 drop target. main 在 tray.on('drop-files') 接到路径后推到这里.
+  onTrayDropFiles(listener: (paths: string[]) => void): () => void {
+    const handler = (_e: IpcRendererEvent, paths: string[]): void => listener(paths)
+    ipcRenderer.on('tray:drop-files', handler)
+    return () => ipcRenderer.off('tray:drop-files', handler)
+  },
   // v0.4.0 改动 4 [B] listModels — 触发 main 拉 + push, listener 收 per-provider 列表
   requestAvailableModels(): void {
     ipcRenderer.send('available-models:request')

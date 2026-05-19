@@ -1450,6 +1450,20 @@ function createTray(): void {
   tray.setToolTip('DeskPet 桌宠')
   tray.setContextMenu(buildTrayMenu())
   tray.on('click', togglePetVisibility)
+
+  // v0.4.3+ DnD 回退方案: Tray drop-files (macOS 原生).
+  // 透明 NSPanel + HTML5 dragenter 在 macOS Electron 上不可达 — 改用 menu bar
+  // 托盘图标作为 drop target. 用户把文件拖到屏幕顶上的螃蟹小图标 → tray 直接
+  // emit drop-files event 带绝对路径数组. 路径推到 renderer 走跟 chat:drop-files
+  // 同一份 dropFiles pipeline (安全检查 + 预览 + summary + submitChat).
+  // macOS-only; 其他平台 tray 没这个 event.
+  tray.on('drop-files', (_event, files) => {
+    if (!Array.isArray(files) || files.length === 0) return
+    console.log('[tray] drop-files:', files.length, 'file(s)')
+    if (isWinAlive()) {
+      petWindow!.webContents.send('tray:drop-files', files)
+    }
+  })
 }
 
 /**
