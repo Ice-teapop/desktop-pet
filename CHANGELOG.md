@@ -6,7 +6,17 @@
 
 ---
 
-## [0.4.2] — 2026-05-20
+## [0.4.3] — 2026-05-20
+
+### 修复
+- **electron-builder win/linux artifactName 用 `${productName}` 不再用 `${name}`** — 之前 EN build (productName=DeskPet-EN) 跟 ZH build 撞同名 (`${name}` 都是 `desktop-pet`)，CI 6 job 都 success 但第二个上传的覆盖第一个，EN win/linux 包实际丢失。v0.4.2 因这个 bug 撤回未 publish。
+
+---
+
+## [0.4.2] — 2026-05-20 (withdrawn)
+
+> ⚠️ 此版本因 electron-builder artifactName 撞名 bug 撤回，未公开 publish。
+> 修复后内容随 [0.4.3](#043--2026-05-20) ship。
 
 ### 新增
 - **🇬🇧 English-locale build**：独立 `DeskPet-EN.app`（`com.deskpet.en` appId）跟中文版并存
@@ -241,7 +251,8 @@
 - README 英文化 + monorepo root README + MIT LICENSE（含 clawd AGPL 隔离说明）
 - install.sh bash 3.2 `set -u` 兼容修
 
-[Unreleased]: https://github.com/Ice-teapop/desktop-pet/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/Ice-teapop/desktop-pet/compare/v0.4.3...HEAD
+[0.4.3]: https://github.com/Ice-teapop/desktop-pet/compare/v0.4.1...v0.4.3
 [0.4.2]: https://github.com/Ice-teapop/desktop-pet/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/Ice-teapop/desktop-pet/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/Ice-teapop/desktop-pet/compare/v0.3.7...v0.4.0
