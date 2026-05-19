@@ -430,8 +430,8 @@ export function buildToolSetForContext(ctx: ToolContext): ToolSet {
         animation: z
           .enum(PET_ANIMATIONS)
           .describe(
-            'One of: juggling (杂技/多任务) / sweeping (扫地/整理) / conducting ' +
-              '(打节奏/指挥) / grooving (戴耳机摇摆) / celebrating (开心/庆祝)'
+            'One of: juggling (multi-task) / sweeping (tidying) / conducting ' +
+              '(rhythm) / grooving (headphones bopping) / celebrating (happy/celebrate)'
           )
       }),
       ctx
