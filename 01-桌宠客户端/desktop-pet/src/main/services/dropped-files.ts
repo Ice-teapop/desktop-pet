@@ -280,7 +280,24 @@ function buildSummary(accepted: AcceptedFile[], rejected: RejectedFile[]): strin
         if (truncated) lines.push('  | …(后续被截断, 用 read_file tool 读全文)')
         lines.push('  </external_content>')
       } else {
-        lines.push('  (二进制 / 文档类, 用 read_file tool 看全文或 view_screen 看截图)')
+        // v0.4.3+ fix: 不再说 "用 read_file" — read_file utf8 读 PDF/docx 是 garbage.
+        // 改成按 ext 给具体建议, 让 AI 知道当前 tool 不支持解析这类二进制.
+        const ext = f.ext.toLowerCase()
+        if (ext === 'pdf') {
+          lines.push(
+            '  (PDF — 当前**没装 PDF 解析器**, 不可读全文. 选项: 告诉用户你看到此 PDF + 路径; 让用户复制其中文字粘贴过来; 或问用户具体要什么 (摘要/翻译/某页内容)).'
+          )
+        } else if (ext === 'docx' || ext === 'xlsx' || ext === 'pptx') {
+          lines.push(
+            `  (${ext.toUpperCase()} — 当前**没装 Office 文档解析器**, 不可读全文. 告诉用户你看到此文件 + 路径, 让用户复制其中文字过来, 或问具体要做什么).`
+          )
+        } else if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext)) {
+          lines.push(
+            '  (图片 — 当前 chat:drop-files 不接图 input. 建议用户开"屏幕感知 vision"让你调 view_screen 截屏看; 或描述图片内容让用户文字告诉你).'
+          )
+        } else {
+          lines.push('  (二进制文件, 当前工具链不可解析; 告诉用户路径让其自处理).')
+        }
       }
     }
   }

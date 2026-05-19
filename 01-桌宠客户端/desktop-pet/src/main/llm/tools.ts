@@ -1213,6 +1213,40 @@ async function execReadFile(input: unknown): Promise<ToolResult> {
     if (stat.size > 10 * 1024 * 1024) {
       return { ok: false, error: `文件太大 (${stat.size} bytes > 10MB)` }
     }
+    // v0.4.3+ fix: 先嗅探前 8KB 检测二进制 — PDF / docx / xlsx / 图片等当 utf8
+    // 读会返回一坨 replacement char + 几百万字符撑爆 token. 二进制直接拒, 给 AI
+    // 可行的下一步 (用 path 当引用 / 提议安装解析器 / 让用户复制粘贴文字).
+    const SNIFF_BYTES = 8192
+    const sniffBuf = Buffer.alloc(Math.min(SNIFF_BYTES, stat.size))
+    const fh = await fs.open(gate.absPath, 'r')
+    const { bytesRead } = await fh.read(sniffBuf, 0, sniffBuf.length, 0)
+    await fh.close()
+    const sniff = sniffBuf.subarray(0, bytesRead)
+    // null byte 在文本文件极少 (除非 UTF-16 BOM 后的 ASCII 第一字节 == 0; 但
+    // 我们没声明支持 UTF-16). 任何 null byte 视为二进制.
+    const hasNull = sniff.includes(0)
+    // PDF / ZIP-based office docs (docx/xlsx/pptx) / 图片 magic bytes 检测
+    const magicHex = sniff.subarray(0, 8).toString('hex')
+    const isPdf = sniff.subarray(0, 4).toString() === '%PDF'
+    const isZipOffice = magicHex.startsWith('504b0304') // ZIP magic — docx/xlsx/pptx
+    const isPng = magicHex.startsWith('89504e470d0a1a0a')
+    const isJpeg = magicHex.startsWith('ffd8ff')
+    const isGif = magicHex.startsWith('474946383')
+    const isWebp =
+      magicHex.startsWith('52494646') && sniff.subarray(8, 12).toString() === 'WEBP'
+    if (hasNull || isPdf || isZipOffice || isPng || isJpeg || isGif || isWebp) {
+      const kind = isPdf
+        ? 'PDF'
+        : isZipOffice
+          ? 'Office 文档 (docx/xlsx/pptx 是 ZIP 包装的 XML)'
+          : isPng || isJpeg || isGif || isWebp
+            ? '图片'
+            : '二进制'
+      return {
+        ok: false,
+        error: `${kind} 文件无法以文本方式读取: ${gate.absPath}\n建议: (1) 路径直接告诉用户当引用; (2) 用户复制其中文字粘贴过来; (3) 若是图片可让用户开 vision tool 调 view_screen 截图分析.`
+      }
+    }
     const raw = await fs.readFile(gate.absPath, 'utf8')
     const truncated = raw.length > READ_FILE_MAX
     const content = truncated
