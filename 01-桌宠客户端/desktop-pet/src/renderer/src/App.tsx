@@ -370,6 +370,83 @@ function App(): React.JSX.Element {
     return off
   }, [])
 
+  // v0.4.3+ DnD belt-and-suspenders: 原生 window-level 监听做 fallback.
+  // React synthetic event 在透明 BrowserWindow + macOS 偶尔丢 dragenter/over/drop;
+  // 原生 addEventListener 直接挂 window 不依赖 React event delegation, 兜住 React 漏的.
+  // 跟 .stage 上的 React handler 双轨, 哪个先 fire 哪个驱动 setDragOver / dropFiles.
+  useEffect(() => {
+    const onEnter = (e: DragEvent): void => {
+      e.preventDefault()
+      const types = e.dataTransfer ? Array.from(e.dataTransfer.types) : []
+      console.log('[dnd] dragenter (native)', { types })
+      if (types.includes('Files')) setDragOver(true)
+    }
+    const onOver = (e: DragEvent): void => {
+      e.preventDefault()
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+    }
+    const onLeave = (e: DragEvent): void => {
+      // 只有 leave 出 window 才清 (子元素间穿梭不算)
+      if (e.relatedTarget === null) {
+        console.log('[dnd] dragleave (native, exit window)')
+        setDragOver(false)
+        dragDepthRef.current = 0
+      }
+    }
+    const onDrop = (e: DragEvent): void => {
+      e.preventDefault()
+      const files = e.dataTransfer ? Array.from(e.dataTransfer.files) : []
+      console.log('[dnd] drop (native)', {
+        fileCount: files.length,
+        types: e.dataTransfer ? Array.from(e.dataTransfer.types) : []
+      })
+      setDragOver(false)
+      dragDepthRef.current = 0
+      const paths = files
+        .map((f) => window.api.getPathForFile(f))
+        .filter((p): p is string => typeof p === 'string' && p.length > 0)
+      console.log('[dnd] drop paths (native)', paths)
+      if (paths.length === 0) return
+      void (async (): Promise<void> => {
+        const result = await window.api.dropFiles(paths)
+        if (result.accepted.length === 0 && result.rejected.length > 0) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: msgIdRef.current++,
+              role: 'system' as const,
+              text:
+                `⚠️ 拖入的 ${result.rejected.length} 个文件全部被拒:\n` +
+                result.rejected.map((r) => `• ${r.path} — ${r.reason}`).join('\n'),
+              status: 'done' as const
+            }
+          ])
+          return
+        }
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: msgIdRef.current++,
+            role: 'user' as const,
+            text: result.summary,
+            status: 'done' as const
+          }
+        ])
+        window.api.submitChat(result.summary)
+      })()
+    }
+    window.addEventListener('dragenter', onEnter)
+    window.addEventListener('dragover', onOver)
+    window.addEventListener('dragleave', onLeave)
+    window.addEventListener('drop', onDrop)
+    return () => {
+      window.removeEventListener('dragenter', onEnter)
+      window.removeEventListener('dragover', onOver)
+      window.removeEventListener('dragleave', onLeave)
+      window.removeEventListener('drop', onDrop)
+    }
+  }, [])
+
   // v0.4.0 改动 1: tray 点 "屏幕感知" toggle 但用户没 consent → 改成直接打开 Settings,
   // vision consent UI 已迁到 Settings 窗口的「Agentic 工具」section.
   useEffect(() => {
@@ -1043,6 +1120,7 @@ function App(): React.JSX.Element {
       // overlay 不显示 → 用户以为"拖拽功能失效". 移到 .stage 全窗口都接 drag.
       onDragEnter={(e) => {
         e.preventDefault()
+        console.log('[dnd] dragenter (React)', { types: Array.from(e.dataTransfer.types) })
         dragDepthRef.current += 1
         if (dragDepthRef.current === 1) setDragOver(true)
       }}
@@ -1057,6 +1135,10 @@ function App(): React.JSX.Element {
       }}
       onDrop={(e) => {
         e.preventDefault()
+        console.log('[dnd] drop (React)', {
+          fileCount: e.dataTransfer.files.length,
+          types: Array.from(e.dataTransfer.types)
+        })
         dragDepthRef.current = 0
         setDragOver(false)
         // Electron 32+ 移除 File.path → 用 window.api.getPathForFile() 走 preload bridge
@@ -1065,6 +1147,7 @@ function App(): React.JSX.Element {
         const paths = Array.from(e.dataTransfer.files)
           .map((f) => window.api.getPathForFile(f))
           .filter((p): p is string => typeof p === 'string' && p.length > 0)
+        console.log('[dnd] drop paths', paths)
         if (paths.length === 0) return
         void (async (): Promise<void> => {
           const result = await window.api.dropFiles(paths)

@@ -81,6 +81,11 @@ body,
   width: 100%;
   height: 100%;
   position: relative;
+  /* v0.4.3+ DnD fix: transparent BrowserWindow 的 Chromium viz hit-test 需要元素
+   * 真有 paint region 才会派发 drag 事件. 跟 .pet 用同一个 α=1/255 黑色填充技巧 —
+   * 视觉无感, 但 hit-test 命中 .stage → drag handler 触发. 不加这个 .stage 全透明
+   * Chromium 直接绕过, 整个窗口拖文件无任何 dragenter/over/drop 事件. */
+  background: rgba(0, 0, 0, 0.004);
 }
 
 /* —— 桌宠 —— */
