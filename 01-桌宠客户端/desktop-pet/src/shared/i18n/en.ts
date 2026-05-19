@@ -21,6 +21,8 @@ export const en: I18nDict = {
   'tray.reset_key': 'Reset API key…',
   'tray.model': 'Model',
   'tray.model_unconfigured': '(no provider key — open Settings)',
+  'tray.import_files': '📂 Feed files to pet…',
+  'tray.import_dialog_title': 'Pick files to feed the pet',
   'tray.demo': 'Demo: thinking → celebrate → idle',
   'tray.update_check': 'Check for updates (current v{0})',
   'tray.quit': 'Quit DeskPet',

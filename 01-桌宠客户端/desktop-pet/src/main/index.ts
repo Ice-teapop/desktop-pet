@@ -33,6 +33,7 @@
 import {
   app,
   BrowserWindow,
+  dialog,
   ipcMain,
   Menu,
   nativeImage,
@@ -1378,6 +1379,12 @@ function buildTrayMenu(): Menu {
       label: t('tray.model'),
       submenu: buildModelSubmenu()
     },
+    {
+      // v0.4.3+ DnD 替代方案 B: 系统文件选择器, 绕开透明 NSPanel drop 限制.
+      // 选完跟 tray.on('drop-files') 走同一份 'tray:drop-files' IPC 推 renderer.
+      label: t('tray.import_files'),
+      click: () => void runImportFilesDialog()
+    },
     { type: 'separator' },
     {
       label: t('tray.demo'),
@@ -1464,6 +1471,25 @@ function createTray(): void {
       petWindow!.webContents.send('tray:drop-files', files)
     }
   })
+}
+
+/**
+ * v0.4.3+ tray "导入文件…" 菜单项 — 系统文件选择器替代拖拽 (透明 NSPanel
+ * HTML5 drop 不可达的回退方案 B).
+ *
+ * 选完跟 tray.on('drop-files') 走同一份 'tray:drop-files' IPC 推到 renderer,
+ * 复用 dropFiles pipeline. 用户 cancel dialog → no-op.
+ */
+async function runImportFilesDialog(): Promise<void> {
+  const result = await dialog.showOpenDialog({
+    title: t('tray.import_dialog_title'),
+    properties: ['openFile', 'multiSelections']
+  })
+  if (result.canceled || result.filePaths.length === 0) return
+  console.log('[tray] import-files:', result.filePaths.length, 'file(s)')
+  if (isWinAlive()) {
+    petWindow!.webContents.send('tray:drop-files', result.filePaths)
+  }
 }
 
 /**
