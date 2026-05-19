@@ -63,7 +63,7 @@ nsis:
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
   oneClick: false
-  allowToChangeInstallationDir: true
+  allowToChangeInstallationDirectory: true
 npmRebuild: false
 # M6 Phase 1：publish 到 GitHub Releases。
 # - 不签名 / 不公证（identity:null + notarize:false 上面已设）—— user 首次打开
