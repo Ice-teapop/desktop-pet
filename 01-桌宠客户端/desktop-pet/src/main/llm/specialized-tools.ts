@@ -110,8 +110,19 @@ export function buildSpecializedToolsForProvider(selected: SelectedModel): ToolS
       if (supportsOpenAINativeTools(selected.modelId)) {
         // GPT-4o 原生 web search（webSearchPreview = stable interface）
         tools.openai_web_search = openai.tools.webSearchPreview({})
-        // OpenAI 沙箱跑 Python
-        tools.openai_code_interpreter = openai.tools.codeInterpreter({})
+        // OpenAI 沙箱跑 Python.
+        //
+        // Container 生命周期 (ADR-0003 / task #4):
+        //  - `container: 'auto'` (默认行为, 显式写出来让 intent 可见) → OpenAI 每次
+        //    tool call 自动起一个新 container, 跑完 ~20min 内自动 GC.
+        //  - **不持久化跨 turn**: AI 这轮分析的 dataframe / 装的 pip 包下轮不存在,
+        //    AI 要重做. 这是已知 UX 限制, 全功能 per-session container pinning 见
+        //    docs/adr/0003.
+        //  - 不存"泄漏"问题: provider 自动 GC; 也不存"安全"问题: container 是
+        //    OpenAI 沙箱跟用户文件系统隔离.
+        tools.openai_code_interpreter = openai.tools.codeInterpreter({
+          container: 'auto'
+        })
       }
       return tools
     }

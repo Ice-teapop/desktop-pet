@@ -28,3 +28,4 @@
 |---|---|---|---|
 | [0001](0001-selected-model-single-source-of-truth.md) | selected-model 单一事实来源 | Accepted | 2026-05-18 |
 | [0002](0002-model-hot-switch-strategy.md) | 模型热切换策略（软切 vs 硬切） | Accepted | 2026-05-18 |
+| [0003](0003-openai-container-lifecycle.md) | OpenAI code_interpreter container 生命周期 | Accepted (推迟 pinning) | 2026-05-19 |
