@@ -28,6 +28,11 @@ export const en: I18nDict = {
   // —— Chat system bubble / hints ——
   'chat.history_cleared_provider_switch':
     'Switched to {0} — cross-provider context is incompatible, prior chat cleared',
+  'chat.fallback_note': '\n_( {0} {1}, switched to {2} )_\n\n',
+  'chat.fallback_reason.overloaded': 'overloaded',
+  'chat.fallback_reason.rate_limited': 'rate-limited',
+  'chat.fallback_reason.empty_response': 'API error (empty reply)',
+  'chat.fallback_reason.unavailable': 'unavailable',
   'chat.update_available': 'Version v{0} is available — copy release link: {1}',
   'chat.update_up_to_date': 'Already on latest (v{0})',
   'chat.empty_placeholder': 'Say something to the pet',

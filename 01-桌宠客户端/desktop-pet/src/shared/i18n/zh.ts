@@ -32,6 +32,11 @@ export const zh = {
 
   // —— Chat 系统气泡 / 提示 ——
   'chat.history_cleared_provider_switch': '已切到 {0} — 跨家不兼容, 之前对话已清开始新轮次',
+  'chat.fallback_note': '\n_( {0} {1}, 已切到 {2} )_\n\n',
+  'chat.fallback_reason.overloaded': '过载',
+  'chat.fallback_reason.rate_limited': '限流',
+  'chat.fallback_reason.empty_response': 'API 异常 (无回复)',
+  'chat.fallback_reason.unavailable': '不可用',
   'chat.update_available': '新版本 v{0} 可用 — 点击复制 release 链接: {1}',
   'chat.update_up_to_date': '已是最新版本 (v{0})',
   'chat.empty_placeholder': '对桌宠说点啥',

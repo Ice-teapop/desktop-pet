@@ -124,7 +124,7 @@ import {
   getCachedAvailableModels
 } from './llm/available-models'
 import { fetchProviderBalance } from './llm/provider-balance'
-import { LOCALE } from '../shared/i18n'
+import { LOCALE, t } from '../shared/i18n'
 // M7-4: llm/tools 老 ToolDef + buildToolsForContext + executeTool 路径已被
 // llm-client.ts 内部 buildToolSetForContext (AI SDK ToolSet) 取代 —— chat:submit
 // handler 只传 toolContext 给 LlmClient，SDK 自己跑 tool loop。tools.ts 老 export
@@ -1314,19 +1314,19 @@ async function resetKey(): Promise<void> {
 function buildTrayMenu(): Menu {
   const activityInfo = ACTIVITY_INFO[currentActivity]
   const activityLabel = followFrontApp
-    ? `当前活动：${activityInfo.emoji} ${activityInfo.label}`
-    : '当前活动：（未跟随）'
+    ? t('tray.activity_label', activityInfo.emoji, activityInfo.label)
+    : t('tray.activity_disabled')
 
   return Menu.buildFromTemplate([
     {
-      label: '显示 / 隐藏桌宠',
+      label: t('tray.show_hide'),
       accelerator: 'CmdOrCtrl+Shift+P',
       click: togglePetVisibility
     },
-    { label: '重置位置（右下角）', click: resetPetPosition },
+    { label: t('tray.reset_position'), click: resetPetPosition },
     {
       // M9-5a 极简模式 toggle
-      label: '极简模式（藏屏幕边缘）',
+      label: t('tray.mini_mode'),
       type: 'checkbox',
       checked: petMode === 'mini',
       click: (item) => setPetMode(item.checked ? 'mini' : 'full')
@@ -1335,7 +1335,7 @@ function buildTrayMenu(): Menu {
       // vision-simplify: 屏幕感知 tray toggle —— 跳过"开 chat 框 → 找按钮"流程
       // 第一次需 consent 时主动弹 modal (mini 模式先切 full 让 modal 装得下).
       // 已 consent 后是 1 click 直接 toggle.
-      label: '屏幕感知（AI 看屏）',
+      label: t('tray.vision'),
       type: 'checkbox',
       checked: visionEnabledPref && visionConsentedPref,
       click: (item) => handleTrayVisionToggle(item.checked)
@@ -1343,13 +1343,13 @@ function buildTrayMenu(): Menu {
     { type: 'separator' },
     { label: activityLabel, enabled: false }, // readonly 状态显示
     {
-      label: '跟随前台 App',
+      label: t('tray.follow_front_app'),
       type: 'checkbox',
       checked: followFrontApp,
       click: (item) => setFollowFrontApp(item.checked)
     },
     {
-      label: '严格 LLM 识别（关 fast-path）',
+      label: t('tray.strict_llm'),
       type: 'checkbox',
       checked: !useFastPath,
       enabled: followFrontApp,
@@ -1357,27 +1357,27 @@ function buildTrayMenu(): Menu {
     },
     { type: 'separator' },
     {
-      label: '设置…',
+      label: t('tray.settings'),
       accelerator: 'CmdOrCtrl+,',
       click: () => createSettingsWindow()
     },
-    { label: '重设 API Key…', click: () => void resetKey() },
+    { label: t('tray.reset_key'), click: () => void resetKey() },
     {
-      label: '模型',
+      label: t('tray.model'),
       submenu: buildModelSubmenu()
     },
     { type: 'separator' },
     {
-      label: 'Demo: 思考 → 庆祝 → 待机',
+      label: t('tray.demo'),
       click: () => stateMachine.demoCycle()
     },
     {
-      label: `检查更新（当前 v${app.getVersion()}）`,
+      label: t('tray.update_check', app.getVersion()),
       click: () => void runUpdateCheck('manual')
     },
     { type: 'separator' },
     {
-      label: '退出 DeskPet',
+      label: t('tray.quit'),
       accelerator: 'CmdOrCtrl+Q',
       click: () => app.quit()
     }
@@ -1403,7 +1403,7 @@ function rebuildTrayMenu(): void {
 function buildModelSubmenu(): MenuItemConstructorOptions[] {
   const configured = PROVIDER_ORDER.filter((p) => !!currentProviderKeys.get(p))
   if (configured.length === 0) {
-    return [{ label: '（未配置任何 provider key — 打开设置）', enabled: false }]
+    return [{ label: t('tray.model_unconfigured'), enabled: false }]
   }
   return configured.map<MenuItemConstructorOptions>((p) => {
     const dynamicIds = trayAvailableModels.get(p) ?? []
@@ -2197,13 +2197,15 @@ function registerIpc(): void {
         // 按 lastErr.kind 区分文案 — 旧版硬编码"过载"误导 (empty-response /
         // rate-limited 都被说成"过载"). 用户看到错误归因才知道是不是 provider /
         // 模型选错 (e.g. OpenAI 老 model 注入 native tool 翻车被归类 empty-response).
-        const reasonZh: Record<string, string> = {
-          overloaded: '过载',
-          'rate-limited': '限流',
-          'empty-response': 'API 异常 (无回复)'
+        const reasonMap: Record<string, string> = {
+          overloaded: t('chat.fallback_reason.overloaded'),
+          'rate-limited': t('chat.fallback_reason.rate_limited'),
+          'empty-response': t('chat.fallback_reason.empty_response')
         }
-        const reason = lastErrKind ? (reasonZh[lastErrKind] ?? lastErrKind) : '不可用'
-        const note = `\n_( ${prev} ${reason}, 已切到 ${provider} )_\n\n`
+        const reason = lastErrKind
+          ? (reasonMap[lastErrKind] ?? lastErrKind)
+          : t('chat.fallback_reason.unavailable')
+        const note = t('chat.fallback_note', prev, reason, provider)
         win.webContents.send('chat:chunk', note)
       }
 
