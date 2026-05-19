@@ -6,6 +6,37 @@
 
 ---
 
+## [0.4.2] — 2026-05-20
+
+### 新增
+- **🇬🇧 English-locale build**：独立 `DeskPet-EN.app`（`com.deskpet.en` appId）跟中文版并存
+  - `npm run build:mac:en` / `build:win:en` / `build:linux:en` 三个新 script
+  - userData 自动隔离（`~/Library/Application Support/DeskPet-EN/`）— 两 locale 用户配置互不干扰
+  - UI 全英文（Settings / 系统气泡 / approval modal / tool 标签 / 错误提示 / drop overlay）
+  - AI system prompt 英文版（严格镜像 ZH 工具指引 / 安全防护 / agentic 规则），默认英文回，跟随用户输入语言
+  - 时间注入 / persona 风格 / 用户档案 wizard / 跨会话记忆 wrapper 都 LOCALE 化
+- **🤖 GitHub Actions multi-platform CI**：push tag v\* 触发 6 个 matrix job（mac/win/linux × zh/en）自动 build + publish 到 Release；workflow_dispatch 手动触发出 14 天 artifact
+- **i18n 基础设施**：`shared/i18n/{zh,en,index}.ts` + 约 200 keys + build-time `DESKPET_LOCALE` 注入（electron-vite define）
+
+### 变更
+- **clawd 像素美术正式入库**（65 sprite）— 拿到作者 [@rullerzhou-afk](https://github.com/rullerzhou-afk) **非商用授权** + Anthropic 中间方角色 IP 许可
+  - `themes/clawd-dev/.gitignore` 翻转（之前排除一切，现在只排 .DS_Store 等）
+  - 顶部 README + License section 重写 — 明示 source MIT + bundled assets 非商业 + 必须注明作者
+- **`tools.ts` 中提取 `system-prompts.ts`** — SYSTEM_PROMPT / 时间 / persona / memory wrapper 都 LOCALE-aware
+- **`tools.ts` 中 `set_pet_animation` 参数描述去 ZH 释义** — 改纯英文（"juggling (multi-task)" 等）
+
+### 修复
+- **electron-builder schema 校验**：`nsis.allowToChangeInstallationDir` → `allowToChangeInstallationDirectory`（v26.8.1 严格 validate）
+- **CI manual build auto-publish**：`workflow_dispatch` 触发的 build 加 `--publish never`，否则 electron-builder 检测 CI 环境会强行 publish 失败
+
+### 已知问题 / 限制
+- **历史 release（v0.4.1 及之前）由本机 build 上传，未带正确 attribution** — v0.4.2 起所有 release 都含完整授权信息
+- **macOS 仍无 codesign**，首次启动需脱 Gatekeeper（install.sh 自动处理）
+- **EN system prompt 未真机验** — 翻译质量靠人工镜像 ZH，没用真模型跑过 8 项 scripted scenario
+- **`src/main/llm/tools.ts` 18 个 tool description 仍有 ZH trigger 词**（"看看屏幕" / "天气" 等）— EN 用户说英文同义词时 vision/weather/animation tool 可能不触发，issue 单独 backlog
+
+---
+
 ## [0.4.1] — 2026-05-19
 
 ### 新增
@@ -210,7 +241,8 @@
 - README 英文化 + monorepo root README + MIT LICENSE（含 clawd AGPL 隔离说明）
 - install.sh bash 3.2 `set -u` 兼容修
 
-[Unreleased]: https://github.com/Ice-teapop/desktop-pet/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/Ice-teapop/desktop-pet/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/Ice-teapop/desktop-pet/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/Ice-teapop/desktop-pet/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/Ice-teapop/desktop-pet/compare/v0.3.7...v0.4.0
 [0.3.7]: https://github.com/Ice-teapop/desktop-pet/compare/v0.3.6...v0.3.7
