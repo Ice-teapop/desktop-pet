@@ -11,8 +11,13 @@
 
 It lives in the corner of your desktop. **Click to chat**, and the AI autonomously decides whether to look at your screen, read files, run commands, or hit the web to answer you. Every "doing" capability is gated by a per-action approval modal (for high-risk actions) or hard-denied at compile time (for catastrophic ones), with a complete local audit log.
 
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
+[![License](https://img.shields.io/badge/license-MIT%20%2B%20NC%20assets-blue.svg)](./LICENSE)
 [![macOS](https://img.shields.io/badge/macOS-Sequoia%2B-black.svg)](#-installation-macos)
+
+> **🐚 Pixel-crab art credits**: All Clawd character sprites in `themes/clawd-dev/` are authored by
+> [@rullerzhou-afk](https://github.com/rullerzhou-afk) (the [`clawd-on-desk`](https://github.com/rullerzhou-afk/clawd-on-desk) project),
+> with character IP licensed via Anthropic intermediary. **Used here with permission for non-commercial purposes only.**
+> See [§ License](#-license) for full terms.
 
 ---
 
@@ -355,8 +360,22 @@ Full developer docs: [01-桌宠客户端/desktop-pet/README.md](01-桌宠客户�
 
 ## 📄 License
 
-[MIT](./LICENSE). The clawd pixel-art assets in `themes/clawd-dev/` are independently AGPL-licensed and **never enter this repo** — they must be fetched locally (see [`themes/clawd-dev/README.md`](./01-桌宠客户端/desktop-pet/themes/clawd-dev/README.md)).
+**Source code**: [MIT](./LICENSE) — free for any use including commercial.
 
-Code author: [@Ice-teapop](https://github.com/Ice-teapop)
-Pet art (clawd): by [@rullerzhou](https://github.com/rullerzhou)
-Built with: Claude Opus 4.7 (1M context)
+**Bundled pixel-crab art** (`themes/clawd-dev/`, ~65 sprites): used here **with permission**, but under more restrictive terms:
+
+- **Non-commercial only** — personal / portfolio / educational / research use is fine; commercial products need separate permission from the original author
+- **Attribution required** — credit [@rullerzhou-afk](https://github.com/rullerzhou-afk) prominently on any fork / redistribution
+- **No re-licensing the art** — sprites may not be redistributed standalone (i.e. extracted out of DeskPet) under terms different from the originals
+
+The art was originally from [`clawd-on-desk`](https://github.com/rullerzhou-afk/clawd-on-desk) (AGPL-3.0 upstream); DeskPet received a separate non-commercial usage grant. Character IP (the Clawd pixel crab) belongs to Anthropic; explicit usage permission was secured through the upstream maintainer.
+
+**The combined work is non-commercial.** If you want to build a commercial product, either contact [@rullerzhou-afk](https://github.com/rullerzhou-afk) to negotiate, or replace `themes/clawd-dev/` entirely with original art (the MIT source alone has no such restriction).
+
+See [`themes/clawd-dev/README.md`](./01-桌宠客户端/desktop-pet/themes/clawd-dev/README.md) for the per-file inventory.
+
+---
+
+- Code author: [@Ice-teapop](https://github.com/Ice-teapop)
+- Pet art (clawd): [@rullerzhou-afk](https://github.com/rullerzhou-afk) — used with permission, non-commercial
+- Built with: Claude Opus 4.7 (1M context)

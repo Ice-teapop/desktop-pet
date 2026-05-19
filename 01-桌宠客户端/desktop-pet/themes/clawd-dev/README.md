@@ -1,37 +1,35 @@
-# clawd-dev 主题包 — 开发期素材占位
+# clawd-dev 主题包
 
-本目录**不进 git**（除本 README 与 `.gitignore` 之外的所有文件被忽略）。
+DeskPet 默认像素角色（Clawd，像素螃蟹）的全套动画 / 静态素材.
 
-## 为什么不进 git
+## 授权
 
-`clawd-on-desk` 的源仓库 LICENSE 是 **AGPL-3.0**（虽然 README 写"MIT"，
-但 LICENSE 文件才是法律事实）。AGPL 是强 copyleft，且 Clawd（像素螃蟹）
-角色形象的 IP 归属 Anthropic（clawd-on-desk 自述非官方社区作品）。
+本目录素材**已获授权**纳入 DeskPet 仓库：
 
-如果把 clawd 素材直接 commit 到 DeskPet 仓库 + push 到 GitHub，
-即构成 AGPL 协议下的"分发"，整个 DeskPet 会被 AGPL 传染。
-所以**素材开发期本地用，永不入库**；发布前替换为原创角色美术。
+- **作者**: [rullerzhou-afk](https://github.com/rullerzhou-afk) — `clawd-on-desk` 项目作者
+- **角色 IP**: Clawd（Anthropic 像素螃蟹形象）已通过中间方获得使用授权
+- **使用范围**: **非商业用途**（personal / portfolio / 教育 / 研究均可，商业产品需另行联系作者）
+- **必须**: GitHub 仓库 README 顶部及 in-app About 显著注明作者出处
+- **不可**: 二次分发素材自身、衍生商业化、声称原创
 
-## 怎么拿到素材
+授权获得日期：2026-05-20。
 
-```bash
-# 1. 把 clawd-on-desk 浅克隆到任意临时位置
-git clone --depth 1 https://github.com/rullerzhou-afk/clawd-on-desk.git /tmp/clawd-source
+> **历史说明**：v0.4.1 及之前的 release 在素材进 git 前由本机手动 build 上传，
+> 未在 binary 内显著标注作者出处 —— 那部分构成历史遗留瑕疵，本次入库
+> 之后所有 v0.4.2+ release 都会带正确 attribution.
 
-# 2. 把 SVG 资源复制到本目录
-cp /tmp/clawd-source/assets/svg/*.svg ./
+## 文件清单
 
-# 3. 把 clawd 主题描述放过来当 manifest 参考
-cp /tmp/clawd-source/themes/clawd/theme.json ./
+65 张 SVG / GIF, 覆盖：
+- **基础状态**: idle / sleep / yawn / collapse / thinking / happy / error
+- **活动语义** (M3-3 fast-path 触发的视觉)：building / debugger / reading / carrying / conducting / juggling / sweeping / headphones-groove
+- **mini 模式** (M9-5 极简化收边)：mini-idle / mini-alert / mini-crabwalk / mini-enter
+- **互动反应** (M9-2 click reactions)：poked / startled / wake
+- **about-hero**: Settings 头图
 
-# 4. 清掉临时仓库
-rm -rf /tmp/clawd-source
-```
+## 怎么扩展
 
-之后渲染层按本目录的 `theme.json` 加载状态映射的 SVG。
-
-## 主方案对应章节
-
-- 《桌宠动画引擎与状态机》第二章「资源方案：复用 clawd-on-desk」
-- 第 2.2 节「授权与合规说明（重要）」
-- 第 2.3 节「主题包架构」
+加新角色 / 主题：建另一个目录 `themes/your-theme/`，按本目录结构提供同名 SVG/GIF，
+然后改 `src/renderer/src/App.tsx` 的 import 路径。`@themes` alias 在
+`electron.vite.config.ts` 配的，多主题切换将来走 M1 protocol handler 方案
+（theme://idle.svg）。
