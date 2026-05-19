@@ -1012,7 +1012,67 @@ function App(): React.JSX.Element {
           : t('chat.empty_placeholder_dots')
 
   return (
-    <div className="stage">
+    <div
+      className="stage"
+      // v0.4.0 改动 2 修: drag handlers 从 .pet (240×240) 上移到 .stage (全窗口) —
+      // 之前 chat 开时窗口 500×280, .pet 只占右下 240, 用户拖到左侧对话区无事件,
+      // overlay 不显示 → 用户以为"拖拽功能失效". 移到 .stage 全窗口都接 drag.
+      onDragEnter={(e) => {
+        e.preventDefault()
+        dragDepthRef.current += 1
+        if (dragDepthRef.current === 1) setDragOver(true)
+      }}
+      onDragOver={(e) => {
+        // 必须 preventDefault 才能让 onDrop 触发
+        e.preventDefault()
+        e.dataTransfer.dropEffect = 'copy'
+      }}
+      onDragLeave={() => {
+        dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
+        if (dragDepthRef.current === 0) setDragOver(false)
+      }}
+      onDrop={(e) => {
+        e.preventDefault()
+        dragDepthRef.current = 0
+        setDragOver(false)
+        // Electron 32+ 移除 File.path → 用 window.api.getPathForFile() 走 preload bridge
+        // 拿绝对路径. 之前直接读 (f as File & { path?: string }).path 永远 undefined,
+        // → main 端 dropFiles 安全检查 + preview → summary → 走正常 submitChat 流
+        const paths = Array.from(e.dataTransfer.files)
+          .map((f) => window.api.getPathForFile(f))
+          .filter((p): p is string => typeof p === 'string' && p.length > 0)
+        if (paths.length === 0) return
+        void (async (): Promise<void> => {
+          const result = await window.api.dropFiles(paths)
+          if (result.accepted.length === 0 && result.rejected.length > 0) {
+            // 全部 reject — 不发 chat, 加 system 消息让用户看到原因
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: msgIdRef.current++,
+                role: 'system' as const,
+                text:
+                  `⚠️ 拖入的 ${result.rejected.length} 个文件全部被拒:\n` +
+                  result.rejected.map((r) => `• ${r.path} — ${r.reason}`).join('\n'),
+                status: 'done' as const
+              }
+            ])
+            return
+          }
+          // 有接受的: 推 summary 当 user msg, 也走 chat:submit 让 AI 收到完整上下文.
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: msgIdRef.current++,
+              role: 'user' as const,
+              text: result.summary,
+              status: 'done' as const
+            }
+          ])
+          window.api.submitChat(result.summary)
+        })()
+      }}
+    >
       {isConvMounted && (
         <div
           ref={convRef}
@@ -1292,62 +1352,6 @@ function App(): React.JSX.Element {
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
-        onDragEnter={(e) => {
-          e.preventDefault()
-          dragDepthRef.current += 1
-          if (dragDepthRef.current === 1) setDragOver(true)
-        }}
-        onDragOver={(e) => {
-          // 必须 preventDefault 才能让 onDrop 触发
-          e.preventDefault()
-          e.dataTransfer.dropEffect = 'copy'
-        }}
-        onDragLeave={() => {
-          dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
-          if (dragDepthRef.current === 0) setDragOver(false)
-        }}
-        onDrop={(e) => {
-          e.preventDefault()
-          dragDepthRef.current = 0
-          setDragOver(false)
-          // v0.4.0 改动 2 [D]: dataTransfer.files → file.path (Electron renderer 允许)
-          // → main 端 dropFiles 安全检查 + preview → summary → 走正常 submitChat 流
-          const paths = Array.from(e.dataTransfer.files)
-            .map((f) => (f as File & { path?: string }).path)
-            .filter((p): p is string => typeof p === 'string' && p.length > 0)
-          if (paths.length === 0) return
-          void (async (): Promise<void> => {
-            const result = await window.api.dropFiles(paths)
-            if (result.accepted.length === 0 && result.rejected.length > 0) {
-              // 全部 reject — 不发 chat, 加 system 消息让用户看到原因
-              setMessages((prev) => [
-                ...prev,
-                {
-                  id: msgIdRef.current++,
-                  role: 'system' as const,
-                  text:
-                    `⚠️ 拖入的 ${result.rejected.length} 个文件全部被拒:\n` +
-                    result.rejected.map((r) => `• ${r.path} — ${r.reason}`).join('\n'),
-                  status: 'done' as const
-                }
-              ])
-              return
-            }
-            // 有接受的: 推 summary 当 user msg, 也走 chat:submit 让 AI 收到完整上下文.
-            // summary 长但信息密集 — 包括路径 + 大小 + 文本预览 + 安全拒绝列表.
-            // 主进程会把同一份 text 存进 chat-history.json, 下次启动 reload 一致.
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: msgIdRef.current++,
-                role: 'user' as const,
-                text: result.summary,
-                status: 'done' as const
-              }
-            ])
-            window.api.submitChat(result.summary)
-          })()
-        }}
       >
         {/* v0.4.0 S4.2 [A] pet-busy-ring — AI 调 tool 时 pet 周围珊瑚虚线闪烁,
             消息流中 m.tool.status==='running' 至少 1 个就显示. Mini 模式也显示 —

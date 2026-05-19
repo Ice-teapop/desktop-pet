@@ -2,7 +2,7 @@
  * Preload — contextBridge 暴露白名单 API 给渲染层。
  * 永远不直接暴露 ipcRenderer / fs / child_process —— 只暴露白名单方法。
  */
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type {
@@ -382,6 +382,11 @@ const api = {
   // v0.4.0 改动 2 [D] 拖文件 — 返回 DropResult, renderer 自己拼 submitChat
   dropFiles(paths: string[]): Promise<DropResult> {
     return ipcRenderer.invoke('chat:drop-files', paths) as Promise<DropResult>
+  },
+  // Electron 32+ 移除了 File.path; 必须走 webUtils.getPathForFile 拿到绝对路径.
+  // renderer 直接 import webUtils 会被 contextIsolation 拦; 通过 preload bridge 出来.
+  getPathForFile(file: File): string {
+    return webUtils.getPathForFile(file)
   },
   // v0.4.0 改动 4 [B] listModels — 触发 main 拉 + push, listener 收 per-provider 列表
   requestAvailableModels(): void {

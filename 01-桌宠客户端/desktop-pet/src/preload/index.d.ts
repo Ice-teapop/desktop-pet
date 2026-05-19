@@ -110,6 +110,8 @@ export interface DeskPetAPI {
   revealUserProfileInFinder(): void
   // v0.4.0 改动 2 [D] 拖文件 — 给 AI 喂上下文
   dropFiles(paths: string[]): Promise<DropResult>
+  // Electron 32+ File.path 移除替代 — renderer 拿 dataTransfer.files[i] 后用此查路径
+  getPathForFile(file: File): string
   // v0.4.0 改动 4 [B] 动态 listModels
   requestAvailableModels(): void
   onAvailableModels(listener: (modelsByProvider: Record<string, string[]>) => void): () => void
