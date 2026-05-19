@@ -931,6 +931,13 @@ body,
   margin-left: 2px;
 }
 
+/* v0.4.3+ 输入栏 "📂 导入" 按钮 — 跟 model pill 同色系但去掉 ✓ + icon-only 紧凑 */
+.import-pill {
+  padding: 4px 7px;
+}
+.import-pill::after { content: none; }
+.import-pill .vision-pill-ico { font-size: 13px; }
+
 /* === S4.1 [A+B] pet-busy-ring + pet-toast + pet-emote-hint === */
 .pet-busy-ring {
   position: absolute;

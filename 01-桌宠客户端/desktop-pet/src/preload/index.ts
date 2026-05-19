@@ -395,6 +395,11 @@ const api = {
     ipcRenderer.on('tray:drop-files', handler)
     return () => ipcRenderer.off('tray:drop-files', handler)
   },
+  // v0.4.3+ chat 输入栏 "📂 导入" 按钮触发的 IPC — main 弹系统文件选择器,
+  // 选完路径走 tray:drop-files channel 推回 (跟 tray 拖文件同一份后续).
+  openImportFilesDialog(): void {
+    ipcRenderer.send('chat:import-files-dialog')
+  },
   // v0.4.0 改动 4 [B] listModels — 触发 main 拉 + push, listener 收 per-provider 列表
   requestAvailableModels(): void {
     ipcRenderer.send('available-models:request')

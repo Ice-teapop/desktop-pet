@@ -38,6 +38,7 @@ export const en: I18nDict = {
   'chat.update_available': 'Version v{0} is available — copy release link: {1}',
   'chat.update_up_to_date': 'Already on latest (v{0})',
   'chat.empty_placeholder': 'Say something to the pet',
+  'chat.import_files_title': 'Feed files to the pet (system picker)',
   'chat.empty_placeholder_dots': 'Say something to the pet...',
   'chat.placeholder_initializing': 'Initializing…',
   'chat.placeholder_replying': 'Claw is replying…',

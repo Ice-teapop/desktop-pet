@@ -114,6 +114,8 @@ export interface DeskPetAPI {
   getPathForFile(file: File): string
   // v0.4.3+ DnD 回退: 拖文件到 menu bar tray 图标, main 转发绝对路径数组到这里
   onTrayDropFiles(listener: (paths: string[]) => void): () => void
+  // v0.4.3+ chat 输入栏 "📂 导入" 按钮 — 主进程弹系统文件选择器, 选完走 tray:drop-files
+  openImportFilesDialog(): void
   // v0.4.0 改动 4 [B] 动态 listModels
   requestAvailableModels(): void
   onAvailableModels(listener: (modelsByProvider: Record<string, string[]>) => void): () => void

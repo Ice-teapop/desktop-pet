@@ -42,6 +42,7 @@ export const zh = {
   'chat.update_available': '新版本 v{0} 可用 — 点击复制 release 链接: {1}',
   'chat.update_up_to_date': '已是最新版本 (v{0})',
   'chat.empty_placeholder': '对桌宠说点啥',
+  'chat.import_files_title': '导入文件给桌宠（系统选择器）',
   'chat.empty_placeholder_dots': '对桌宠说点啥...',
   'chat.placeholder_initializing': '正在初始化…',
   'chat.placeholder_replying': 'Claw 正在回复…',

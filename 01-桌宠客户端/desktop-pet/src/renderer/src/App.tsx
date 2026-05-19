@@ -1325,6 +1325,17 @@ function App(): React.JSX.Element {
               {currentModel ? currentModel.modelId : '加载中…'}
               <span className="model-dropdown-caret">▾</span>
             </button>
+            {/* v0.4.3+ chat 输入栏 "📂 导入" 按钮 — 替代拖拽 (透明 NSPanel 不接 HTML5
+                drop). 点击 → main 弹系统文件选择器 multi-select → tray:drop-files
+                channel 推回 (跟 tray 拖文件同一份后续 pipeline). */}
+            <button
+              type="button"
+              className="vision-pill vision-pill--on import-pill"
+              onClick={() => window.api.openImportFilesDialog()}
+              title={t('chat.import_files_title')}
+            >
+              <span className="vision-pill-ico">📂</span>
+            </button>
           </div>
           <input
             className="chat-input"

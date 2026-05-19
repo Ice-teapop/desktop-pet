@@ -1379,12 +1379,6 @@ function buildTrayMenu(): Menu {
       label: t('tray.model'),
       submenu: buildModelSubmenu()
     },
-    {
-      // v0.4.3+ DnD 替代方案 B: 系统文件选择器, 绕开透明 NSPanel drop 限制.
-      // 选完跟 tray.on('drop-files') 走同一份 'tray:drop-files' IPC 推 renderer.
-      label: t('tray.import_files'),
-      click: () => void runImportFilesDialog()
-    },
     { type: 'separator' },
     {
       label: t('tray.demo'),
@@ -2019,6 +2013,12 @@ function registerIpc(): void {
     }
     const validPaths = paths.filter((p): p is string => typeof p === 'string' && p.length > 0)
     return processDroppedFiles(validPaths)
+  })
+
+  // v0.4.3+ chat 输入栏旁边 "导入文件" 按钮 → renderer 调这条 → main 弹系统文件
+  // 选择器 → 选完路径走跟 tray:drop-files 同一份 IPC pipeline 推回 renderer.
+  ipcMain.on('chat:import-files-dialog', () => {
+    void runImportFilesDialog()
   })
 
   // v0.4.0 改动 4 [B] 动态 listModels — UI dropdown 拉各 provider 真实可用 model
