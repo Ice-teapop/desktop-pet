@@ -4,8 +4,34 @@
 
 ## [Unreleased]
 
+---
+
+## [0.4.1] — 2026-05-19
+
+### 新增
+- **托盘"模型"菜单全 provider 展开**：二级 = 已配 key 的 provider；三级 = 该 provider 的 model（优先动态 listModels 24h cache）
+- **跨 provider 工具显示统一**：`shared/tool-display.ts` — anthropic_web_search / openai_web_search / xai_web_search / tavily web_search 全归"🌐 联网搜索"；20+ tool 全有中文 label + emoji
+- **provider 余额 / 用量行**：Settings 每张 provider 卡新增；DeepSeek 真查 `GET /user/balance`，其他 5 家给"官方面板"链接（无公开 API）
+- **更新检查 + 通知**：启动 30s 后查 GitHub Releases / tray "检查更新（当前 vX.Y.Z）"；新版本 push 系统气泡含 release URL（无 codesign 不自动安装）
+- **GitHub Actions multi-platform build**：`.github/workflows/release.yml` push tag v* 触发 mac / win / linux matrix build + publish 到 Release
+
+### 变更
+- **`classifyError` 加 Cloudflare gateway 错误码**：408 / 502 / 504 / 524 → `overloaded`（xAI / DeepSeek / OpenAI 走 CF 时常见）
+- **`classifyError` 加余额关键字**：responseBody 含 `insufficient_quota` / `credits_exhausted` / `insufficient_funds` / `quota_exceeded` → `rate-limited`（fallback 到下家）
+- **提取 `applySelectedModel`**：tray click + `selected-model:set` IPC 共享 body，修双实现易漂移
+- **OpenAI `codeInterpreter` 显式 `container: 'auto'`**：意图可见，完整 per-session pinning 推迟（ADR-0003）
+- **electron-builder linux 删 snap target**：保 AppImage + deb，删 snap 因需 Snap Store credentials
+- **electron-builder win 显式 nsis + arch [x64, arm64]**：之前只 `executableName`
+
 ### 文档
-- 新增 `CONTEXT.md`（领域术语表）+ `docs/adr/` 目录（ADR-0001 / ADR-0002）+ 本 CHANGELOG 历史回填
+- 新增 `CONTEXT.md`（领域术语表）+ `docs/adr/` 目录（ADR-0001 / ADR-0002 / ADR-0003）+ CHANGELOG 历史回填（v0.0.1 → v0.3.7）
+
+### 已知问题 / 限制
+- CI workflow **未跑过** — push 这个 tag 才会第一次触发，可能有路径 / 中文编码 / 平台特有坑
+- macOS 仍无 codesign，首次启动需脱 Gatekeeper（install.sh 自动处理）
+- 跨 provider tool result SHAPE 仍不一致（AI SDK 控制），只统一了 UI 显示标签
+- OpenAI code_interpreter 跨 turn 无状态（per-session pinning 未做）
+- 只 DeepSeek 有可查余额；Anthropic / OpenAI / Google / xAI / 字节都需官方面板
 
 ---
 
@@ -184,7 +210,8 @@
 - README 英文化 + monorepo root README + MIT LICENSE（含 clawd AGPL 隔离说明）
 - install.sh bash 3.2 `set -u` 兼容修
 
-[Unreleased]: https://github.com/Ice-teapop/desktop-pet/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/Ice-teapop/desktop-pet/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/Ice-teapop/desktop-pet/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/Ice-teapop/desktop-pet/compare/v0.3.7...v0.4.0
 [0.3.7]: https://github.com/Ice-teapop/desktop-pet/compare/v0.3.6...v0.3.7
 [0.3.6]: https://github.com/Ice-teapop/desktop-pet/compare/v0.3.5...v0.3.6
