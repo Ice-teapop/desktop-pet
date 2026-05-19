@@ -39,7 +39,8 @@ import {
   powerMonitor,
   screen,
   shell,
-  Tray
+  Tray,
+  type MenuItemConstructorOptions
 } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -72,7 +73,6 @@ import {
 } from '../shared/pet-mode'
 import {
   ACTIVITY_INFO,
-  AVAILABLE_MODELS,
   DEFAULT_MODEL,
   isValidModelId,
   type ActivityState,
@@ -82,11 +82,13 @@ import {
 } from '../shared/chat-types'
 import {
   DEFAULT_SELECTED_MODEL,
+  PROVIDERS,
   PROVIDER_ORDER,
   defaultModelForProvider,
   findModel,
   isValidProvider,
   isValidSelectedModel,
+  modelsForProvider,
   type Provider,
   type ProviderKeyStates,
   type SelectedModel
@@ -622,6 +624,16 @@ let currentSelectedModel: SelectedModel = DEFAULT_SELECTED_MODEL
  * 不暴露明文 key 给 renderer（只 IPC boolean status）。
  */
 const currentProviderKeys = new Map<Provider, string | null>()
+/**
+ * Tray 模型菜单的"已知动态 model 列表"镜像（每 provider）。
+ *
+ * tray 是 main 同步构造 (Menu.buildFromTemplate)，没法 await listModels。
+ * 这里存"最后拿到的 cached models"，buildModelSubmenu 同步读：
+ *  - 启动时 loadTrayAvailableModelsFromCache() 读 available-models-cache.json 填上。
+ *  - available-models:request handler refresh 完后也覆盖这里 + rebuildTrayMenu。
+ *  - 空时 buildModelSubmenu fallback 到硬编码 modelsForProvider()，保证 tray 不空。
+ */
+const trayAvailableModels = new Map<Provider, string[]>()
 // v0.4.0 fallback: 每次 chat:submit 内 instantiate LlmClient (cheap, ~1ms), 不再 cache.
 // 原因: fallback chain 可能每 turn 用不同 provider, cache 单 client 没意义.
 // 活动识别（M3-3）：detector 推的状态独立于 PetState，渲染层组合两者决定 SVG
@@ -905,43 +917,76 @@ function schedulePrefsSave(prefs: Preferences): void {
 }
 
 /**
- * 切换模型：
- *  - 如果有 in-flight stream，必须清理三件事，否则状态卡死：
- *    1. send chat:done 给 renderer → streaming 气泡的 cursor-blink 停下
- *    2. pop chatHistory 末尾的 user turn → 下次 messages 不会以 [user, user, ...] 起头
- *    3. transition idle（受 thinking minMs 保护时用 scheduleReturnToIdle 兜底）
- *       → 桌宠 SVG 不卡在 thinking
- *  - 然后才更新内存 + abort SDK fetch + chatTurnToken++ 让旧 callback 自我屏蔽
- *  - 重建托盘 menu 让 radio checked 反映新选项 + debounced 落盘
+ * 切换 selected-model — 软切 (同 provider 同 capability) / 硬切 (跨 provider 或
+ * capability 不同) 双档策略 (ADR-0002).
+ *
+ * 调用方：
+ *  - `selected-model:set` IPC (renderer 的 Settings / pill)
+ *  - tray 模型菜单点击 (v0.4.0 改动 8 [#1])
+ *
+ * 行为：
+ *  - 同 provider + sameToolCapability → 软切：不 abort 旧 stream / 不动 chatTurnToken
+ *    / 不动 chatHistory / 不动 stateMachine。旧 stream 跑完，新 modelId 仅影响下
+ *    一 turn 的 instantiate (用户决策 A=a).
+ *  - 否则 → 硬切：emit chat:done + pop trailing user + transition idle + abort
+ *    stream + chatTurnToken++ 让旧 callback 自我屏蔽。
+ *  - 跨 provider 还要清 chatHistory + chat:history-cleared{reason:'provider-switch'}
+ *    (tool_use_id 跨家不兼容，自动 new conversation；用户决策 B=b1).
+ *
+ * 安全闸门（capability 未知降级保守）：
+ *  findModel 返 undefined → !!oldCap/!!newCap=false → sameToolCapability=false → 硬切。
+ *  这覆盖了动态 listModels 出现 static 表里没的新 modelId 的边界场景。
  */
-function setModel(id: ModelId): void {
-  if (currentModel === id) return
+function applySelectedModel(rawSel: SelectedModel): void {
+  if (
+    currentSelectedModel.provider === rawSel.provider &&
+    currentSelectedModel.modelId === rawSel.modelId
+  ) {
+    return // no-op
+  }
+  const isProviderSwitch = currentSelectedModel.provider !== rawSel.provider
+  const oldCap = findModel(currentSelectedModel)
+  const newCap = findModel(rawSel)
+  const sameToolCapability =
+    !!oldCap && !!newCap && oldCap.supportsTools === newCap.supportsTools
+  const canSoftSwitch = !isProviderSwitch && sameToolCapability
 
-  if (currentStreamHandle) {
+  if (!canSoftSwitch) {
+    if (currentStreamHandle) {
+      if (isWinAlive()) {
+        petWindow!.webContents.send('chat:done', { inputTokens: 0, outputTokens: 0 })
+      }
+      if (chatHistory[chatHistory.length - 1]?.role === 'user') {
+        chatHistory.pop()
+      }
+      if (!stateMachine.transition('idle')) {
+        stateMachine.scheduleReturnToIdle(PET_STATES.thinking.minMs)
+      }
+    }
+    currentStreamHandle?.abort()
+    currentStreamHandle = null
+    chatTurnToken++
+  }
+
+  currentSelectedModel = rawSel
+  // Anthropic 时 legacy currentModel mirror 保持对齐 (preferences.json schema 锚点)
+  if (rawSel.provider === 'anthropic' && isValidModelId(rawSel.modelId)) {
+    currentModel = rawSel.modelId
+  }
+
+  if (isProviderSwitch) {
+    chatHistory.length = 0
+    scheduleChatHistorySave()
     if (isWinAlive()) {
-      petWindow!.webContents.send('chat:done', { inputTokens: 0, outputTokens: 0 })
-    }
-    if (chatHistory[chatHistory.length - 1]?.role === 'user') {
-      chatHistory.pop()
-    }
-    if (!stateMachine.transition('idle')) {
-      stateMachine.scheduleReturnToIdle(PET_STATES.thinking.minMs)
+      petWindow!.webContents.send('chat:history-cleared', {
+        reason: 'provider-switch',
+        toProvider: rawSel.provider
+      })
     }
   }
 
-  currentModel = id
-  // M7-3: setModel 仍只接 ModelId（单 Anthropic 时代 API），同步更新 mirror 保持
-  // 一致 —— 这一路径用户只能从 Anthropic 三个 model 间切（tray menu），所以
-  // selectedModel 一定是 anthropic + id。Wave 4 新增 setSelectedModel 入口才能
-  // 切到别的 provider。
-  currentSelectedModel = { provider: 'anthropic', modelId: id }
-  currentStreamHandle?.abort()
-  currentStreamHandle = null
-  chatTurnToken++
   rebuildTrayMenu()
   schedulePrefsSave(currentPrefsSnapshot())
-  // 审核 B final audit 发现的真 bug: tray 改 model 改了 currentSelectedModel 但忘
-  // 广播 → renderer pill / Settings 永远 stale (症状 2 真因之一). 1 行修。
   broadcastSelectedModelState()
 }
 
@@ -1316,12 +1361,7 @@ function buildTrayMenu(): Menu {
     { label: '重设 API Key…', click: () => void resetKey() },
     {
       label: '模型',
-      submenu: AVAILABLE_MODELS.map((m) => ({
-        label: m.label,
-        type: 'radio' as const,
-        checked: currentModel === m.id,
-        click: () => setModel(m.id)
-      }))
+      submenu: buildModelSubmenu()
     },
     { type: 'separator' },
     {
@@ -1341,6 +1381,38 @@ function rebuildTrayMenu(): void {
   if (tray && !tray.isDestroyed()) {
     tray.setContextMenu(buildTrayMenu())
   }
+}
+
+/**
+ * v0.4.0 改动 8 [#1]: 托盘"模型"子菜单 — 全 provider 展开。
+ *
+ *  - 只列已配 key 的 provider (currentProviderKeys.get(p))。0 个时显 disabled 提示。
+ *  - 每 provider 一个二级 submenu (PROVIDERS[p].label) → 内列该 provider 的可用 model。
+ *  - model 列表优先 trayAvailableModels (动态 listModels 24h cached), 空则 fallback
+ *    硬编码 modelsForProvider() — 保证 tray 永远有内容。
+ *  - 标签优先用 findModel().label (中文友好), 动态 model 不在 static 表的用 raw id。
+ *  - 点击 → applySelectedModel({provider, modelId}) 走跟 IPC 同一套 soft/hard 切换。
+ */
+function buildModelSubmenu(): MenuItemConstructorOptions[] {
+  const configured = PROVIDER_ORDER.filter((p) => !!currentProviderKeys.get(p))
+  if (configured.length === 0) {
+    return [{ label: '（未配置任何 provider key — 打开设置）', enabled: false }]
+  }
+  return configured.map<MenuItemConstructorOptions>((p) => {
+    const dynamicIds = trayAvailableModels.get(p) ?? []
+    const ids =
+      dynamicIds.length > 0 ? dynamicIds : modelsForProvider(p).map((m) => m.id)
+    return {
+      label: PROVIDERS[p].label,
+      submenu: ids.map<MenuItemConstructorOptions>((id) => ({
+        label: findModel({ provider: p, modelId: id })?.label ?? id,
+        type: 'radio' as const,
+        checked:
+          currentSelectedModel.provider === p && currentSelectedModel.modelId === id,
+        click: () => applySelectedModel({ provider: p, modelId: id })
+      }))
+    }
+  })
 }
 
 function createTray(): void {
@@ -1703,70 +1775,7 @@ function registerIpc(): void {
       console.warn('[selected-model:set] invalid input, ignored:', rawSel)
       return
     }
-    if (
-      currentSelectedModel.provider === rawSel.provider &&
-      currentSelectedModel.modelId === rawSel.modelId
-    ) {
-      return // no-op
-    }
-    const isProviderSwitch = currentSelectedModel.provider !== rawSel.provider
-
-    // PR-3: 同 provider modelId-only 切换走"软切" — 不 abort 旧 stream, 让回复跑完,
-    // 下 turn 才用新 modelId (chat:submit 推下条时通过 ++chatTurnToken 自然让旧 stream
-    // callback 失效). 防"切个 model 当前回复被截断"不流畅体感 (用户决策 A=a).
-    //
-    // 安全闸门 (审核官员 A #4): 旧 stream 可能在 emit tool_use; 切到 tool 能力不同的
-    // 同厂商 model, onDone push 含 tool_use 的 assistant message → 下 turn 用新 model
-    // 拒绝 → 400. 任一方 capability 未知 (动态 list 出现 static 表里没的新 modelId) 也
-    // 保守降级。findModel 返 undefined → !!oldCap/!!newCap=false → sameToolCapability=false.
-    const oldCap = findModel(currentSelectedModel)
-    const newCap = findModel(rawSel)
-    const sameToolCapability =
-      !!oldCap && !!newCap && oldCap.supportsTools === newCap.supportsTools
-    const canSoftSwitch = !isProviderSwitch && sameToolCapability
-
-    if (!canSoftSwitch) {
-      // 硬切: abort + drop trailing user + ++turnToken (跨 provider 或 capability 不同)
-      if (currentStreamHandle) {
-        if (isWinAlive()) {
-          petWindow!.webContents.send('chat:done', { inputTokens: 0, outputTokens: 0 })
-        }
-        if (chatHistory[chatHistory.length - 1]?.role === 'user') {
-          chatHistory.pop()
-        }
-        if (!stateMachine.transition('idle')) {
-          stateMachine.scheduleReturnToIdle(PET_STATES.thinking.minMs)
-        }
-      }
-      currentStreamHandle?.abort()
-      currentStreamHandle = null
-      chatTurnToken++
-    }
-    // 软切: 不动 currentStreamHandle / chatTurnToken / chatHistory / stateMachine,
-    // 让旧 stream 跑完, 新 modelId 仅影响下一 turn 的 instantiate。
-
-    currentSelectedModel = rawSel
-    // Anthropic 时 legacy currentModel 跟 currentSelectedModel.modelId 对齐
-    if (rawSel.provider === 'anthropic' && isValidModelId(rawSel.modelId)) {
-      currentModel = rawSel.modelId
-    }
-
-    // Cross-provider switch：tool_use_id 跨 provider 不兼容 → 自动 new conversation
-    if (isProviderSwitch) {
-      chatHistory.length = 0
-      scheduleChatHistorySave()
-      if (isWinAlive()) {
-        // PR-2: 跨 provider 切换告知用户 (历史已清, 跨家不兼容), 防止用户以为是 bug
-        petWindow!.webContents.send('chat:history-cleared', {
-          reason: 'provider-switch',
-          toProvider: rawSel.provider
-        })
-      }
-    }
-
-    rebuildTrayMenu()
-    schedulePrefsSave(currentPrefsSnapshot())
-    broadcastSelectedModelState()
+    applySelectedModel(rawSel)
   })
 
   ipcMain.on('selected-model:request-state', (event) => {
@@ -1939,6 +1948,12 @@ function registerIpc(): void {
       const cachedRecord: Record<string, string[]> = {}
       for (const [p, models] of cached) cachedRecord[p] = models
       win.webContents.send('available-models:state', cachedRecord)
+      // 同步给 tray (改动 8 [#1]) — 顺手填 tray 模型菜单
+      if (cached.size > 0) {
+        trayAvailableModels.clear()
+        for (const [p, models] of cached) trayAvailableModels.set(p, models)
+        rebuildTrayMenu()
+      }
     } catch (err) {
       console.warn('[available-models] cached read failed:', err)
     }
@@ -1956,6 +1971,10 @@ function registerIpc(): void {
       if (!win.isDestroyed()) {
         win.webContents.send('available-models:state', refreshedRecord)
       }
+      // 同步给 tray (改动 8 [#1])
+      trayAvailableModels.clear()
+      for (const [p, models] of refreshed) trayAvailableModels.set(p, models)
+      rebuildTrayMenu()
     } catch (err) {
       console.warn('[available-models] refresh failed:', err)
     }
@@ -2484,6 +2503,19 @@ app.whenReady().then(async () => {
   // 让 approval.ts 拿到 petWindow 引用，requestApproval 才能发 IPC
   setApprovalPetWindow(petWindow)
   createTray()
+  // v0.4.0 改动 8 [#1]: 启动时 fire-and-forget 读 available-models cache 填 tray 菜单。
+  // tray 是同步构造，先用硬编码 fallback；cache 读到后 rebuildTrayMenu 覆盖。
+  void (async () => {
+    try {
+      const cached = await getCachedAvailableModels()
+      if (cached.size > 0) {
+        for (const [p, models] of cached) trayAvailableModels.set(p, models)
+        rebuildTrayMenu()
+      }
+    } catch (err) {
+      console.warn('[tray] available-models cache load failed:', err)
+    }
+  })()
   watchScreenEvents()
   watchPowerEvents()
 
