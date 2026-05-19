@@ -58,6 +58,23 @@ Grab the zip from [Releases](https://github.com/Ice-teapop/desktop-pet/releases)
 
 Unzip → drag `DeskPet.app` to `/Applications` → **first launch: right-click → Open** (because Phase 1 isn't Apple-notarised yet).
 
+### English-locale build
+
+DeskPet ships a separate **English-only build** that installs as a *distinct* `.app` alongside the default (Chinese) version (different appId / userData, you can keep both).
+
+Look for `DeskPet-EN-*` assets in the [Releases](https://github.com/Ice-teapop/desktop-pet/releases) — same install flow as above, just a different package.
+
+To build locally from source:
+```bash
+cd 01-桌宠客户端/desktop-pet
+npm run build:mac:en      # → dist/DeskPet-EN-<version>-...zip
+```
+
+Implementation: build-time `DESKPET_LOCALE=en` injection (see `electron.vite.config.ts` + `src/shared/i18n/`). The English build:
+- UI strings (Settings, system bubbles, approval modals, error messages) are fully English
+- AI default reply language is English, but auto-follows the user's input language (Chinese in → Chinese out)
+- Different `appId` (`com.deskpet.en`) and `productName` (`DeskPet-EN`) so it coexists with the Chinese build
+
 > Phase 1 ships zip only — no dmg (`dmg-builder` + macOS Sequoia compatibility bug; Phase 2 will fix it).
 > Phase 2 plans Apple Developer signing + notarization, which will also remove the `xattr` step from `install.sh`.
 
