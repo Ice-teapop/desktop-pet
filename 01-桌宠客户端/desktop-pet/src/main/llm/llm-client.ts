@@ -518,7 +518,25 @@ function classifyError(err: unknown): ChatError {
       const retry = err.responseHeaders?.['retry-after']
       return { kind: 'rate-limited', retryAfterSec: retry ? Number(retry) : undefined }
     }
-    if (status === 503 || status === 529) return { kind: 'overloaded' }
+    // 5xx / Cloudflare gateway 错误一律归 overloaded (fallback-able):
+    //   503 / 529 = upstream provider overloaded (Anthropic)
+    //   502 / 504 / 524 = Cloudflare gateway timeout / bad gateway
+    //     (xAI / DeepSeek / OpenAI 走 CF 时常见, 524=后端 >100s)
+    //   408 = request timeout (xAI 实测能命中)
+    if (status === 408 || status === 502 || status === 503 || status === 504 || status === 524 || status === 529) {
+      return { kind: 'overloaded' }
+    }
+    // body 关键字: 余额耗尽 / 月度配额满 — 归 rate-limited 触发 fallback
+    // (本 provider 短期内不可能再恢复, 跨家切才是用户期望)
+    const body = String((err as { responseBody?: unknown }).responseBody ?? '')
+    if (
+      body.includes('insufficient_quota') ||
+      body.includes('insufficient_funds') ||
+      body.includes('credits_exhausted') ||
+      body.includes('quota_exceeded')
+    ) {
+      return { kind: 'rate-limited' }
+    }
     return { kind: 'api', message: err.message }
   }
 
@@ -543,14 +561,29 @@ function classifyError(err: unknown): ChatError {
       const retry = c?.responseHeaders?.['retry-after']
       return { kind: 'rate-limited', retryAfterSec: retry ? Number(retry) : undefined }
     }
-    if (status === 503 || status === 529) return { kind: 'overloaded' }
+    // 跟顶层 APICallError 分支同口径: 5xx + Cloudflare gateway + request-timeout 都 overloaded
+    if (status === 408 || status === 502 || status === 503 || status === 504 || status === 524 || status === 529) {
+      return { kind: 'overloaded' }
+    }
   }
 
-  // responseBody 字符串匹配 (Anthropic 'overloaded_error' / 'rate_limit_error')
+  // responseBody 字符串匹配
+  //  - Anthropic 'overloaded_error' / 'rate_limit_error'
+  //  - OpenAI 'insufficient_quota' (账户余额耗尽 — 短期不可恢复, fallback 到下家)
+  //  - xAI 'credits_exhausted' / 'insufficient_funds'
+  //  - 其他 OpenAI-compat provider 'quota_exceeded'
   for (const c of chain) {
     const body = String(c?.responseBody ?? '')
     if (body.includes('overloaded')) return { kind: 'overloaded' }
     if (body.includes('rate_limit')) return { kind: 'rate-limited' }
+    if (
+      body.includes('insufficient_quota') ||
+      body.includes('insufficient_funds') ||
+      body.includes('credits_exhausted') ||
+      body.includes('quota_exceeded')
+    ) {
+      return { kind: 'rate-limited' }
+    }
   }
 
   // 普通 message 兜底
