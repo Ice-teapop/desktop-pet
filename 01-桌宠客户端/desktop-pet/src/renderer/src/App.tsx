@@ -26,6 +26,7 @@ import { DEFAULT_PET_MODE } from '../../shared/pet-mode'
 import { detectProvider } from '../../shared/key-detect'
 import { PROVIDERS, PROVIDER_ORDER } from '../../shared/provider-types'
 import type { SelectedModel } from '../../shared/provider-types'
+import { getToolDisplay } from '../../shared/tool-display'
 // idle 池 6 种"无聊时的小动作"，闲态随机切
 import idleGif from '@themes/clawd-dev/clawd-idle.gif'
 import idleReadingGif from '@themes/clawd-dev/clawd-idle-reading.gif'
@@ -621,7 +622,8 @@ function App(): React.JSX.Element {
         // tool 'error' 不弹 toast, 已经在 msg-tool 卡显红色状态
         if (event.kind === 'end') {
           if (petToastTimerRef.current) clearTimeout(petToastTimerRef.current)
-          setPetToast({ id: Date.now(), text: `✓ ${event.toolName}` })
+          const display = getToolDisplay(event.toolName)
+          setPetToast({ id: Date.now(), text: `✓ ${display.label}` })
           petToastTimerRef.current = setTimeout(() => setPetToast(null), 2700)
         }
       }
@@ -1008,10 +1010,11 @@ function App(): React.JSX.Element {
                   if (m.role === 'tool' && m.tool) {
                     const isDone = m.tool.status === 'done'
                     const isError = m.tool.status === 'error'
+                    const display = getToolDisplay(m.tool.name)
                     return (
                       <div key={m.id} className="msg-tool">
-                        <span className="msg-tool-icon">🔧</span>
-                        <span className="msg-tool-name">{m.tool.name}</span>
+                        <span className="msg-tool-icon">{display.icon}</span>
+                        <span className="msg-tool-name">{display.label}</span>
                         <span className="msg-tool-sep">·</span>
                         <span
                           className="msg-tool-status"
