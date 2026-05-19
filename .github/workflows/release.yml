@@ -1,0 +1,84 @@
+name: Release multi-platform installers
+
+# 触发：
+#  - 推 tag v* → 三个平台并行 build → 上传到那个 tag 的 GitHub Release
+#  - 手动 workflow_dispatch → 用当前 main / 任一分支 build (不上传, dist/* 当 artifact)
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+# 防同 tag 并发 (重 push 同 tag 时不冲突)
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false # 一家挂不连坐其他两家
+      matrix:
+        include:
+          - os: macos-latest
+            build_script: build:mac
+          - os: windows-latest
+            build_script: build:win
+          - os: ubuntu-latest
+            build_script: build:linux
+
+    # GH_TOKEN 让 electron-builder publish=always 写回 Releases.
+    # 默认 GITHUB_TOKEN 是 ephemeral PAT, 有 contents:write 权限 (本仓库已在
+    # repo settings 允许). 不需额外 PAT secret.
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          # Chinese 路径 cache: 显式指定 working-directory 的 lock file 路径
+          cache: 'npm'
+          cache-dependency-path: '01-桌宠客户端/desktop-pet/package-lock.json'
+
+      - name: Install deps
+        working-directory: '01-桌宠客户端/desktop-pet'
+        run: npm ci
+
+      - name: Build & publish (tag push)
+        if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: '01-桌宠客户端/desktop-pet'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # macOS code signing 暂留空 — identity:null + notarize:false in
+          # electron-builder.yml. Phase 2 接 Developer ID 时填:
+          #   CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          #   CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+        run: npm run ${{ matrix.build_script }} -- --publish always
+
+      - name: Build only (manual / no publish)
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        working-directory: '01-桌宠客户端/desktop-pet'
+        run: npm run ${{ matrix.build_script }}
+
+      - name: Upload artifacts (manual build)
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: deskpet-${{ matrix.os }}
+          path: |
+            01-桌宠客户端/desktop-pet/dist/*.zip
+            01-桌宠客户端/desktop-pet/dist/*.dmg
+            01-桌宠客户端/desktop-pet/dist/*.exe
+            01-桌宠客户端/desktop-pet/dist/*.AppImage
+            01-桌宠客户端/desktop-pet/dist/*.deb
+            01-桌宠客户端/desktop-pet/dist/*.blockmap
+            01-桌宠客户端/desktop-pet/dist/latest*.yml
+          if-no-files-found: warn
+          retention-days: 14

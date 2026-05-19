@@ -17,11 +17,11 @@ extraResources:
     to: frontmost-listener
 win:
   executableName: desktop-pet
-nsis:
-  artifactName: ${name}-${version}-setup.${ext}
-  shortcutName: ${productName}
-  uninstallDisplayName: ${productName}
-  createDesktopShortcut: always
+  target:
+    - target: nsis
+      arch:
+        - x64
+        - arm64
 mac:
   entitlementsInherit: build/entitlements.mac.plist
   category: public.app-category.utilities
@@ -48,12 +48,22 @@ mac:
 linux:
   target:
     - AppImage
-    - snap
     - deb
-  maintainer: electronjs.org
+  # 删 snap — 需 Snap Store credentials (snapcraft login + ~/.config/snapcraft).
+  # AppImage 在多数 distro 双击即开; deb 在 Ubuntu / Debian apt install 即可.
+  maintainer: han
   category: Utility
 appImage:
-  artifactName: ${name}-${version}.${ext}
+  artifactName: ${name}-${version}-${arch}.${ext}
+deb:
+  artifactName: ${name}-${version}_${arch}.${ext}
+nsis:
+  artifactName: ${name}-${version}-setup.${ext}
+  shortcutName: ${productName}
+  uninstallDisplayName: ${productName}
+  createDesktopShortcut: always
+  oneClick: false
+  allowToChangeInstallationDir: true
 npmRebuild: false
 # M6 Phase 1：publish 到 GitHub Releases。
 # - 不签名 / 不公证（identity:null + notarize:false 上面已设）—— user 首次打开
