@@ -3,10 +3,18 @@ import { defineConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import svgr from 'vite-plugin-svgr'
 
+// Build-time locale 注入. 默认 'zh'; build:*:en script 设 DESKPET_LOCALE=en.
+// main / preload / renderer 三个 entry 共用一份 define 让 src/shared/i18n 都生效.
+const LOCALE = process.env.DESKPET_LOCALE === 'en' ? 'en' : 'zh'
+const define = {
+  __DESKPET_LOCALE__: JSON.stringify(LOCALE)
+}
+
 export default defineConfig({
-  main: {},
-  preload: {},
+  main: { define },
+  preload: { define },
   renderer: {
+    define,
     resolve: {
       alias: {
         '@renderer': resolve('src/renderer/src'),
