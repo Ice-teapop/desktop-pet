@@ -1,7 +1,7 @@
 name: Release multi-platform installers
 
 # 触发：
-#  - 推 tag v* → 三个平台并行 build → 上传到那个 tag 的 GitHub Release
+#  - 推 tag v* → 3 OS × 2 locale (zh/en) = 6 个并行 job 上传到那个 tag 的 GitHub Release
 #  - 手动 workflow_dispatch → 用当前 main / 任一分支 build (不上传, dist/* 当 artifact)
 on:
   push:
@@ -16,18 +16,32 @@ concurrency:
 
 jobs:
   build:
-    name: Build (${{ matrix.os }})
+    name: Build (${{ matrix.os }} / ${{ matrix.locale }})
     runs-on: ${{ matrix.os }}
     strategy:
-      fail-fast: false # 一家挂不连坐其他两家
+      fail-fast: false # 一家挂不连坐其他几家
       matrix:
         include:
+          # —— ZH (default) ——
           - os: macos-latest
+            locale: zh
             build_script: build:mac
           - os: windows-latest
+            locale: zh
             build_script: build:win
           - os: ubuntu-latest
+            locale: zh
             build_script: build:linux
+          # —— EN (DeskPet-EN.app / com.deskpet.en) ——
+          - os: macos-latest
+            locale: en
+            build_script: build:mac:en
+          - os: windows-latest
+            locale: en
+            build_script: build:win:en
+          - os: ubuntu-latest
+            locale: en
+            build_script: build:linux:en
 
     # GH_TOKEN 让 electron-builder publish=always 写回 Releases.
     # 默认 GITHUB_TOKEN 是 ephemeral PAT, 有 contents:write 权限 (本仓库已在
@@ -56,6 +70,10 @@ jobs:
         working-directory: '01-桌宠客户端/desktop-pet'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # locale: build:*:en npm scripts 通过 cross-env 注入 DESKPET_LOCALE=en
+          # (cross-platform safe, 不依赖 POSIX 前缀). 这里 env: 也设, 双保险 —
+          # cross-env 已 spawned shell 时此 env 也已 propagate.
+          DESKPET_LOCALE: ${{ matrix.locale }}
           # macOS code signing 暂留空 — identity:null + notarize:false in
           # electron-builder.yml. Phase 2 接 Developer ID 时填:
           #   CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
@@ -65,13 +83,16 @@ jobs:
       - name: Build only (manual / no publish)
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         working-directory: '01-桌宠客户端/desktop-pet'
+        env:
+          DESKPET_LOCALE: ${{ matrix.locale }}
         run: npm run ${{ matrix.build_script }}
 
       - name: Upload artifacts (manual build)
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         uses: actions/upload-artifact@v4
         with:
-          name: deskpet-${{ matrix.os }}
+          # locale 进 artifact 名避免 6 个 job 撞名
+          name: deskpet-${{ matrix.os }}-${{ matrix.locale }}
           path: |
             01-桌宠客户端/desktop-pet/dist/*.zip
             01-桌宠客户端/desktop-pet/dist/*.dmg
