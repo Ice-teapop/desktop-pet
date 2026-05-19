@@ -393,6 +393,10 @@ const api = {
     const handler = (_e: IpcRendererEvent, r: Record<string, string[]>): void => listener(r)
     ipcRenderer.on('available-models:state', handler)
     return () => ipcRenderer.off('available-models:state', handler)
+  },
+  // 改动 5 [#5] provider 余额查询 — 当前仅 DeepSeek 真查, 其他返 'unsupported'.
+  fetchProviderBalance(provider: Provider): Promise<unknown> {
+    return ipcRenderer.invoke('provider-balance:request', provider)
   }
 }
 

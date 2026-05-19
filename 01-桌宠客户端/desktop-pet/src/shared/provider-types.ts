@@ -25,6 +25,10 @@ export interface ProviderInfo {
   keyPattern?: RegExp
   /** 注册 API key 的 URL —— Settings UI 显示给用户 */
   registrationUrl: string
+  /** 查看官方用量 / 余额面板 URL —— Settings UI"查官方用量"链接 */
+  usageDashboardUrl: string
+  /** 是否有公开 balance/usage API（无 admin/billing 额外权限即可拉）。当前仅 DeepSeek = true */
+  hasPublicBalanceApi: boolean
   /** 该 provider 的默认 model —— user 第一次切到该 provider 用这个 */
   defaultModel: string
   /** ENV var 名（dev 后门，优先于落盘 key） */
@@ -39,6 +43,8 @@ export const PROVIDERS: Readonly<Record<Provider, ProviderInfo>> = {
     label: 'Anthropic Claude',
     keyPattern: /^sk-ant-[\w-]{20,200}$/,
     registrationUrl: 'https://console.anthropic.com',
+    usageDashboardUrl: 'https://console.anthropic.com/settings/usage',
+    hasPublicBalanceApi: false,
     defaultModel: 'claude-haiku-4-5',
     envVar: 'ANTHROPIC_API_KEY',
     description: '稳健 / vision + tools 一流 / Haiku 速度+成本最佳'
@@ -48,6 +54,8 @@ export const PROVIDERS: Readonly<Record<Provider, ProviderInfo>> = {
     label: 'OpenAI',
     keyPattern: /^sk-[\w-]{20,200}$/,
     registrationUrl: 'https://platform.openai.com/api-keys',
+    usageDashboardUrl: 'https://platform.openai.com/usage',
+    hasPublicBalanceApi: false,
     defaultModel: 'gpt-4o-mini',
     envVar: 'OPENAI_API_KEY',
     description: 'GPT-4o + 推理 model (o1 / o3)'
@@ -57,6 +65,8 @@ export const PROVIDERS: Readonly<Record<Provider, ProviderInfo>> = {
     label: 'Google Gemini',
     keyPattern: /^AIza[\w-]{30,40}$/,
     registrationUrl: 'https://aistudio.google.com/apikey',
+    usageDashboardUrl: 'https://aistudio.google.com/app/u/0/billing',
+    hasPublicBalanceApi: false,
     defaultModel: 'gemini-2.5-flash',
     envVar: 'GOOGLE_GENERATIVE_AI_API_KEY',
     description: 'Gemini 2.5 / 免费 tier 1500 次/天 / 原生 Search grounding'
@@ -66,6 +76,8 @@ export const PROVIDERS: Readonly<Record<Provider, ProviderInfo>> = {
     label: 'xAI Grok',
     keyPattern: /^xai-[\w-]{20,200}$/,
     registrationUrl: 'https://console.x.ai',
+    usageDashboardUrl: 'https://console.x.ai/usage',
+    hasPublicBalanceApi: false,
     defaultModel: 'grok-2-1212',
     envVar: 'XAI_API_KEY',
     description: 'Grok / 实时 X feed search 独家 / 多个内置 tool'
@@ -75,6 +87,8 @@ export const PROVIDERS: Readonly<Record<Provider, ProviderInfo>> = {
     label: 'DeepSeek',
     keyPattern: /^sk-[\w-]{20,200}$/,
     registrationUrl: 'https://platform.deepseek.com/api_keys',
+    usageDashboardUrl: 'https://platform.deepseek.com/usage',
+    hasPublicBalanceApi: true, // GET https://api.deepseek.com/user/balance with key
     defaultModel: 'deepseek-chat',
     envVar: 'DEEPSEEK_API_KEY',
     description: 'DeepSeek V3 + R1 推理 / 性价比极高'
@@ -84,6 +98,8 @@ export const PROVIDERS: Readonly<Record<Provider, ProviderInfo>> = {
     label: '字节豆包',
     keyPattern: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
     registrationUrl: 'https://console.volcengine.com/ark',
+    usageDashboardUrl: 'https://console.volcengine.com/ark/region:ark+cn-beijing/openManagement',
+    hasPublicBalanceApi: false,
     defaultModel: 'doubao-pro-32k',
     envVar: 'ARK_API_KEY',
     description: '字节火山引擎 / 豆包系列 / 国内访问稳定'

@@ -20,6 +20,7 @@ import {
 import type { VisionState } from '../../shared/vision-types'
 import type { TavilyState } from '../../shared/tavily-types'
 import type { PrefsState, TrustedDirsState } from '../../shared/settings-types'
+import type { ProviderBalance } from '../../shared/provider-balance-types'
 import {
   PERSONA_PRESET_LABELS,
   type PersonaPreset,
@@ -51,6 +52,11 @@ function Settings(): React.JSX.Element {
   // 修 PR-1: Settings dropdown 之前用静态 modelsForProvider() → 跟 pill 不一致 (pill 用动态).
   // 启动期 / API 不通时 dynamic 为空 → render 自动 fallback 到静态列表。
   const [modelsByProvider, setModelsByProvider] = useState<Record<string, string[]>>({})
+  // 改动 5 [#5] provider 余额 — 用户点"查余额"按钮才 fetch (不主动拉所有)
+  const [providerBalances, setProviderBalances] = useState<
+    Partial<Record<Provider, ProviderBalance>>
+  >({})
+  const [balanceLoading, setBalanceLoading] = useState<Partial<Record<Provider, boolean>>>({})
 
   // —— Per-provider inline key 编辑 drafts ——
   // 用 Record<Provider, string> 让 6 个 provider 各自独立 input draft，互不干扰。
@@ -127,6 +133,16 @@ function Settings(): React.JSX.Element {
     window.api.resetProviderKey(provider)
     setProviderKeyDrafts((prev) => ({ ...prev, [provider]: '' }))
     showToast(`${PROVIDERS[provider].label} key 已清除`)
+  }
+  // 改动 5 [#5] 查余额 — 点击触发, 写 balanceLoading + 结果到 providerBalances.
+  const handleFetchBalance = async (provider: Provider): Promise<void> => {
+    setBalanceLoading((prev) => ({ ...prev, [provider]: true }))
+    try {
+      const result = (await window.api.fetchProviderBalance(provider)) as ProviderBalance
+      setProviderBalances((prev) => ({ ...prev, [provider]: result }))
+    } finally {
+      setBalanceLoading((prev) => ({ ...prev, [provider]: false }))
+    }
   }
 
   // —— Selected model actions ——
@@ -376,6 +392,83 @@ function Settings(): React.JSX.Element {
               <p className="hint">
                 注册：<code>{info.registrationUrl}</code>
               </p>
+              {/* 改动 5 [#5] 余额 / 用量行 — 只 configured 才显示 */}
+              {configured && (
+                <div className="row provider-balance-row">
+                  <label>余额 / 用量</label>
+                  {(() => {
+                    const b = providerBalances[providerId]
+                    const loading = balanceLoading[providerId]
+                    if (loading) return <span className="hint">查询中...</span>
+                    if (b?.kind === 'ok') {
+                      return (
+                        <>
+                          <span className="badge badge-ok">{b.label}</span>
+                          <button
+                            className="btn-link"
+                            onClick={() => handleFetchBalance(providerId)}
+                          >
+                            ↻ 刷新
+                          </button>
+                        </>
+                      )
+                    }
+                    if (b?.kind === 'unsupported') {
+                      return (
+                        <span className="hint">
+                          {b.reason} →{' '}
+                          <a
+                            href="#"
+                            onClick={(e) => {
+                              e.preventDefault()
+                              window.open(info.usageDashboardUrl, '_blank')
+                            }}
+                          >
+                            打开官方面板
+                          </a>
+                        </span>
+                      )
+                    }
+                    if (b?.kind === 'error') {
+                      return (
+                        <>
+                          <span className="hint" style={{ color: 'var(--warn)' }}>
+                            ⚠ {b.message}
+                          </span>
+                          <button
+                            className="btn-link"
+                            onClick={() => handleFetchBalance(providerId)}
+                          >
+                            ↻ 重试
+                          </button>
+                        </>
+                      )
+                    }
+                    // 首次, 还没拉
+                    return info.hasPublicBalanceApi ? (
+                      <button
+                        className="btn-link"
+                        onClick={() => handleFetchBalance(providerId)}
+                      >
+                        查余额
+                      </button>
+                    ) : (
+                      <span className="hint">
+                        无公开 API →{' '}
+                        <a
+                          href="#"
+                          onClick={(e) => {
+                            e.preventDefault()
+                            window.open(info.usageDashboardUrl, '_blank')
+                          }}
+                        >
+                          官方面板
+                        </a>
+                      </span>
+                    )
+                  })()}
+                </div>
+              )}
               {isActive && (
                 <p className="hint provider-fallback-hint">
                   ⓘ 当前 provider 过载时自动 fallback 到其它已配 provider 继续对话.

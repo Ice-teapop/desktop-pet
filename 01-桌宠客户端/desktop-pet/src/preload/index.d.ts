@@ -113,7 +113,13 @@ export interface DeskPetAPI {
   // v0.4.0 改动 4 [B] 动态 listModels
   requestAvailableModels(): void
   onAvailableModels(listener: (modelsByProvider: Record<string, string[]>) => void): () => void
+  // 改动 5 [#5] provider 余额查询
+  fetchProviderBalance(provider: Provider): Promise<ProviderBalance>
 }
+
+export type {
+  ProviderBalance
+} from '../shared/provider-balance-types'
 
 export type {
   DropResult,

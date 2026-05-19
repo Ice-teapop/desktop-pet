@@ -122,6 +122,7 @@ import {
   getAllAvailableModels,
   getCachedAvailableModels
 } from './llm/available-models'
+import { fetchProviderBalance } from './llm/provider-balance'
 // M7-4: llm/tools 老 ToolDef + buildToolsForContext + executeTool 路径已被
 // llm-client.ts 内部 buildToolSetForContext (AI SDK ToolSet) 取代 —— chat:submit
 // handler 只传 toolContext 给 LlmClient，SDK 自己跑 tool loop。tools.ts 老 export
@@ -1978,6 +1979,22 @@ function registerIpc(): void {
     } catch (err) {
       console.warn('[available-models] refresh failed:', err)
     }
+  })
+
+  // 改动 5 [#5] provider 余额查询 — DeepSeek 真查, 其他返 'unsupported' kind.
+  ipcMain.handle('provider-balance:request', async (_event, rawProvider: unknown) => {
+    if (!isValidProvider(rawProvider)) {
+      return { kind: 'error', provider: 'anthropic', message: 'invalid provider' }
+    }
+    const key = currentProviderKeys.get(rawProvider)
+    if (!key) {
+      return {
+        kind: 'error',
+        provider: rawProvider,
+        message: '未配 key'
+      }
+    }
+    return fetchProviderBalance(rawProvider, key)
   })
 
   // —— M5-3 用户档案 IPC ——
