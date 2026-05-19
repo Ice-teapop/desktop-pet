@@ -22,6 +22,8 @@ import type { TavilyState } from '../../shared/tavily-types'
 import type { PrefsState, TrustedDirsState } from '../../shared/settings-types'
 import type { ProviderBalance } from '../../shared/provider-balance-types'
 import { t } from '../../shared/i18n'
+// v0.4.3+: About 页头图 (clawd-about-hero.svg, 之前没接)
+import aboutHeroSvg from '@themes/clawd-dev/clawd-about-hero.svg'
 import {
   PERSONA_PRESET_LABELS,
   type PersonaPreset,
@@ -805,6 +807,9 @@ function Settings(): React.JSX.Element {
       {/* —— 7. About —— */}
       <section>
         <h2>{t('settings.section.about')}</h2>
+        <div className="about-hero">
+          <img src={aboutHeroSvg} alt="DeskPet hero" />
+        </div>
         <p>{t('settings.about.body')}</p>
         <p className="hint">
           {t('settings.about.shortcuts', '⌘+,', '⌘+⇧+P', '⌘+Q')}

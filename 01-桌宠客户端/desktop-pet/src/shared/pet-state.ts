@@ -50,6 +50,9 @@ export const PET_STATES = {
   conducting: { priority: 5, minMs: 3500 },
   grooving: { priority: 5, minMs: 3500 },
   celebrating: { priority: 5, minMs: 2000 },
+  // v0.4.3+: 新加 2 个 set_pet_animation type
+  carrying: { priority: 5, minMs: 3500 }, // 搬东西 / 整理 / "我帮你拿过来"
+  ultrathink: { priority: 5, minMs: 5000 }, // 深推理 (Opus adaptive thinking) — 静态 SVG 久一点
   // —— M9-2 瞬态点击反应 ——
   // priority 4（同 success）= 高于 idle/sleep/thinking，低于 multitask 等执行类
   // 不打断 AI 动画但能从 sleep / idle 拉醒；minMs 1200ms 让动画播完。
@@ -72,13 +75,17 @@ export type PetAnimation =
   | 'conducting'
   | 'grooving'
   | 'celebrating'
+  | 'carrying' // 搬东西 / 帮忙整理 (v0.4.3+)
+  | 'ultrathink' // 深推理 — 静态 SVG, 适合 Opus adaptive thinking 时主动触发 (v0.4.3+)
 
 export const PET_ANIMATIONS: ReadonlyArray<PetAnimation> = [
   'juggling',
   'sweeping',
   'conducting',
   'grooving',
-  'celebrating'
+  'celebrating',
+  'carrying',
+  'ultrathink'
 ]
 
 export function isPetAnimation(s: string): s is PetAnimation {

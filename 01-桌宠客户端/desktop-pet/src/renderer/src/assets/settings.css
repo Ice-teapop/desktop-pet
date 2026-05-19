@@ -425,3 +425,15 @@
 .btn-link:hover {
   color: var(--coral-dark, var(--coral));
 }
+
+/* v0.4.3+ About 区头图 — clawd-about-hero.svg 居中 */
+.about-hero {
+  display: flex;
+  justify-content: center;
+  margin: 8px 0 14px;
+}
+.about-hero img {
+  max-width: 160px;
+  height: auto;
+  image-rendering: pixelated; /* 像素风保持清晰，禁 anti-alias 软化 */
+}

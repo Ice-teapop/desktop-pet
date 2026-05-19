@@ -36,6 +36,9 @@ import jugglingGif from '@themes/clawd-dev/clawd-juggling.gif'
 import buildingGif from '@themes/clawd-dev/clawd-building.gif'
 import conductingGif from '@themes/clawd-dev/clawd-conducting.gif'
 import sleepingGif from '@themes/clawd-dev/clawd-sleeping.gif'
+// v0.4.3+ set_pet_animation 新加 2 type
+import carryingGif from '@themes/clawd-dev/clawd-carrying.gif'
+import ultrathinkSvg from '@themes/clawd-dev/clawd-working-ultrathink.svg'
 // M9-2 click reactions
 import reactDoubleJumpGif from '@themes/clawd-dev/clawd-react-double-jump.gif'
 import reactAnnoyedGif from '@themes/clawd-dev/clawd-react-annoyed.gif'
@@ -48,6 +51,8 @@ import wakingSvg from '@themes/clawd-dev/clawd-wake.svg'
 import IdleFollowSvg from '@themes/clawd-dev/clawd-idle-follow.svg?react'
 // M9-5a mini mode (sub-wave A 只用 idle；后续 hover/alert 在 sub-wave B 加)
 import miniIdleGif from '@themes/clawd-dev/clawd-mini-idle.gif'
+// v0.4.3+: 进 mini 时短暂播一次 enter.gif 当过渡 (~1.6s), 之后 settle 到 mini-idle
+import miniEnterGif from '@themes/clawd-dev/clawd-mini-enter.gif'
 // activity → GIF 映射：识别到不同活动时桌宠"陪你做同样的事"
 import typingGif from '@themes/clawd-dev/clawd-typing.gif'
 import debuggerGif from '@themes/clawd-dev/clawd-debugger.gif'
@@ -217,6 +222,8 @@ function App(): React.JSX.Element {
   const dragDepthRef = useRef(0) // dragenter/leave 配对计数 (子元素冒泡防抖)
   // M9-5a: 顶层 petMode（full 完整 240×240 vs mini 80×80 藏边）
   const [petMode, setPetMode] = useState<PetMode>(DEFAULT_PET_MODE)
+  // v0.4.3+: 进 mini 时短暂播 enter.gif 当过渡, ~1.6s 后 settle 到 mini-idle
+  const [miniEntering, setMiniEntering] = useState(false)
   // idle 6 变体池索引（仅 stateMachine=idle + activity=idle 时玩）
   const [idleVariantIdx, setIdleVariantIdx] = useState(0)
   // 双层 <img> cross-fade：两个 absolute 叠加，frontIdx 指当前显示的那层
@@ -339,6 +346,19 @@ function App(): React.JSX.Element {
     window.api.requestPetModeState()
     return off
   }, [])
+
+  // v0.4.3+: 进 mini 时短暂播 clawd-mini-enter.gif 当过渡 (~1.6s ≈ 一个 GIF cycle),
+  // 之后 settle 到 mini-idle. 防止 full → mini 硬切感. 出 mini 不需要过渡 (full
+  // 是默认渲染层, 直接显示).
+  useEffect(() => {
+    if (petMode !== 'mini') {
+      setMiniEntering(false)
+      return
+    }
+    setMiniEntering(true)
+    const tid = setTimeout(() => setMiniEntering(false), 1600)
+    return () => clearTimeout(tid)
+  }, [petMode])
 
   // M9-5b B-3: 进 mini 时 main 强制关 chat —— 直接 setChatPhase('closed') 跳过 closing
   // 动画（窗口已 100×100，'conv-fade-out' animation 看不见）。chatPhaseRef 由上面 effect
@@ -905,6 +925,10 @@ function App(): React.JSX.Element {
     gifUrl = headphonesGif
   } else if (state === 'celebrating') {
     gifUrl = happyGif
+  } else if (state === 'carrying') {
+    gifUrl = carryingGif
+  } else if (state === 'ultrathink') {
+    gifUrl = ultrathinkSvg
   } else if (state === 'poked') {
     gifUrl = reactDoubleJumpGif
   } else if (state === 'looking_around') {
@@ -1375,11 +1399,12 @@ function App(): React.JSX.Element {
             <div className="pet-drop-hint">{t('drop.overlay_text')}</div>
           </div>
         )}
-        {/* M9-5a Mini mode：单 img 渲染 mini-idle.gif。Sub-wave B 加 hover peek / mini
-            state→gif 映射。Mini 模式下完全独立于下方 IdleFollow + dual-img 体系。 */}
+        {/* M9-5a Mini mode：单 img 渲染. v0.4.3+: 进 mini 头 1.6s 播 enter.gif 当过渡,
+            之后 settle 到 mini-idle. Sub-wave B 加 hover peek / mini state→gif 映射.
+            Mini 模式下完全独立于下方 IdleFollow + dual-img 体系. */}
         {petMode === 'mini' && (
           <img
-            src={miniIdleGif}
+            src={miniEntering ? miniEnterGif : miniIdleGif}
             alt=""
             draggable={false}
             style={{ opacity: 1 }}

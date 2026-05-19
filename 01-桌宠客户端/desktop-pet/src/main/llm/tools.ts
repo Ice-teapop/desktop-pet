@@ -613,11 +613,13 @@ export const SET_PET_ANIMATION: ToolDef = {
     'The animation auto-returns to idle after one cycle (2-3.5s); call it ONCE, ' +
     "don't loop the call. Calling with the same animation while it's playing is " +
     'a no-op. Available animations (pick the closest match in spirit):\n' +
-    `  • juggling     —— 抛接小球，杂技 / 多任务 / 应付多件事 / 灵活\n` +
-    `  • sweeping     —— 扫地 / 整理 / 清扫 / 收拾\n` +
-    `  • conducting   —— 挥舞指挥棒，打节奏 / 指挥 / 音乐表演\n` +
-    `  • grooving     —— 戴耳机摇摆，听音乐 / 沉浸 / 享受节奏\n` +
-    `  • celebrating  —— 开心 / 庆祝 / 完成任务 / 高兴 / 谢谢用户`,
+    `  • juggling     —— juggling balls / multi-tasking / handling several things\n` +
+    `  • sweeping     —— tidying / cleaning / organizing\n` +
+    `  • conducting   —— waving baton / keeping rhythm / music conducting\n` +
+    `  • grooving     —— headphones bopping / listening / enjoying rhythm\n` +
+    `  • celebrating  —— happy / celebrate / task done / thanks\n` +
+    `  • carrying     —— hauling / moving items / helping organize / "我帮你拿过来"\n` +
+    `  • ultrathink   —— deep reasoning pose (Opus adaptive thinking style, static)`,
   input_schema: {
     type: 'object',
     properties: {
