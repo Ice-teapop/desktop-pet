@@ -35,6 +35,10 @@ export const zh = {
   'chat.update_available': '新版本 v{0} 可用 — 点击复制 release 链接: {1}',
   'chat.update_up_to_date': '已是最新版本 (v{0})',
   'chat.empty_placeholder': '对桌宠说点啥',
+  'chat.empty_placeholder_dots': '对桌宠说点啥...',
+  'chat.placeholder_initializing': '正在初始化…',
+  'chat.placeholder_replying': 'Claw 正在回复…',
+  'chat.placeholder_paste_key': '粘任意 provider 的 API key (sk-ant-/sk-/AIza/xai-/UUID)',
   'chat.kbd_send_close': '{0} 发送 · {1} 关闭',
 
   // —— Tool 显示标签 (msg-tool 卡 / pet-toast) ——
@@ -97,12 +101,21 @@ export const zh = {
   'settings.loading_state': '加载 provider/model 状态中...',
 
   // —— Approval modal ——
-  'approval.title': '需要你的确认',
-  'approval.allow_once': '本次允许',
+  'approval.title': '⚠️ AI 请求授权',
+  'approval.queue_badge': '· 队列 {0}',
+  'approval.label_path': '路径：',
+  'approval.label_paths': '批量路径（{0} 个）：',
+  'approval.label_command': '命令：',
+  'approval.label_content_preview': '内容预览：',
+  'approval.hint_auto_deny': 'tool: {0} · 60s 不操作自动拒绝',
+  'approval.allow_once': '允许一次',
+  'approval.allow_batch': '允许全部 {0} 个',
   'approval.deny': '拒绝',
-  'approval.trust_dir_session': '本会话信任此目录',
+  'approval.deny_batch': '拒绝整批',
+  'approval.trust_dir_session': '信任此目录（本会话）',
   'approval.trust_dir_persistent': '永久信任此目录',
   'approval.batch_count': '一共 {0} 个',
+  'approval.close': '关闭',
 
   // —— Drop overlay ——
   'drop.overlay_text': '松手喂我',
@@ -110,12 +123,19 @@ export const zh = {
 
   // —— Errors (renderer surface) ——
   'err.no_api_key': '还没配 API key — 设置里加一个',
-  'err.invalid_api_key': 'API key 无效 — 检查或重设',
-  'err.rate_limited': '被限流了, 缓一下',
-  'err.overloaded': 'provider 过载, 自动切下家中...',
-  'err.network': '网络问题, 重试一下',
-  'err.empty_response': 'AI 没回 — 换模型试试',
-  'err.unknown': '出错了: {0}'
+  'err.invalid_api_key': '⚠️ 这个 API key 被 Anthropic 拒了，重新贴一个吧',
+  'err.rate_limited_with_sec': '⏱️ 太快了，{0}s 后再试',
+  'err.rate_limited': '⏱️ 请求过快，等等再问',
+  'err.overloaded': '😵 Claude 现在很忙，稍等再问',
+  'err.network': '🌐 连不上 Anthropic，检查下网络',
+  'err.key_not_persisted': '⚠️ 系统没装加密后端，这次能聊但下次启动 key 会丢（Linux 装个 libsecret / gnome-keyring 就好）',
+  'err.key_format_invalid': '⚠️ 这个 key 格式不对，检查下复制有没有带空格 / 多余字符',
+  'err.empty_response_intro': '⚠️ AI 这次没产生输出 (finishReason={0})。可能原因:',
+  'err.empty_response_reason_1': '• 切到 Opus/Sonnet + 复杂 prompt 时全花在思考没 text output → 重试或换 Haiku',
+  'err.empty_response_reason_2': '• 工具 schema 被 provider 拒绝 → 关掉视觉/Tavily 重试',
+  'err.empty_response_reason_3': '• Key 跟 provider 不匹配 → 去设置 (⌘+,) 检查 model 跟 key 是同一家',
+  'err.api': '⚠️ {0}',
+  'err.unknown': '⚠️ 出错了：{0}'
 } as const
 
 export type I18nKey = keyof typeof zh

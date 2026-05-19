@@ -27,6 +27,7 @@ import { detectProvider } from '../../shared/key-detect'
 import { PROVIDERS, PROVIDER_ORDER } from '../../shared/provider-types'
 import type { SelectedModel } from '../../shared/provider-types'
 import { getToolDisplay } from '../../shared/tool-display'
+import { t } from '../../shared/i18n'
 // idle 池 6 种"无聊时的小动作"，闲态随机切
 import idleGif from '@themes/clawd-dev/clawd-idle.gif'
 import idleReadingGif from '@themes/clawd-dev/clawd-idle-reading.gif'
@@ -154,30 +155,32 @@ interface ChatMessage {
 function chatErrorText(err: ChatError): string {
   switch (err.kind) {
     case 'no-api-key':
-      return '⚠️ API key 还没配 —— 重新贴一个 sk-ant-... 给我'
+      return t('err.no_api_key')
     case 'invalid-api-key':
-      return '⚠️ 这个 API key 被 Anthropic 拒了，重新贴一个吧'
+      return t('err.invalid_api_key')
     case 'rate-limited':
-      return err.retryAfterSec ? `⏱️ 太快了，${err.retryAfterSec}s 后再试` : '⏱️ 请求过快，等等再问'
+      return err.retryAfterSec
+        ? t('err.rate_limited_with_sec', String(err.retryAfterSec))
+        : t('err.rate_limited')
     case 'overloaded':
-      return '😵 Claude 现在很忙，稍等再问'
+      return t('err.overloaded')
     case 'network':
-      return '🌐 连不上 Anthropic，检查下网络'
+      return t('err.network')
     case 'key-not-persisted':
-      return '⚠️ 系统没装加密后端，这次能聊但下次启动 key 会丢（Linux 装个 libsecret / gnome-keyring 就好）'
+      return t('err.key_not_persisted')
     case 'key-format-invalid':
-      return '⚠️ 这个 key 格式不对，检查下复制有没有带空格 / 多余字符'
+      return t('err.key_format_invalid')
     case 'empty-response':
-      return (
-        `⚠️ AI 这次没产生输出 (finishReason=${err.finishReason})。可能原因:\n` +
-        `• 切到 Opus/Sonnet + 复杂 prompt 时全花在思考没 text output → 重试或换 Haiku\n` +
-        `• 工具 schema 被 provider 拒绝 → 关掉视觉/Tavily 重试\n` +
-        `• Key 跟 provider 不匹配 → 去设置 (⌘+,) 检查 model 跟 key 是同一家`
-      )
+      return [
+        t('err.empty_response_intro', err.finishReason),
+        t('err.empty_response_reason_1'),
+        t('err.empty_response_reason_2'),
+        t('err.empty_response_reason_3')
+      ].join('\n')
     case 'api':
-      return `⚠️ ${err.message}`
+      return t('err.api', err.message)
     default:
-      return `⚠️ 出错了：${err.message}`
+      return t('err.unknown', err.message)
   }
 }
 
@@ -478,7 +481,7 @@ function App(): React.JSX.Element {
             {
               id: msgIdRef.current++,
               role: 'system' as const,
-              text: `已切到 ${providerLabel} — 跨家不兼容, 之前对话已清开始新轮次`,
+              text: t('chat.history_cleared_provider_switch', providerLabel),
               status: 'done' as const
             }
           ]
@@ -494,8 +497,8 @@ function App(): React.JSX.Element {
   useEffect(() => {
     const off = window.api.onUpdateAvailable((event) => {
       const text = event.upToDate
-        ? `已是最新版本 (v${event.version})`
-        : `新版本 v${event.version} 可用 — 点击复制 release 链接: ${event.htmlUrl}`
+        ? t('chat.update_up_to_date', event.version)
+        : t('chat.update_available', event.version, event.htmlUrl)
       setMessages((prev) => [
         ...prev,
         {
@@ -1001,12 +1004,12 @@ function App(): React.JSX.Element {
   const isInputDisabled = keyState === null || isWaitingForReply
   const placeholder =
     keyState === null
-      ? '正在初始化…'
+      ? t('chat.placeholder_initializing')
       : isWaitingForReply
-        ? 'Claw 正在回复…'
+        ? t('chat.placeholder_replying')
         : keyState === 'missing'
-          ? '粘任意 provider 的 API key (sk-ant-/sk-/AIza/xai-/UUID)'
-          : '对桌宠说点啥...'
+          ? t('chat.placeholder_paste_key')
+          : t('chat.empty_placeholder_dots')
 
   return (
     <div className="stage">
@@ -1019,9 +1022,9 @@ function App(): React.JSX.Element {
           <div ref={messagesRef} className="messages">
             {messages.length === 0 ? (
               <div className="hint">
-                对桌宠说点啥
+                {t('chat.empty_placeholder')}
                 <br />
-                <span className="kbd">ENTER</span> 发送 · <span className="kbd">ESC</span> 关闭
+                {t('chat.kbd_send_close', 'ENTER', 'ESC')}
               </div>
             ) : (
               <>
@@ -1040,7 +1043,7 @@ function App(): React.JSX.Element {
                           className="msg-tool-status"
                           data-state={m.tool.status}
                         >
-                          {isError ? '失败' : isDone ? '完成' : '运行中'}
+                          {isError ? t('tool.status.error') : isDone ? t('tool.status.done') : t('tool.status.running')}
                           {isDone && <span className="msg-tool-check">✓</span>}
                           {!isDone && !isError && (
                             <span className="msg-tool-loading">
@@ -1180,7 +1183,7 @@ function App(): React.JSX.Element {
                 className="vision-modal-btn-cancel"
                 onClick={() => setModelDropdownOpen(false)}
               >
-                关闭
+                {t('approval.close')}
               </button>
             </div>
           </div>
@@ -1190,11 +1193,11 @@ function App(): React.JSX.Element {
         <div className="vision-modal-overlay">
           <div className="vision-modal approval-modal" onClick={(e) => e.stopPropagation()}>
             <div className="vision-modal-title">
-              ⚠️ AI 请求授权
+              {t('approval.title')}
               {approvalQueue.length > 1 && (
                 <span className="approval-queue-badge">
                   {' '}
-                  · 队列 {approvalQueue.length}
+                  {t('approval.queue_badge', String(approvalQueue.length))}
                 </span>
               )}
             </div>
@@ -1202,13 +1205,13 @@ function App(): React.JSX.Element {
               <p className="approval-summary">{pendingApproval.summary}</p>
               {pendingApproval.path && (
                 <p className="approval-detail">
-                  <b>路径：</b>
+                  <b>{t('approval.label_path')}</b>
                   <code>{pendingApproval.path}</code>
                 </p>
               )}
               {pendingApproval.paths && pendingApproval.paths.length > 0 && (
                 <div className="approval-detail">
-                  <b>批量路径（{pendingApproval.paths.length} 个）：</b>
+                  <b>{t('approval.label_paths', String(pendingApproval.paths.length))}</b>
                   <ul className="approval-paths-list">
                     {pendingApproval.paths.map((p) => (
                       <li key={p}>
@@ -1220,20 +1223,20 @@ function App(): React.JSX.Element {
               )}
               {pendingApproval.command && (
                 <p className="approval-detail">
-                  <b>命令：</b>
+                  <b>{t('approval.label_command')}</b>
                   <code>{pendingApproval.command}</code>
                 </p>
               )}
               {pendingApproval.contentPreview && (
                 <p className="approval-detail">
-                  <b>内容预览：</b>
+                  <b>{t('approval.label_content_preview')}</b>
                   <code className="approval-content-preview">
                     {pendingApproval.contentPreview}
                   </code>
                 </p>
               )}
               <p className="approval-hint">
-                tool: <code>{pendingApproval.tool}</code> · 60s 不操作自动拒绝
+                {t('approval.hint_auto_deny', pendingApproval.tool)}
               </p>
             </div>
             <div className="approval-actions">
@@ -1243,8 +1246,8 @@ function App(): React.JSX.Element {
                 onClick={() => handleApprovalDecision('deny')}
               >
                 {pendingApproval.paths && pendingApproval.paths.length > 1
-                  ? '拒绝整批'
-                  : '拒绝'}
+                  ? t('approval.deny_batch')
+                  : t('approval.deny')}
               </button>
               <button
                 type="button"
@@ -1252,8 +1255,8 @@ function App(): React.JSX.Element {
                 onClick={() => handleApprovalDecision('allow-once')}
               >
                 {pendingApproval.paths && pendingApproval.paths.length > 1
-                  ? `允许全部 ${pendingApproval.paths.length} 个`
-                  : '允许一次'}
+                  ? t('approval.allow_batch', String(pendingApproval.paths.length))
+                  : t('approval.allow_once')}
               </button>
               {/* 单 path 才显示 trust-dir-* 两键; 批量隐藏 (审核官员 pre-review #2:
                   跨多个父目录一次性 persistent trust 用户无法 informed-consent) */}
@@ -1265,14 +1268,14 @@ function App(): React.JSX.Element {
                       className="approval-btn-trust-session"
                       onClick={() => handleApprovalDecision('trust-dir-session')}
                     >
-                      信任此目录（本会话）
+                      {t('approval.trust_dir_session')}
                     </button>
                     <button
                       type="button"
                       className="approval-btn-trust-permanent"
                       onClick={() => handleApprovalDecision('trust-dir-permanent')}
                     >
-                      永久信任此目录
+                      {t('approval.trust_dir_persistent')}
                     </button>
                   </>
                 )}
@@ -1365,7 +1368,7 @@ function App(): React.JSX.Element {
         {dragOver && (
           <div className="pet-drop">
             <div className="pet-drop-big">📂</div>
-            <div className="pet-drop-hint">松手喂我</div>
+            <div className="pet-drop-hint">{t('drop.overlay_text')}</div>
           </div>
         )}
         {/* M9-5a Mini mode：单 img 渲染 mini-idle.gif。Sub-wave B 加 hover peek / mini

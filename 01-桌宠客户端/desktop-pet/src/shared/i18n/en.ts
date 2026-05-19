@@ -31,6 +31,10 @@ export const en: I18nDict = {
   'chat.update_available': 'Version v{0} is available — copy release link: {1}',
   'chat.update_up_to_date': 'Already on latest (v{0})',
   'chat.empty_placeholder': 'Say something to the pet',
+  'chat.empty_placeholder_dots': 'Say something to the pet...',
+  'chat.placeholder_initializing': 'Initializing…',
+  'chat.placeholder_replying': 'Claw is replying…',
+  'chat.placeholder_paste_key': 'Paste any provider API key (sk-ant- / sk- / AIza / xai- / UUID)',
   'chat.kbd_send_close': '{0} to send · {1} to close',
 
   // —— Tool display labels ——
@@ -93,23 +97,44 @@ export const en: I18nDict = {
   'settings.loading_state': 'Loading provider/model state...',
 
   // —— Approval modal ——
-  'approval.title': 'Confirmation needed',
+  'approval.title': '⚠️ AI requests authorization',
+  'approval.queue_badge': '· queue {0}',
+  'approval.label_path': 'Path:',
+  'approval.label_paths': 'Batch paths ({0}):',
+  'approval.label_command': 'Command:',
+  'approval.label_content_preview': 'Content preview:',
+  'approval.hint_auto_deny': 'tool: {0} · auto-deny after 60s',
   'approval.allow_once': 'Allow once',
+  'approval.allow_batch': 'Allow all {0}',
   'approval.deny': 'Deny',
-  'approval.trust_dir_session': 'Trust this folder this session',
+  'approval.deny_batch': 'Deny batch',
+  'approval.trust_dir_session': 'Trust this folder (session)',
   'approval.trust_dir_persistent': 'Trust this folder permanently',
   'approval.batch_count': '{0} total',
+  'approval.close': 'Close',
 
   // —— Drop overlay ——
   'drop.overlay_text': 'Drop to feed me',
   'drop.overlay_hint': 'Drop files for the pet as chat context',
 
   // —— Errors ——
-  'err.no_api_key': 'No API key configured — add one in Settings',
-  'err.invalid_api_key': 'API key invalid — check or re-enter',
-  'err.rate_limited': 'Rate-limited, hold on',
-  'err.overloaded': 'Provider overloaded, falling back...',
-  'err.network': 'Network issue, retry',
-  'err.empty_response': 'AI returned nothing — try another model',
-  'err.unknown': 'Error: {0}'
+  'err.no_api_key': "No API key yet — add one in Settings",
+  'err.invalid_api_key': '⚠️ This API key was rejected — paste a fresh one',
+  'err.rate_limited_with_sec': '⏱️ Too fast, retry in {0}s',
+  'err.rate_limited': '⏱️ Rate-limited, slow down a bit',
+  'err.overloaded': '😵 Claude is busy right now, retry shortly',
+  'err.network': "🌐 Can't reach Anthropic, check your network",
+  'err.key_not_persisted':
+    "⚠️ No encryption backend on this OS, can chat this session but key will be lost on next launch (Linux: install libsecret / gnome-keyring)",
+  'err.key_format_invalid':
+    "⚠️ Key format looks wrong, check for extra whitespace or stray chars",
+  'err.empty_response_intro': '⚠️ AI returned no output (finishReason={0}). Possible reasons:',
+  'err.empty_response_reason_1':
+    '• Opus/Sonnet + complex prompt spent budget on thinking with no text output → retry or switch to Haiku',
+  'err.empty_response_reason_2':
+    '• Tool schema rejected by provider → disable vision/Tavily and retry',
+  'err.empty_response_reason_3':
+    '• Key/provider mismatch → Settings (⌘+,) — make sure model and key are from the same provider',
+  'err.api': '⚠️ {0}',
+  'err.unknown': '⚠️ Error: {0}'
 }
