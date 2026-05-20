@@ -11,7 +11,7 @@
   · 像素圆角通过"四角各削 1 像素"实现
 -->
 <svg xmlns="http://www.w3.org/2000/svg"
-     viewBox="0 0 30 30"
+     viewBox="-7.5 -7.5 45 45"
      width="600" height="600"
      shape-rendering="crispEdges">
 

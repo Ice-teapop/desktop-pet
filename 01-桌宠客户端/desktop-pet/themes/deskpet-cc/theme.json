@@ -6,10 +6,10 @@
   "description": "Pixel CC crab — DeskPet original mascot (致敬 Claude Code 公开 IP)",
   "repo": "https://github.com/Ice-teapop/desktop-pet",
   "viewBox": {
-    "x": 0,
-    "y": 0,
-    "width": 30,
-    "height": 30
+    "x": -7.5,
+    "y": -7.5,
+    "width": 45,
+    "height": 45
   },
   "layout": {
     "contentBox": {
