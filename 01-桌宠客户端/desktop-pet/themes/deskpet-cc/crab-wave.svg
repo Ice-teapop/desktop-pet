@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  crab-wave.svg  ·  招手 / 友好问候
+  · 右钳抬到头侧, 左右挥 2 次 → 歇 1s → 再挥 2 次, 周期 3.5s
+  · 左钳保持 idle bob (轻微上下)
+  · 身体微微前倾站直 (亲切感, 不弹跳)
+  · 眼睛 idle 慢眨, 不加粒子
+  · 性格: "我没在等你回应, 我只是顺手挥一下"
+-->
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 30 30"
+     shape-rendering="crispEdges">
+
+  <style>
+    /* 身体微微前倾 + 极轻 idle (不弹跳, 站直) — 周期 3.5s */
+    .body-lean { animation: body-lean 3.5s ease-in-out infinite; transform-origin: 15px 23px; }
+    @keyframes body-lean {
+      0%, 100% { transform: translateY(0) rotate(0deg); }
+      30%      { transform: translateY(-0.3px) rotate(-2deg); }  /* 挥手时前倾 */
+      55%      { transform: translateY(-0.3px) rotate(-2deg); }
+      70%      { transform: translateY(0)      rotate(0deg);  }  /* 歇 */
+    }
+
+    /* 左钳 idle bob — 慢慢上下, 跟身体节奏 */
+    .claw-idle { animation: claw-idle 3.5s ease-in-out infinite; transform-box: fill-box; transform-origin: 50% 100%; }
+    @keyframes claw-idle {
+      0%, 100% { transform: translateY(0); }
+      50%      { transform: translateY(0.3px); }
+    }
+
+    /*
+      右钳招手剧本 (周期 3.5s):
+        0%   起手 (idle 位)
+        12%  抬到头侧 (-45°)
+        18%  挥到 -60°
+        24%  回到 -30°
+        30%  挥到 -60°
+        36%  回到 -45° (挥完两下, 准备落)
+        45%  落回 idle
+        45%~100%  休息 1.5s (其中前 1s 静止, 后 0.5s 已是下个周期的起手过渡)
+      锚点: 右钳几何 (24,12)-(26,15), 取"肩部" = 钳子左下 (24,15)
+    */
+    .claw-wave { animation: claw-wave 3.5s ease-in-out infinite; transform-origin: 24px 15px; }
+    @keyframes claw-wave {
+      0%   { transform: rotate(0deg); }
+      12%  { transform: rotate(-45deg); }   /* 抬起 */
+      18%  { transform: rotate(-60deg); }   /* 挥左 */
+      24%  { transform: rotate(-30deg); }   /* 挥右 */
+      30%  { transform: rotate(-60deg); }   /* 挥左 */
+      36%  { transform: rotate(-45deg); }   /* 居中 */
+      45%  { transform: rotate(0deg); }     /* 落手 */
+      100% { transform: rotate(0deg); }     /* 静止休息 */
+    }
+
+    /* 慢眨眼 — 专注招手, 不眨太多 */
+    .eye-blink { animation: eye-blink 3.5s ease-in-out infinite; transform-box: fill-box; transform-origin: 50% 50%; }
+    @keyframes eye-blink {
+      0%, 38%, 42%, 100% { transform: scaleY(1); }
+      40%                { transform: scaleY(0.1); }
+    }
+  </style>
+
+  <g id="shadow">
+    <rect x="9" y="24" width="12" height="1" fill="#000000" opacity="0.28"/>
+  </g>
+
+  <g class="body-lean">
+
+    <!-- 四条腿 -->
+    <rect x="8"  y="20" width="2" height="3" fill="#B95E40"/>
+    <rect x="11" y="20" width="2" height="3" fill="#B95E40"/>
+    <rect x="17" y="20" width="2" height="3" fill="#B95E40"/>
+    <rect x="20" y="20" width="2" height="3" fill="#B95E40"/>
+
+    <!-- 左钳: idle bob -->
+    <g class="claw-idle">
+      <rect x="4" y="12" width="2" height="3" fill="#D97856"/>
+    </g>
+
+    <!-- 右钳: 招手主角 -->
+    <g class="claw-wave">
+      <rect x="24" y="12" width="2" height="3" fill="#D97856"/>
+    </g>
+
+    <!-- 身体 (3 段拼接像素圆角) -->
+    <rect x="7" y="7"  width="16" height="1"  fill="#D97856"/>
+    <rect x="6" y="8"  width="18" height="11" fill="#D97856"/>
+    <rect x="7" y="19" width="16" height="1"  fill="#D97856"/>
+    <rect x="8" y="8"  width="14" height="1"  fill="#F3A98B"/>
+    <rect x="8" y="18" width="14" height="1"  fill="#B95E40"/>
+
+    <!-- 眼睛: idle 慢眨 (沿用 base 的 2×4 黑眼 + 左上角白高光) -->
+    <g class="eye-blink">
+      <g fill="#111111">
+        <rect x="10" y="10" width="2" height="4"/>
+        <rect x="18" y="10" width="2" height="4"/>
+      </g>
+      <g fill="#FFFFFF">
+        <rect x="10" y="10" width="1" height="1"/>
+        <rect x="18" y="10" width="1" height="1"/>
+      </g>
+    </g>
+
+    <!-- 嘴: 一条平嘴 — 友好但克制 (符合"嘴硬菜鸟"性格) -->
+    <g id="mouth" fill="#111111">
+      <rect x="13" y="16" width="4" height="1"/>
+    </g>
+
+  </g>
+
+</svg>

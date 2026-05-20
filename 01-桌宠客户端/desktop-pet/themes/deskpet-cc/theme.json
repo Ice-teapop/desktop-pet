@@ -1,0 +1,285 @@
+{
+  "schemaVersion": 1,
+  "name": "DeskPet CC",
+  "author": "han",
+  "version": "1.0.0",
+  "description": "Pixel CC crab — DeskPet original mascot (致敬 Claude Code 公开 IP)",
+  "repo": "https://github.com/Ice-teapop/desktop-pet",
+  "viewBox": {
+    "x": 0,
+    "y": 0,
+    "width": 30,
+    "height": 30
+  },
+  "layout": {
+    "contentBox": {
+      "x": 4,
+      "y": 5,
+      "width": 22,
+      "height": 21
+    },
+    "marginBox": {
+      "x": 1,
+      "y": 2,
+      "width": 28,
+      "height": 26
+    },
+    "centerX": 15,
+    "baselineY": 23,
+    "visibleHeightRatio": 0.7,
+    "baselineBottomRatio": 0.1
+  },
+  "eyeTracking": {
+    "enabled": true,
+    "states": [
+      "idle",
+      "dozing",
+      "mini-idle"
+    ],
+    "eyeRatioX": 0.5,
+    "eyeRatioY": 0.4,
+    "maxOffset": 2,
+    "bodyScale": 0.33,
+    "shadowStretch": 0.2,
+    "shadowShift": 0.4,
+    "ids": {
+      "eyes": "eyes-js",
+      "body": "body-js",
+      "shadow": "shadow-js",
+      "dozeEyes": "eyes-doze"
+    },
+    "shadowOrigin": "15px 24.5px"
+  },
+  "states": {
+    "idle": [
+      "crab-idle-follow.svg"
+    ],
+    "yawning": [
+      "crab-yawning.svg"
+    ],
+    "dozing": [
+      "crab-dozing.svg"
+    ],
+    "collapsing": [
+      "crab-collapsing.svg"
+    ],
+    "thinking": [
+      "crab-thinking.svg"
+    ],
+    "working": [
+      "crab-typing.svg"
+    ],
+    "juggling": [
+      "crab-conducting.svg"
+    ],
+    "sweeping": [
+      "crab-sweeping.svg"
+    ],
+    "error": [
+      "crab-error.svg"
+    ],
+    "attention": [
+      "crab-happy.svg"
+    ],
+    "notification": [
+      "crab-notification.svg"
+    ],
+    "carrying": [
+      "crab-carrying.svg"
+    ],
+    "sleeping": [
+      "crab-sleeping.svg"
+    ],
+    "waking": [
+      "crab-wake.svg"
+    ]
+  },
+  "workingTiers": [
+    {
+      "minSessions": 3,
+      "file": "crab-hammer.svg"
+    },
+    {
+      "minSessions": 2,
+      "file": "crab-conducting.svg"
+    },
+    {
+      "minSessions": 1,
+      "file": "crab-typing.svg"
+    }
+  ],
+  "jugglingTiers": [
+    {
+      "minSessions": 2,
+      "file": "crab-conducting.svg"
+    },
+    {
+      "minSessions": 1,
+      "file": "crab-conducting.svg"
+    }
+  ],
+  "idleAnimations": [
+    {
+      "file": "crab-idle-follow.svg",
+      "duration": 6500
+    },
+    {
+      "file": "crab-search.svg",
+      "duration": 14000
+    },
+    {
+      "file": "crab-idle-follow.svg",
+      "duration": 14000
+    }
+  ],
+  "displayHintMap": {
+    "crab-hammer.svg": "crab-hammer.svg",
+    "crab-typing.svg": "crab-typing.svg",
+    "crab-conducting.svg": "crab-conducting.svg",
+    "crab-search.svg": "crab-search.svg",
+    "crab-thinking.svg": "crab-thinking.svg"
+  },
+  "updateVisuals": {
+    "checking": "crab-search.svg"
+  },
+  "timings": {
+    "minDisplay": {
+      "attention": 4000,
+      "error": 5000,
+      "sweeping": 5500,
+      "notification": 5000,
+      "carrying": 3000,
+      "working": 1000,
+      "thinking": 1000
+    },
+    "autoReturn": {
+      "attention": 4000,
+      "error": 5000,
+      "sweeping": 300000,
+      "notification": 5000,
+      "carrying": 3000
+    },
+    "yawnDuration": 3800,
+    "wakeDuration": 1500,
+    "deepSleepTimeout": 600000,
+    "mouseIdleTimeout": 20000,
+    "mouseSleepTimeout": 60000
+  },
+  "hitBoxes": {
+    "default": {
+      "x": 5,
+      "y": 12,
+      "w": 20,
+      "h": 15
+    },
+    "sleeping": {
+      "x": 4,
+      "y": 18,
+      "w": 22,
+      "h": 10
+    },
+    "wide": {
+      "x": 3,
+      "y": 8,
+      "w": 24,
+      "h": 20
+    }
+  },
+  "fileHitBoxes": {
+    "crab-typing.svg": {
+      "x": 4,
+      "y": 0,
+      "w": 22,
+      "h": 28
+    }
+  },
+  "wideHitboxFiles": [
+    "crab-error.svg",
+    "crab-notification.svg"
+  ],
+  "sleepingHitboxFiles": [
+    "crab-sleeping.svg",
+    "crab-collapsing.svg"
+  ],
+  "reactions": {
+    "drag": {
+      "file": "crab-idle-follow.svg"
+    },
+    "clickLeft": {
+      "file": "crab-wave.svg",
+      "duration": 2500
+    },
+    "clickRight": {
+      "file": "crab-wave.svg",
+      "duration": 2500
+    },
+    "annoyed": {
+      "file": "crab-error.svg",
+      "duration": 3500
+    },
+    "double": {
+      "files": [
+        "crab-happy.svg",
+        "crab-happy.svg"
+      ],
+      "duration": 3500
+    }
+  },
+  "miniMode": {
+    "supported": true,
+    "offsetRatio": 0.5,
+    "states": {
+      "mini-idle": [
+        "crab-mini-idle.svg"
+      ],
+      "mini-alert": [
+        "crab-notification.svg"
+      ],
+      "mini-happy": [
+        "crab-happy.svg"
+      ],
+      "mini-enter": [
+        "crab-wave.svg"
+      ],
+      "mini-peek": [
+        "crab-peek.svg"
+      ],
+      "mini-working": [
+        "crab-typing.svg"
+      ],
+      "mini-crabwalk": [
+        "crab-mini-idle.svg"
+      ],
+      "mini-enter-sleep": [
+        "crab-collapsing.svg"
+      ],
+      "mini-sleep": [
+        "crab-sleeping.svg"
+      ]
+    },
+    "timings": {
+      "minDisplay": {
+        "mini-alert": 4000,
+        "mini-happy": 4000
+      },
+      "autoReturn": {
+        "mini-alert": 4000,
+        "mini-happy": 4000
+      }
+    },
+    "glyphFlips": {
+      "pixel-z": 4,
+      "pixel-z-small": 3
+    }
+  },
+  "sounds": {
+    "complete": "complete.mp3",
+    "confirm": "confirm.mp3"
+  },
+  "objectScale": {
+    "widthRatio": 1.9,
+    "heightRatio": 1.3,
+    "offsetX": -0.45,
+    "offsetY": -0.25
+  }
+}

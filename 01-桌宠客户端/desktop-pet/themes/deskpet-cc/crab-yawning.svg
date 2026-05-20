@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  crab-yawning.svg  ·  打哈欠 (C 类一次性过渡 3.8s, 末态 = doze 起态)
+  ──────────────────────────────────────────────────────────────
+  · 起点: idle 中性
+  · 过程: 吸气 anticipation → 张大 (O 嘴) → 呼气 squash → 收尾微 wobble
+  · 终点: squashed 站姿 (scale 1.05, 0.95 translateY 1), 半闭眼 — 直接接 doze
+  · 性格: "公开的小尴尬" — 哈欠打到一半傲娇收回, 偶尔出泪滴
+-->
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 30 30"
+     shape-rendering="crispEdges">
+
+  <style>
+    .yawn-body {
+      transform-origin: 15px 20px;
+      animation: yawn-body 3.8s cubic-bezier(0.34, 1.2, 0.64, 1) 1 forwards;
+    }
+    @keyframes yawn-body {
+      0%       { transform: scale(1, 1)         translate(0, 0)    rotate(0deg); }
+      15%      { transform: scale(0.98, 1.02)   translate(0, -0.5px) rotate(0deg); }
+      32%      { transform: scale(0.95, 1.05)   translate(0, -1px)   rotate(-1deg); }
+      50%      { transform: scale(0.92, 1.08)   translate(0, -2px)   rotate(-2deg); }
+      62%      { transform: scale(1.02, 0.98)   translate(0, 0.5px)  rotate(0deg); }
+      78%      { transform: scale(1.06, 0.94)   translate(0, 1.2px); }
+      85%      { transform: scale(1.04, 0.96)   translate(0, 1px);   }
+      100%     { transform: scale(1.05, 0.95)   translate(0, 1px);   } /* = doze 起态 */
+    }
+
+    .yawn-shadow { transform-origin: 15px 24.5px; animation: yawn-shadow 3.8s ease-in-out 1 forwards; }
+    @keyframes yawn-shadow {
+      0%   { transform: scaleX(1);    opacity: 0.28; }
+      50%  { transform: scaleX(0.92); opacity: 0.22; }
+      100% { transform: scaleX(1.05); opacity: 0.32; }
+    }
+
+    /* 钳子伸懒腰: 50% 峰值上举, 然后回落到下垂 (doze 起态) */
+    .yawn-claw-l { transform-origin: 5px 13px; animation: yawn-claw-l 3.8s ease-in-out 1 forwards; }
+    .yawn-claw-r { transform-origin: 25px 13px; animation: yawn-claw-r 3.8s ease-in-out 1 forwards; }
+    @keyframes yawn-claw-l {
+      0%   { transform: translate(0, 0) rotate(0deg); }
+      32%  { transform: translate(-1px, -1px) rotate(-15deg); }
+      50%  { transform: translate(-1.5px, -2px) rotate(-25deg); }
+      78%  { transform: translate(0, 1px) rotate(-3deg); }
+      100% { transform: translate(0, 1px) rotate(-5deg); } /* = doze 下垂态 */
+    }
+    @keyframes yawn-claw-r {
+      0%   { transform: translate(0, 0) rotate(0deg); }
+      32%  { transform: translate(1px, -1px) rotate(15deg); }
+      50%  { transform: translate(1.5px, -2px) rotate(25deg); }
+      78%  { transform: translate(0, 1px) rotate(3deg); }
+      100% { transform: translate(0, 1px) rotate(5deg); }
+    }
+
+    /* 眼睛: 微眯 → 闭紧 → 睁开 → 半闭 (doze 起态) */
+    .yawn-eyes { transform-box: fill-box; transform-origin: center; animation: yawn-eyes 3.8s ease-in-out 1 forwards; }
+    @keyframes yawn-eyes {
+      0%       { transform: scaleY(1); }
+      18%      { transform: scaleY(0.6); }
+      32%      { transform: scaleY(0.25); }
+      50%      { transform: scaleY(0.1); }
+      62%      { transform: scaleY(0.4); }
+      78%      { transform: scaleY(0.6); }
+      100%     { transform: scaleY(0.5); } /* = doze 半闭态 */
+    }
+
+    /* 嘴: opacity 0 → 1 → 0, 嘴张大 O 形 */
+    .mouth-yawn { transform-origin: 15px 16px; opacity: 0; animation: mouth-yawn 3.8s ease-in-out 1 forwards; }
+    @keyframes mouth-yawn {
+      0%, 22%   { opacity: 0; transform: scale(0.3, 0.3); }
+      32%       { opacity: 1; transform: scale(0.6, 0.4); }
+      50%, 58%  { opacity: 1; transform: scale(1, 1.4); }   /* hold ~300ms */
+      65%       { opacity: 1; transform: scale(0.7, 0.6); }
+      72%       { opacity: 0.5; transform: scale(0.4, 0.3); }
+      78%, 100% { opacity: 0; transform: scale(0.3, 0.3); }
+    }
+
+    /* 彩蛋: 一滴眼泪 (在哈欠峰值闪现) */
+    .tear-yawn { opacity: 0; animation: tear-yawn 3.8s ease-in-out 1 forwards; }
+    @keyframes tear-yawn {
+      0%, 40%   { opacity: 0; transform: translateY(0); }
+      50%       { opacity: 1; transform: translateY(0); }
+      65%       { opacity: 1; transform: translateY(2px); }
+      75%, 100% { opacity: 0; transform: translateY(3px); }
+    }
+  </style>
+
+  <g class="yawn-shadow">
+    <rect x="9" y="24" width="12" height="1" fill="#000000" opacity="0.28"/>
+  </g>
+
+  <g class="yawn-body">
+
+    <rect x="8"  y="20" width="2" height="3" fill="#B95E40"/>
+    <rect x="11" y="20" width="2" height="3" fill="#B95E40"/>
+    <rect x="17" y="20" width="2" height="3" fill="#B95E40"/>
+    <rect x="20" y="20" width="2" height="3" fill="#B95E40"/>
+
+    <g class="yawn-claw-l"><rect x="4"  y="12" width="2" height="3" fill="#D97856"/></g>
+    <g class="yawn-claw-r"><rect x="24" y="12" width="2" height="3" fill="#D97856"/></g>
+
+    <rect x="7" y="7"  width="16" height="1"  fill="#D97856"/>
+    <rect x="6" y="8"  width="18" height="11" fill="#D97856"/>
+    <rect x="7" y="19" width="16" height="1"  fill="#D97856"/>
+    <rect x="8" y="8"  width="14" height="1" fill="#F3A98B"/>
+    <rect x="8" y="18" width="14" height="1" fill="#B95E40"/>
+
+    <g class="yawn-eyes">
+      <rect x="10" y="10" width="2" height="4" fill="#111111"/>
+      <rect x="18" y="10" width="2" height="4" fill="#111111"/>
+    </g>
+
+    <!-- O 嘴 (临时显隐) -->
+    <rect class="mouth-yawn" x="14" y="15" width="2" height="2" fill="#111111"/>
+
+    <!-- 眼泪 (左眼下侧) -->
+    <rect class="tear-yawn" x="9" y="14" width="1" height="1" fill="#5865C8"/>
+
+  </g>
+
+</svg>

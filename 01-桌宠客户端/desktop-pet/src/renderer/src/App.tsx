@@ -29,64 +29,56 @@ import type { SelectedModel } from '../../shared/provider-types'
 import type { UserProfile } from '../../shared/user-profile-types'
 import { getToolDisplay } from '../../shared/tool-display'
 import { t } from '../../shared/i18n'
-// idle 池 6 种"无聊时的小动作"，闲态随机切
-import idleGif from '@themes/clawd-dev/clawd-idle.gif'
-import idleReadingGif from '@themes/clawd-dev/clawd-idle-reading.gif'
-import sweepingGif from '@themes/clawd-dev/clawd-sweeping.gif'
-import jugglingGif from '@themes/clawd-dev/clawd-juggling.gif'
-import buildingGif from '@themes/clawd-dev/clawd-building.gif'
-import conductingGif from '@themes/clawd-dev/clawd-conducting.gif'
-import sleepingGif from '@themes/clawd-dev/clawd-sleeping.gif'
-// v0.4.3+ set_pet_animation 新加 2 type
-import carryingGif from '@themes/clawd-dev/clawd-carrying.gif'
-import ultrathinkSvg from '@themes/clawd-dev/clawd-working-ultrathink.svg'
+// v0.4.9: 全主题切换 clawd-dev → deskpet-cc (像素风 CC 螃蟹)
+// idle 池：CC 螃蟹只有 idle-follow / search / typing 等几个 idle 变体, 复用占位
+import idleGif from '@themes/deskpet-cc/crab-idle-follow.svg'
+import idleReadingGif from '@themes/deskpet-cc/crab-idle-follow.svg'
+import sweepingGif from '@themes/deskpet-cc/crab-sweeping.svg'
+import jugglingGif from '@themes/deskpet-cc/crab-conducting.svg'
+import buildingGif from '@themes/deskpet-cc/crab-hammer.svg'
+import conductingGif from '@themes/deskpet-cc/crab-conducting.svg'
+import sleepingGif from '@themes/deskpet-cc/crab-sleeping.svg'
+import carryingGif from '@themes/deskpet-cc/crab-carrying.svg'
+import ultrathinkSvg from '@themes/deskpet-cc/crab-thinking.svg'
 // M9-2 click reactions
-import reactDoubleJumpGif from '@themes/clawd-dev/clawd-react-double-jump.gif'
-import reactAnnoyedGif from '@themes/clawd-dev/clawd-react-annoyed.gif'
-// M9-3 sleep sequence 多阶段（SMIL-animated SVG，<img src> 自动播）
-import yawningSvg from '@themes/clawd-dev/clawd-idle-yawn.svg'
-import dozingSvg from '@themes/clawd-dev/clawd-idle-doze.svg'
-import collapsingSvg from '@themes/clawd-dev/clawd-idle-collapse.svg'
-import wakingSvg from '@themes/clawd-dev/clawd-wake.svg'
-// M9-4 eye tracking: inline SVG component（?react suffix triggers vite-plugin-svgr）
-import IdleFollowSvg from '@themes/clawd-dev/clawd-idle-follow.svg?react'
-// M9-5a mini mode (sub-wave A 只用 idle；后续 hover/alert 在 sub-wave B 加)
-import miniIdleGif from '@themes/clawd-dev/clawd-mini-idle.gif'
-// v0.4.3+: 进 mini 时短暂播一次 enter.gif 当过渡 (~1.6s), 之后 settle 到 mini-idle
-import miniEnterGif from '@themes/clawd-dev/clawd-mini-enter.gif'
-// v0.4.5+ Batch 1: hover-peek 替换静态 SVG + success/error 在 mini 模式下的反应
-import miniPeekGif from '@themes/clawd-dev/clawd-mini-peek.gif'
-import miniHappyGif from '@themes/clawd-dev/clawd-mini-happy.gif'
-import miniAlertGif from '@themes/clawd-dev/clawd-mini-alert.gif'
-// v0.4.5+ Batch 2: 检查更新发现新版时桌宠头顶弹动画通知 (full mode);
-// mini mode 复用 mini-alert.gif (80×80 装不下 96×96 notification.gif)
-import notificationGif from '@themes/clawd-dev/clawd-notification.gif'
-// v0.4.5+ Batch 3 后续: wizard 通过 svgr ?react 当 inline 组件加载, 拿到 DOM ref
-// 给 rAF mutator 接管 #eyes-js / #body-js / #shadow-js → wizard 模式 idle 时
-// 也有眼跟随 + body lean + shadow stretch (跟 IdleFollowSvg 同一套 rig 接口).
-// 原 URL 形式 import (wizardSvg) 已弃用 — 之前 dual-img 替换方案被换成 cast +
-// inline SVG 两阶段方案, cast 复用 conducting.gif, idle 阶段走 inline 这条.
-import WizardSvgComponent from '@themes/clawd-dev/clawd-working-wizard.svg?react'
-import idleLivingSvg from '@themes/clawd-dev/clawd-idle-living.svg'
-// activity → GIF 映射：识别到不同活动时桌宠"陪你做同样的事"
-import typingGif from '@themes/clawd-dev/clawd-typing.gif'
-import debuggerGif from '@themes/clawd-dev/clawd-debugger.gif'
-import headphonesGif from '@themes/clawd-dev/clawd-headphones-groove.gif'
+import reactDoubleJumpGif from '@themes/deskpet-cc/crab-happy.svg'
+import reactAnnoyedGif from '@themes/deskpet-cc/crab-error.svg'
+// M9-3 sleep sequence 多阶段
+import yawningSvg from '@themes/deskpet-cc/crab-yawning.svg'
+import dozingSvg from '@themes/deskpet-cc/crab-dozing.svg'
+import collapsingSvg from '@themes/deskpet-cc/crab-collapsing.svg'
+import wakingSvg from '@themes/deskpet-cc/crab-wake.svg'
+// M9-4 eye tracking: inline SVG component
+import IdleFollowSvg from '@themes/deskpet-cc/crab-idle-follow.svg?react'
+// mini mode
+import miniIdleGif from '@themes/deskpet-cc/crab-mini-idle.svg'
+import miniEnterGif from '@themes/deskpet-cc/crab-wave.svg'
+import miniPeekGif from '@themes/deskpet-cc/crab-peek.svg'
+import miniHappyGif from '@themes/deskpet-cc/crab-happy.svg'
+import miniAlertGif from '@themes/deskpet-cc/crab-notification.svg'
+import notificationGif from '@themes/deskpet-cc/crab-notification.svg'
+// wizard 通过 svgr ?react 当 inline 组件加载 (rAF 写 #eyes-js/#body-js/#shadow-js)
+import WizardSvgComponent from '@themes/deskpet-cc/crab-working-wizard.svg?react'
+import idleLivingSvg from '@themes/deskpet-cc/crab-idle-follow.svg'
+// activity → sprite 映射
+import typingGif from '@themes/deskpet-cc/crab-typing.svg'
+import debuggerGif from '@themes/deskpet-cc/crab-search.svg'
+import headphonesGif from '@themes/deskpet-cc/crab-conducting.svg'
 // LLM 流状态
-import thinkingGif from '@themes/clawd-dev/clawd-thinking.gif'
-import happyGif from '@themes/clawd-dev/clawd-happy.gif'
-import errorGif from '@themes/clawd-dev/clawd-error.gif'
+import thinkingGif from '@themes/deskpet-cc/crab-thinking.svg'
+import happyGif from '@themes/deskpet-cc/crab-happy.svg'
+import errorGif from '@themes/deskpet-cc/crab-error.svg'
 
 const DRAG_THRESHOLD_PX = 5
 
-// M9-4 eye tracking 参数（SVG 单位 = viewBox 1 单位 ≈ ~7px 显示尺寸）：
+// v0.4.9 eye tracking 参数 (deskpet-cc viewBox 0 0 30 30 重校):
 //   SENSE_RANGE_PX = cursor 超过这个距离 pet 中心 → eye/body 进入饱和（最大偏移）
-//   EYE_MAX_SVG = eye group transform 最大偏移（svg units）
-//   BODY_MAX_DEG = 身体倾斜最大角度
-//   SHADOW_MAX_STRETCH = 影子 scaleX 增量（1 = 不变；1 + 0.2 = 拉长 20%）
+//   EYE_MAX_SVG = eye group transform 最大偏移（svg units, pixel 风建议 0.3-0.5）
+//   BODY_MAX_DEG = 身体倾斜最大角度（pixel rotate >5° 锯齿明显, 降到 3°）
+//   SHADOW_MAX_STRETCH = 影子 scaleX 增量
 const SENSE_RANGE_PX = 600
-const EYE_MAX_SVG = 0.4
-const BODY_MAX_DEG = 4
+const EYE_MAX_SVG = 0.3
+const BODY_MAX_DEG = 3
 const SHADOW_MAX_STRETCH = 0.2
 
 // M9-2 click burst 时间常量：

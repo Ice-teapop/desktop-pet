@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  crab-wake.svg  ·  苏醒 (C 类过渡 1.5s, splooted → idle)
+  ──────────────────────────────────────────────────────────────
+  · 起点 = sleeping 末态 (splooted scale 1.18, 0.71 translateY 3)
+  · 终点 = idle 中性 (scale 1, 1 translateY 0)
+  · 必须 forwards
+  · 时间轴 (4 专家联合方案):
+    0-15%   stir 三连 (颤眼 + 钳抖不耐烦 + 微吸气) — 装睡防御
+    15-25%  开始撑起
+    25-40%  弹起过冲 + X X 晕一下
+    40-66%  回落
+    66-78%  站定 + 第一次眨眼
+    78-92%  没睡醒第二次眨眼 ("还有点懵")
+    92-100% 正常 idle
+  · 性格: "嘴硬菜鸟被打扰" — 不耐烦 > 惊吓
+-->
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 30 30"
+     shape-rendering="crispEdges">
+
+  <style>
+    .wake-body {
+      transform-origin: 15px 23px;
+      animation: wake-body 1.5s cubic-bezier(0.24, 0.8, 0.24, 1) 1 forwards;
+    }
+    @keyframes wake-body {
+      0%    { transform: scale(1.18, 0.71) translate(-1px, 3px);   }  /* sleeping 起 */
+      4%    { transform: scale(1.18, 0.71) translate(-1px, 2.8px); }  /* stir: 颤一下 */
+      8%    { transform: scale(1.18, 0.72) translate(-1px, 3.1px); }  /* stir: 不耐烦回沉 */
+      14%   { transform: scale(1.16, 0.74) translate(-0.8px, 2.8px); }/* stir: 吸气 (叹气) */
+      25%   { transform: scale(1.08, 0.85) translate(-0.5px, 2px); }
+      38%   { transform: scale(0.93, 1.17) translate(0, -1px);     }  /* 弹起 overshoot */
+      55%   { transform: scale(1.04, 0.96) translate(0, 0.5px);    }
+      70%   { transform: scale(0.98, 1.02) translate(0, 0);        }
+      85%   { transform: scale(1.02, 0.99) translate(0, 0);        }
+      100%  { transform: scale(1, 1)       translate(0, 0);        }  /* = idle */
+    }
+
+    .wake-shadow {
+      transform-origin: 15px 24.5px;
+      animation: wake-shadow 1.5s linear 1 forwards;
+    }
+    @keyframes wake-shadow {
+      0%    { transform: scaleX(1.18); opacity: 0.55; }
+      14%   { transform: scaleX(1.16); opacity: 0.52; }  /* stir 期阴影几乎不动 */
+      38%   { transform: scaleX(0.9);  opacity: 0.2;  }
+      70%   { transform: scaleX(1.02); opacity: 0.3;  }
+      100%  { transform: scaleX(1);    opacity: 0.28; }
+    }
+
+    /* 腿: 缩 → 长出来 */
+    .legs-grow {
+      transform-origin: 15px 20px;
+      animation: legs-grow 1.5s cubic-bezier(0.24, 0.8, 0.24, 1) 1 forwards;
+    }
+    @keyframes legs-grow {
+      0%, 14% { transform: translateY(-2px)   scaleY(0.4);  }  /* stir 期腿不动 */
+      25%   { transform: translateY(-1px)   scaleY(0.65); }
+      38%   { transform: translateY(0.5px)  scaleY(1.1);  }
+      70%   { transform: translateY(0)      scaleY(1.02); }
+      100%  { transform: translateY(0)      scaleY(1);    }
+    }
+
+    /* 左钳: 摊地 → 回身侧 (stir 期不动, 让右钳承担"不耐烦") */
+    .wake-claw-l {
+      transform-origin: 5px 13px;
+      animation: wake-claw-l 1.5s cubic-bezier(0.24, 0.8, 0.24, 1) 1 forwards;
+    }
+    @keyframes wake-claw-l {
+      0%, 14% { transform: translate(-2px, 3px)   rotate(-10deg);}  /* stir 期摊着不动 */
+      25%   { transform: translate(-1.5px, 2px) rotate(-7deg); }
+      38%   { transform: translate(-0.5px, -0.5px) rotate(2deg);}
+      70%   { transform: translate(0, 0.3px)    rotate(-1deg); }
+      100%  { transform: translate(0, 0)        rotate(0deg);  }
+    }
+
+    /* 右钳: stir 期不耐烦抖一下 → 起 → 站定 */
+    .wake-claw-r {
+      transform-origin: 25px 13px;
+      animation: wake-claw-r 1.5s cubic-bezier(0.24, 0.8, 0.24, 1) 1 forwards;
+    }
+    @keyframes wake-claw-r {
+      0%    { transform: translate(2px, 3px)    rotate(10deg); }  /* sleeping 末 */
+      6%    { transform: translate(2.3px, 2.7px) rotate(16deg); } /* stir 抖一下 — 不耐烦 */
+      10%   { transform: translate(1.8px, 3.1px) rotate(8deg);  } /* 抖回 */
+      14%   { transform: translate(2px, 3px)    rotate(10deg); }
+      25%   { transform: translate(1.5px, 2px)  rotate(7deg);  }
+      38%   { transform: translate(0.5px, -0.5px) rotate(-2deg);}
+      70%   { transform: translate(0, 0.3px)    rotate(1deg);  }
+      100%  { transform: translate(0, 0)        rotate(0deg);  }
+    }
+
+    /* 眼睛: stir 颤紧眯 → 睁开过冲 → 第一次眨 → 第二次眨(没睡醒) → idle */
+    .wake-eyes {
+      transform-box: fill-box;
+      transform-origin: top left;
+      animation: wake-eyes 1.5s cubic-bezier(0.24, 0.8, 0.24, 1) 1 forwards;
+    }
+    @keyframes wake-eyes {
+      0%    { transform: scaleX(1.3)  scaleY(0.1);  }  /* sleeping 横划 */
+      4%    { transform: scaleX(1.3)  scaleY(0.06); }  /* stir: 颤紧眯 ("还在装睡") */
+      8%    { transform: scaleX(1.3)  scaleY(0.08); }
+      14%   { transform: scaleX(1.25) scaleY(0.12); }
+      25%   { transform: scaleX(1.1)  scaleY(0.5);  }
+      40%   { transform: scaleX(0.9)  scaleY(1.15); }  /* 瞪大 overshoot */
+      55%   { transform: scaleX(1)    scaleY(1);    }
+      62%   { transform: scaleX(1)    scaleY(0.15); }  /* 第一次眨眼 */
+      72%   { transform: scaleX(1)    scaleY(1.05); }
+      78%   { transform: scaleX(1)    scaleY(0.9);  }  /* 第二次眨眼蓄力 */
+      82%   { transform: scaleX(1)    scaleY(0.1);  }  /* 第二次眨 (没睡醒) */
+      88%   { transform: scaleX(1)    scaleY(1.05); }
+      100%  { transform: scaleX(1)    scaleY(1);    }
+    }
+
+    /* X X 晕 (彩蛋: 25-35% 期间闪现, 呼应 wizard 720°) */
+    .dizzy-x { opacity: 0; animation: dizzy-x 1.5s linear 1 forwards; }
+    @keyframes dizzy-x {
+      0%, 22%   { opacity: 0; }
+      25%, 35%  { opacity: 1; }
+      38%, 100% { opacity: 0; }
+    }
+  </style>
+
+  <g class="wake-shadow">
+    <rect x="9" y="24" width="12" height="1" fill="#000000" opacity="0.55"/>
+  </g>
+
+  <g class="wake-body">
+
+    <g class="legs-grow">
+      <rect x="8"  y="20" width="2" height="3" fill="#B95E40"/>
+      <rect x="11" y="20" width="2" height="3" fill="#B95E40"/>
+      <rect x="17" y="20" width="2" height="3" fill="#B95E40"/>
+      <rect x="20" y="20" width="2" height="3" fill="#B95E40"/>
+    </g>
+
+    <g class="wake-claw-l"><rect x="4"  y="12" width="2" height="3" fill="#D97856"/></g>
+    <g class="wake-claw-r"><rect x="24" y="12" width="2" height="3" fill="#D97856"/></g>
+
+    <g id="body">
+      <rect x="7" y="7"  width="16" height="1"  fill="#D97856"/>
+      <rect x="6" y="8"  width="18" height="11" fill="#D97856"/>
+      <rect x="7" y="19" width="16" height="1"  fill="#D97856"/>
+    </g>
+    <rect x="8" y="8"  width="14" height="1" fill="#F3A98B"/>
+    <rect x="8" y="18" width="14" height="1" fill="#B95E40"/>
+
+    <rect class="wake-eyes" x="10" y="10" width="2" height="4" fill="#111111"/>
+    <rect class="wake-eyes" x="18" y="10" width="2" height="4" fill="#111111"/>
+
+    <!-- 彩蛋: X X 晕 (25-35% 期间闪现, 跟 wizard 转晕呼应) -->
+    <g class="dizzy-x" fill="#111111">
+      <rect x="10" y="10" width="1" height="1"/>
+      <rect x="11" y="11" width="1" height="1"/>
+      <rect x="10" y="12" width="1" height="1"/>
+      <rect x="12" y="10" width="1" height="1"/>
+      <rect x="12" y="12" width="1" height="1"/>
+      <rect x="18" y="10" width="1" height="1"/>
+      <rect x="19" y="11" width="1" height="1"/>
+      <rect x="18" y="12" width="1" height="1"/>
+      <rect x="20" y="10" width="1" height="1"/>
+      <rect x="20" y="12" width="1" height="1"/>
+    </g>
+
+  </g>
+
+</svg>

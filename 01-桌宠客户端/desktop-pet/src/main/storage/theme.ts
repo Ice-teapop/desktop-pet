@@ -1,5 +1,5 @@
 /**
- * 主题元数据加载器（M1-2，最小化范围）—— 读 themes/clawd-dev/theme.json 验证 schema 返
+ * 主题元数据加载器（M1-2，最小化范围）—— 读 themes/deskpet-cc/theme.json 验证 schema 返
  * 回结构化数据，启动时 log 主题信息。
  *
  * 范围说明（做小不做大，careful-coder 纪律）：
@@ -15,7 +15,7 @@ import { app } from 'electron'
 import { promises as fs } from 'fs'
 import { join } from 'path'
 
-const THEME_DIR = 'themes/clawd-dev'
+const THEME_DIR = 'themes/deskpet-cc'
 const THEME_FILE = 'theme.json'
 
 export interface ThemeInfo {

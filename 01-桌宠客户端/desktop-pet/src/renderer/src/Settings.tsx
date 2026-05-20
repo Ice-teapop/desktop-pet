@@ -22,8 +22,8 @@ import type { TavilyState } from '../../shared/tavily-types'
 import type { PrefsState, TrustedDirsState } from '../../shared/settings-types'
 import type { ProviderBalance } from '../../shared/provider-balance-types'
 import { t } from '../../shared/i18n'
-// v0.4.3+: About 页头图 (clawd-about-hero.svg, 之前没接)
-import aboutHeroSvg from '@themes/clawd-dev/clawd-about-hero.svg'
+// v0.4.9: About 页头图改用 deskpet-cc idle-follow (老 clawd-about-hero 切走)
+import aboutHeroSvg from '@themes/deskpet-cc/crab-idle-follow.svg'
 import {
   PERSONA_PRESET_LABELS,
   type PersonaPreset,

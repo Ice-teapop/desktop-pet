@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  crab-conducting.svg  ·  指挥（多 subagent / 协调中）
+  ──────────────────────────────────────────────────────────────
+  · 右钳举指挥棒挥舞 60bpm (1s 一拍)
+  · 头顶彩色拍点 visualizer (4 颗依次跳, 60bpm 同步)
+  · 两侧 6 颗彩色乐符随机浮现 (照搬老 clawd-headphones-groove.svg music-note 几何)
+  · 性格: "嘴硬菜鸟指挥家" — 自信地挥棒, 周围乐符飞
+-->
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 30 30"
+     shape-rendering="crispEdges">
+
+  <defs>
+    <!-- 音符几何 (照搬老 clawd-headphones-groove.svg "music-note" defs) -->
+    <g id="music-note">
+      <rect x="0" y="2" width="1" height="1"/>
+      <rect x="1" y="0" width="1" height="3"/>
+      <rect x="2" y="0" width="1" height="1"/>
+    </g>
+  </defs>
+
+  <style>
+    /* 指挥节拍 1s = 60bpm */
+    .conduct-sway { animation: conduct-sway 1.0s ease-in-out infinite; transform-origin: 15px 23px; }
+    @keyframes conduct-sway {
+      0%, 100% { transform: rotate(-1deg); }
+      50%      { transform: rotate(1deg);  }
+    }
+    #shadow { transform-origin: 15px 24.5px; animation: conduct-shadow 1.0s ease-in-out infinite; }
+    @keyframes conduct-shadow {
+      0%, 100% { transform: scaleX(1);    opacity: 1; }
+      50%      { transform: scaleX(0.95); opacity: 0.8; }
+    }
+    .claw-bob { transform-box: fill-box; transform-origin: center; animation: claw-bob 1.0s ease-in-out infinite; }
+    @keyframes claw-bob {
+      0%, 100% { transform: translateY(0); }
+      50%      { transform: translateY(-0.6px); }
+    }
+    /* 右钳指挥挥舞 4 拍循环 (2s 总) */
+    .baton-arm { transform-origin: 24px 12px; animation: baton-conduct 2.0s ease-in-out infinite; }
+    @keyframes baton-conduct {
+      0%   { transform: rotate(-30deg); }
+      25%  { transform: rotate(-70deg); }
+      50%  { transform: rotate(-50deg); }
+      75%  { transform: rotate(-90deg); }
+      100% { transform: rotate(-30deg); }
+    }
+    .eyes-blink { transform-box: fill-box; transform-origin: 15px 12px; animation: auto-blink 7.3s steps(1) infinite; }
+    @keyframes auto-blink {
+      0%, 17.9%    { transform: scaleY(1); }
+      18%, 19%     { transform: scaleY(0.05); }
+      19.1%, 66%   { transform: scaleY(1); }
+      66.5%, 67.5% { transform: scaleY(0.05); }
+      68%, 100%    { transform: scaleY(1); }
+    }
+
+    /* —— 头顶彩色拍点 visualizer (4 颗按 60bpm 依次跳) ——
+       每颗 1s 周期 (同 conduct-sway), animation-delay 错相 0/-0.25/-0.5/-0.75 让 4 颗依次起伏 */
+    .beat-dot {
+      transform-box: fill-box;
+      transform-origin: center;
+      animation: beat-pulse 1.0s ease-in-out infinite;
+    }
+    .bd1 { animation-delay: 0s;     }
+    .bd2 { animation-delay: -0.25s; }
+    .bd3 { animation-delay: -0.5s;  }
+    .bd4 { animation-delay: -0.75s; }
+    @keyframes beat-pulse {
+      0%, 100% { transform: translateY(0)    scale(1);   opacity: 0.55; }
+      30%      { transform: translateY(-1px) scale(1.5); opacity: 1;    }
+      60%      { transform: translateY(0)    scale(1);   opacity: 0.55; }
+    }
+
+    /* —— 两侧 6 颗彩色乐符 (照搬老 note-left/right keyframes 多颗化) ——
+       每颗不同 duration / delay 让出现节奏看着随机
+       动效: opacity 0 → 1 → 0 + 漂移 + scale 微变 */
+    .note { opacity: 0; }
+    .n1 { animation: note-up 1.6s ease-out infinite -0.0s;  }
+    .n2 { animation: note-up 1.9s ease-out infinite -0.3s;  }
+    .n3 { animation: note-up 1.7s ease-out infinite -0.8s;  }
+    .n4 { animation: note-up 1.5s ease-out infinite -1.1s;  }
+    .n5 { animation: note-up 2.1s ease-out infinite -1.5s;  }
+    .n6 { animation: note-up 1.8s ease-out infinite -1.9s;  }
+    @keyframes note-up {
+      0%   { opacity: 0;   transform: translate(0, 0)      scale(0.7); }
+      15%  { opacity: 1;   transform: translate(0.2px, -1px) scale(1);  }
+      75%  { opacity: 0.7; transform: translate(0.6px, -3.5px) scale(1); }
+      100% { opacity: 0;   transform: translate(1px, -5px)  scale(0.8); }
+    }
+  </style>
+
+  <g id="shadow">
+    <rect x="9" y="24" width="12" height="1" fill="#000000" opacity="0.28"/>
+  </g>
+
+  <!-- 头顶彩色拍点 visualizer (4 颗 1×1 dot, 60bpm 节拍) -->
+  <g id="beat-visualizer">
+    <rect class="beat-dot bd1" x="12" y="2" width="1" height="1" fill="#FF6B6B"/>  <!-- 红 -->
+    <rect class="beat-dot bd2" x="14" y="2" width="1" height="1" fill="#FFD93D"/>  <!-- 黄 -->
+    <rect class="beat-dot bd3" x="16" y="2" width="1" height="1" fill="#6BCB77"/>  <!-- 绿 -->
+    <rect class="beat-dot bd4" x="18" y="2" width="1" height="1" fill="#4D96FF"/>  <!-- 蓝 -->
+  </g>
+
+  <g class="conduct-sway">
+
+    <rect x="8"  y="20" width="2" height="3" fill="#B95E40"/>
+    <rect x="11" y="20" width="2" height="3" fill="#B95E40"/>
+    <rect x="17" y="20" width="2" height="3" fill="#B95E40"/>
+    <rect x="20" y="20" width="2" height="3" fill="#B95E40"/>
+
+    <g class="claw-bob"><rect x="4"  y="12" width="2" height="3" fill="#D97856"/></g>
+
+    <!-- 右钳 + 指挥棒 -->
+    <g class="baton-arm">
+      <rect x="24" y="12" width="2" height="3" fill="#D97856"/>
+      <rect x="26" y="11" width="1" height="1" fill="#FFFFFF"/>
+      <rect x="27" y="10" width="1" height="1" fill="#FFFFFF"/>
+      <rect x="28" y="9"  width="1" height="1" fill="#FFFFFF"/>
+      <rect x="29" y="8"  width="1" height="1" fill="#FFFFFF"/>
+    </g>
+
+    <rect x="7" y="7"  width="16" height="1"  fill="#D97856"/>
+    <rect x="6" y="8"  width="18" height="11" fill="#D97856"/>
+    <rect x="7" y="19" width="16" height="1"  fill="#D97856"/>
+    <rect x="8" y="8"  width="14" height="1"  fill="#F3A98B"/>
+    <rect x="8" y="18" width="14" height="1"  fill="#B95E40"/>
+
+    <g class="eyes-blink">
+      <rect x="10" y="10" width="2" height="4" fill="#111111"/>
+      <rect x="18" y="10" width="2" height="4" fill="#111111"/>
+      <rect x="10" y="10" width="1" height="1" fill="#FFFFFF"/>
+      <rect x="18" y="10" width="1" height="1" fill="#FFFFFF"/>
+    </g>
+
+  </g>
+
+  <!-- 两侧 6 颗彩色乐符 (3 左 + 3 右, 错相浮现) -->
+  <!-- 左侧 3 颗 -->
+  <g transform="translate(0 9)"><g class="note n1" fill="#FFE066"><use href="#music-note"/></g></g>
+  <g transform="translate(2 5)"><g class="note n2" fill="#FF6F61"><use href="#music-note"/></g></g>
+  <g transform="translate(1 12)"><g class="note n3" fill="#B388FF"><use href="#music-note"/></g></g>
+  <!-- 右侧 3 颗 -->
+  <g transform="translate(27 9)"><g class="note n4" fill="#6BCBFF"><use href="#music-note"/></g></g>
+  <g transform="translate(25 5)"><g class="note n5" fill="#4FC3A1"><use href="#music-note"/></g></g>
+  <g transform="translate(26 12)"><g class="note n6" fill="#FF89B5"><use href="#music-note"/></g></g>
+
+</svg>

@@ -1,0 +1,239 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  crab-hammer.svg  ·  DeskPet 工作动作 · 锤击 (A 类循环)
+  ──────────────────────────────────────────────────────────────
+  · 性格: 嘴硬菜鸟工匠 — 死磕劳动, 不卖萌
+  · A 类循环 (LLM 工作中持续显示): 1.2s 一次锤击周期, 无限循环
+  · 搬运自 clawd-working-building.svg 的 1.2s hammer-swing 节奏:
+      0%   rest   (15°)
+      30%  lift   (-45°)   抬锤蓄势
+      45%  return (40°)    准备砸下
+      50%  strike (90°)    砸到铁块
+      70%  recoil (15°)    回到 rest
+  · 同步通道: body-bounce + body-squash + arm-l-rest + shadow-bounce + 火花 + 热金属 glow
+  · 几何: viewBox 0 0 30 30, 与 crab-base 对齐
+  · 锤子 pivot = 右钳几何中心 (25, 13.5)
+  · 锤子几何 inline 自 crab-extras.svg #hammer, 紧凑化以适应钳子摆臂半径
+-->
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 30 30"
+     shape-rendering="crispEdges">
+
+  <title>crab-hammer</title>
+
+  <style>
+    /* ===== idle 底层 (低幅, 不打架工作节奏) ===== */
+    /* 自动眨眼 (工匠瞪着铁块, 眨少) */
+    .eyes-blink-wrap {
+      transform-box: fill-box;
+      transform-origin: 15px 12px;
+      animation: auto-blink 5.4s steps(1) infinite;
+    }
+    @keyframes auto-blink {
+      0%, 33.9%   { transform: scaleY(1); }
+      34%, 35%    { transform: scaleY(0.05); }
+      35.1%, 100% { transform: scaleY(1); }
+    }
+
+    /* 眼睛盯铁块右下方 (工作专注) */
+    .eyes-focus {
+      animation: eyes-focus 5s ease-in-out infinite;
+    }
+    @keyframes eyes-focus {
+      0%, 100% { transform: translate(1px, 0.5px); }
+      40%      { transform: translate(1px, 0.5px); }
+      55%      { transform: translate(0.5px, 0); }
+      75%      { transform: translate(1px, 0.5px); }
+    }
+
+    /* ===== A 类工作通道: 锤击 1.2s ===== */
+    /* body bounce: 抬起 → 落下 → 砸下时下压 */
+    .body-bounce {
+      transform-origin: 15px 18px;
+      animation: body-bounce 1.2s infinite;
+    }
+    @keyframes body-bounce {
+      0%, 100% { transform: translateY(0); }
+      30%      { transform: translateY(-1.5px); }
+      45%      { transform: translateY(0); }
+      50%      { transform: translateY(1.5px); }
+      70%      { transform: translateY(0); }
+    }
+    /* body squash: 抬时拉长, 砸时压扁 */
+    .body-squash {
+      transform-origin: 15px 18px;
+      animation: body-squash 1.2s infinite;
+    }
+    @keyframes body-squash {
+      0%, 100% { transform: scale(1, 1); }
+      30%      { transform: scale(0.97, 1.04); }
+      45%      { transform: scale(1, 1); }
+      50%      { transform: scale(1.08, 0.92); }
+      70%      { transform: scale(1, 1); }
+    }
+
+    /* 右钳 + 锤子: 严格搬运 clawd 1.2s 节奏 */
+    .arm-hammer {
+      transform-origin: 25px 13.5px;
+      animation: hammer-swing 1.2s infinite;
+    }
+    @keyframes hammer-swing {
+      0%, 100% { transform: rotate(5deg); }
+      30%      { transform: rotate(-45deg); }   /* 抬锤 (向左上, 蓄势) */
+      45%      { transform: rotate(10deg); }    /* 准备砸下 */
+      50%      { transform: rotate(28deg); }    /* 砸到 — 锤头落在铁砧上 (cap 30° 留余量) */
+      70%      { transform: rotate(5deg); }
+    }
+
+    /* 左钳: 反向小晃 (扶着工作台的样子) */
+    .arm-l-rest {
+      transform-origin: 5px 13.5px;
+      animation: arm-l-rest 1.2s infinite;
+    }
+    @keyframes arm-l-rest {
+      0%, 100% { transform: rotate(0deg); }
+      30%      { transform: rotate(-10deg); }
+      50%      { transform: rotate(5deg); }
+    }
+
+    /* 阴影: 抬时浅, 砸时深 */
+    .shadow-anim {
+      transform-origin: 15px 24.5px;
+      animation: shadow-bounce 1.2s infinite;
+    }
+    @keyframes shadow-bounce {
+      0%, 45%, 70%, 100% { transform: scaleX(1);    opacity: 0.28; }
+      30%                { transform: scaleX(0.92); opacity: 0.22; }
+      50%                { transform: scaleX(1.1);  opacity: 0.4;  }
+    }
+
+    /* 热金属闪光 (砸到的瞬间发白) */
+    .hot-metal { animation: metal-glow 1.2s infinite; }
+    @keyframes metal-glow {
+      0%, 49%  { fill: #FF5252; }
+      50%, 60% { fill: #FFF59D; }
+      100%     { fill: #FF5252; }
+    }
+
+    /* 火花 (砸到瞬间炸开) */
+    .spark { opacity: 0; }
+    .s1 { animation: spark-1 1.2s infinite; }
+    .s2 { animation: spark-2 1.2s infinite; }
+    .s3 { animation: spark-3 1.2s infinite; }
+    @keyframes spark-1 {
+      0%, 49%   { opacity: 0; transform: translate(0, 0) scale(0); }
+      50%       { opacity: 1; transform: translate(0, 0) scale(1); }
+      70%       { opacity: 0; transform: translate(2px, -3px) scale(0); }
+      71%, 100% { opacity: 0; transform: translate(0, 0) scale(0); }
+    }
+    @keyframes spark-2 {
+      0%, 49%   { opacity: 0; transform: translate(0, 0) scale(0); }
+      50%       { opacity: 1; transform: translate(0, 0) scale(1); }
+      70%       { opacity: 0; transform: translate(3px, 0) scale(0); }
+      71%, 100% { opacity: 0; transform: translate(0, 0) scale(0); }
+    }
+    @keyframes spark-3 {
+      0%, 49%   { opacity: 0; transform: translate(0, 0) scale(0); }
+      50%       { opacity: 1; transform: translate(0, 0) scale(1); }
+      70%       { opacity: 0; transform: translate(1px, 2px) scale(0); }
+      71%, 100% { opacity: 0; transform: translate(0, 0) scale(0); }
+    }
+  </style>
+
+  <!-- 地面阴影 -->
+  <g class="shadow-anim">
+    <rect x="9" y="24" width="12" height="1" fill="#000000" opacity="0.28"/>
+  </g>
+
+  <!-- 工作台 + 热铁块 (静态, 在身体右侧胸高位置 — 工匠在台面上敲钉子 / 细工)
+       砸点 = 锤头 strike pose 落点 (27-30, 10-11)
+       注: 因为 viewBox 0-30 太窄, 铁砧不放地面而放工作台高度 -->
+  <g id="workbench">
+    <!-- 台面阴影 -->
+    <rect x="26" y="14" width="4" height="1" fill="#3D2A18"/>
+    <!-- 台面主体 (木质) -->
+    <rect x="26" y="12" width="4" height="2" fill="#8B6240"/>
+    <rect x="26" y="12" width="4" height="1" fill="#A8794D"/>
+    <rect x="28" y="13" width="1" height="1" fill="#6B4220"/>
+    <!-- 热铁块 (台面上, 闪光) -->
+    <rect x="27" y="11" width="3" height="1" class="hot-metal"/>
+  </g>
+
+  <!-- 火花 (砸点上方) -->
+  <g transform="translate(27, 10)">
+    <rect class="spark s1" x="0" y="0" width="1" height="1" fill="#FFC107"/>
+    <rect class="spark s2" x="1" y="0" width="1" height="1" fill="#FFE082"/>
+    <rect class="spark s3" x="2" y="1" width="1" height="1" fill="#FFC107"/>
+  </g>
+
+  <!-- 身体主组 (bounce 包外, squash 包里) -->
+  <g class="body-bounce">
+
+    <!-- 腿 (跟 bounce, 不 squash) -->
+    <g id="leg-1"><rect x="8"  y="20" width="2" height="3" fill="#B95E40"/></g>
+    <g id="leg-2"><rect x="11" y="20" width="2" height="3" fill="#B95E40"/></g>
+    <g id="leg-3"><rect x="17" y="20" width="2" height="3" fill="#B95E40"/></g>
+    <g id="leg-4"><rect x="20" y="20" width="2" height="3" fill="#B95E40"/></g>
+
+    <!-- 左钳 (bounce 包外, 反向小晃) -->
+    <g class="arm-l-rest">
+      <g id="claw-left"><rect x="4" y="12" width="2" height="3" fill="#D97856"/></g>
+    </g>
+
+    <!-- body 核心: 跟 squash -->
+    <g class="body-squash">
+      <g id="body">
+        <rect x="7" y="7"  width="16" height="1"  fill="#D97856"/>
+        <rect x="6" y="8"  width="18" height="11" fill="#D97856"/>
+        <rect x="7" y="19" width="16" height="1"  fill="#D97856"/>
+      </g>
+      <g id="body-highlight"><rect x="8" y="8" width="14" height="1" fill="#F3A98B"/></g>
+      <g id="body-shadow-band"><rect x="8" y="18" width="14" height="1" fill="#B95E40"/></g>
+      <g id="mouth"></g>
+
+      <!-- 眼睛 (盯铁块) -->
+      <g class="eyes-focus">
+        <g class="eyes-blink-wrap">
+          <g id="eye-left"><rect  x="10" y="10" width="2" height="4" fill="#111111"/></g>
+          <g id="eye-right"><rect x="18" y="10" width="2" height="4" fill="#111111"/></g>
+          <g id="pupil-left"><rect  x="10" y="10" width="1" height="1" fill="#FFFFFF"/></g>
+          <g id="pupil-right"><rect x="18" y="10" width="1" height="1" fill="#FFFFFF"/></g>
+        </g>
+      </g>
+    </g>
+
+    <!-- 右钳 + 锤子 (bounce 包内, 锤摆独立 transform-origin) -->
+    <g class="arm-hammer">
+      <g id="claw-right"><rect x="24" y="12" width="2" height="3" fill="#D97856"/></g>
+
+      <!-- 锤子 (inline 自 crab-extras #hammer, 紧凑化: handle 3px, head 3×2)
+           pivot=(25,13.5) — swing 60° 时锤头中心约 (28.3, 9.3), 头右边缘 x≤30 不出界 -->
+      <g id="hammer">
+        <!-- 木柄主体 (从钳底 y=13 向上到 y=10) -->
+        <rect x="24" y="10" width="2" height="3" fill="#8B6240"/>
+        <!-- 木柄左侧高光 -->
+        <rect x="24" y="10" width="1" height="3" fill="#A8794D"/>
+        <!-- 手柄缠绕带 (深色) -->
+        <rect x="24" y="11" width="2" height="1" fill="#3D2A18"/>
+        <!-- 金属环箍 (锤头与柄连接处) -->
+        <rect x="23" y="9"  width="4" height="1" fill="#3F3F3F"/>
+        <rect x="23" y="9"  width="1" height="1" fill="#5A5A5A"/>
+
+        <!-- 锤头主体 (4×2, 中心在 (25, 8), 距 pivot 5.5px) -->
+        <rect x="23" y="7" width="4" height="2" fill="#888888"/>
+        <!-- 锤头顶部高光 (亮金属) -->
+        <rect x="23" y="7" width="4" height="1" fill="#C8C8C8"/>
+        <!-- 锤头左侧高光 -->
+        <rect x="23" y="7" width="1" height="2" fill="#B0B0B0"/>
+        <!-- 锤头右侧暗影 -->
+        <rect x="26" y="7" width="1" height="2" fill="#5A5A5A"/>
+        <!-- 锤头底部暗带 -->
+        <rect x="23" y="8" width="4" height="1" fill="#4F4F4F"/>
+        <!-- 高光闪点 (白色 1px) -->
+        <rect x="24" y="7" width="1" height="1" fill="#FFFFFF"/>
+      </g>
+    </g>
+
+  </g>
+
+</svg>

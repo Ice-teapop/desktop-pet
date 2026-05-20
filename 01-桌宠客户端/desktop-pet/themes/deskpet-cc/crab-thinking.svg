@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  crab-thinking.svg  ·  LLM 思考中
+  · idle 基底 + 右上角思考气泡
+  · 气泡 path 照搬 老 clawd-working-thinking.svg right-bubble (原作者授权)
+  · 节奏: 3 dot 依次 reveal (• → •• → •••) → "got it" flash → 重置
+  · 性格: 死磕菜鸟想问题 (跟 typing 死磕 bug 性格延伸)
+-->
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 30 30"
+     shape-rendering="crispEdges">
+
+  <style>
+    .body-breathe { animation: crab-breathe 4.8s ease-in-out infinite; transform-origin: 15px 18px; }
+    @keyframes crab-breathe {
+      0%   { transform: translateY(0)    scaleY(1);    }
+      30%  { transform: translateY(-1px) scaleY(1.04); }
+      45%  { transform: translateY(-1px) scaleY(1.04); }
+      100% { transform: translateY(0)    scaleY(1);    }
+    }
+    .think-tilt { animation: think-tilt 3.2s ease-in-out infinite; transform-origin: 15px 20px; }
+    @keyframes think-tilt {
+      0%, 100% { transform: rotate(-1.5deg); }
+      50%      { transform: rotate(0.5deg); }
+    }
+    #shadow { transform-origin: 15px 24.5px; animation: crab-shadow 5.3s ease-in-out infinite; }
+    @keyframes crab-shadow {
+      0%, 100% { transform: scaleX(1);    opacity: 1; }
+      50%      { transform: scaleX(0.85); opacity: 0.6; }
+    }
+    .eyes-blink { transform-box: fill-box; transform-origin: 15px 12px; animation: auto-blink 7.3s steps(1) infinite; }
+    @keyframes auto-blink {
+      0%, 17.9%    { transform: scaleY(1); }
+      18%, 19%     { transform: scaleY(0.05); }
+      19.1%, 66%   { transform: scaleY(1); }
+      66.5%, 67.5% { transform: scaleY(0.05); }
+      68%, 100%    { transform: scaleY(1); }
+    }
+
+    /* 气泡呼吸 anticipation (浮动) */
+    .thought-bubble { animation: bubble-float 3.6s ease-in-out infinite; transform-origin: 24px 3px; }
+    @keyframes bubble-float {
+      0%, 100% { transform: translateY(0); }
+      50%      { transform: translateY(-0.4px); }
+    }
+
+    /* 3 dot 依次 reveal — 照搬老 clawd 节奏 (step-end)
+       周期 3.6s, dot1→dot2→dot3 依次累积出现, 然后 reset */
+    .dot { opacity: 0; }
+    .d1 { animation: dot-1 3.6s step-end infinite; }
+    .d2 { animation: dot-2 3.6s step-end infinite; }
+    .d3 { animation: dot-3 3.6s step-end infinite; }
+    @keyframes dot-1 {
+      0%, 4.99%, 73%, 100%       { opacity: 0; }
+      5%, 72.99%                 { opacity: 1; }
+    }
+    @keyframes dot-2 {
+      0%, 24.99%, 73%, 100%      { opacity: 0; }
+      25%, 72.99%                { opacity: 1; }
+    }
+    @keyframes dot-3 {
+      0%, 44.99%, 73%, 100%      { opacity: 0; }
+      45%, 72.99%                { opacity: 1; }
+    }
+
+    /* 气泡边缘 dreamy pixel flow (照搬老 v25 — 4 颗 pale-blue 顺时针 fade) */
+    .flow { opacity: 0; }
+    .f1 { animation: flow-1 3.6s ease-in-out infinite; }
+    .f2 { animation: flow-2 3.6s ease-in-out infinite; }
+    .f3 { animation: flow-3 3.6s ease-in-out infinite; }
+    .f4 { animation: flow-4 3.6s ease-in-out infinite; }
+    @keyframes flow-1 { 0%, 8%, 22%, 100% { opacity: 0; } 12%, 18% { opacity: 0.7; } }
+    @keyframes flow-2 { 0%, 22%, 36%, 100% { opacity: 0; } 26%, 32% { opacity: 0.7; } }
+    @keyframes flow-3 { 0%, 36%, 50%, 100% { opacity: 0; } 40%, 46% { opacity: 0.7; } }
+    @keyframes flow-4 { 0%, 50%, 64%, 100% { opacity: 0; } 54%, 60% { opacity: 0.7; } }
+  </style>
+
+  <g id="shadow">
+    <rect x="9" y="24" width="12" height="1" fill="#000000" opacity="0.28"/>
+  </g>
+
+  <g class="body-breathe">
+    <g class="think-tilt">
+
+      <rect x="8"  y="20" width="2" height="3" fill="#B95E40"/>
+      <rect x="11" y="20" width="2" height="3" fill="#B95E40"/>
+      <rect x="17" y="20" width="2" height="3" fill="#B95E40"/>
+      <rect x="20" y="20" width="2" height="3" fill="#B95E40"/>
+
+      <rect x="4"  y="12" width="2" height="3" fill="#D97856"/>
+      <rect x="24" y="12" width="2" height="3" fill="#D97856"/>
+
+      <rect x="7" y="7"  width="16" height="1"  fill="#D97856"/>
+      <rect x="6" y="8"  width="18" height="11" fill="#D97856"/>
+      <rect x="7" y="19" width="16" height="1"  fill="#D97856"/>
+      <rect x="8" y="8"  width="14" height="1"  fill="#F3A98B"/>
+      <rect x="8" y="18" width="14" height="1"  fill="#B95E40"/>
+
+      <g class="eyes-blink">
+        <rect x="10" y="10" width="2" height="4" fill="#111111"/>
+        <rect x="18" y="10" width="2" height="4" fill="#111111"/>
+        <rect x="10" y="10" width="1" height="1" fill="#FFFFFF"/>
+        <rect x="18" y="10" width="1" height="1" fill="#FFFFFF"/>
+      </g>
+
+    </g>
+  </g>
+
+  <!-- 思考气泡 (右上角, 照搬老 clawd right-bubble path 平移) -->
+  <g class="thought-bubble">
+
+    <!-- 气泡主体: 老 path 平移到 x=20-29 y=0-6 (右移 2px) -->
+    <path d="M21 0 H28 V1 H29 V5 H28 V6 H21 V5 H20 V1 H21 Z" fill="#FFFFFF"/>
+
+    <!-- 边缘 dreamy pixel flow (顶/右/底/左 顺时针 - 跟着气泡平移) -->
+    <rect class="flow f1" x="24" y="-1" width="1" height="1" fill="#BFEAFF"/>
+    <rect class="flow f2" x="29.5" y="3"  width="0.5" height="1" fill="#BFEAFF"/>  <!-- 贴 viewBox 右边界 -->
+    <rect class="flow f3" x="24" y="7"  width="1" height="1" fill="#BFEAFF"/>
+    <rect class="flow f4" x="18" y="3"  width="1" height="1" fill="#BFEAFF"/>
+
+    <!-- 尾巴 puffs: 2 颗小气泡向左下指向头顶 (倾斜更多, 因气泡右移后离 head 更远) -->
+    <rect x="18"   y="7"   width="1"   height="1"   fill="#FFFFFF"/>
+    <rect x="16.5" y="8.5" width="0.5" height="0.5" fill="#FFFFFF"/>
+
+    <!-- 3 dot (深 Clawd blue #256891) - 依次出现 -->
+    <rect class="dot d1" x="22" y="3" width="1" height="1" fill="#256891"/>
+    <rect class="dot d2" x="24" y="3" width="1" height="1" fill="#256891"/>
+    <rect class="dot d3" x="26" y="3" width="1" height="1" fill="#256891"/>
+
+  </g>
+
+</svg>

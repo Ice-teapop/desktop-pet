@@ -1,0 +1,207 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  crab-typing.svg  ·  识别到 coding activity / 4 专家联合方案
+  ──────────────────────────────────────────────────────────────
+  · 老 Clawd 8 通道动画完整搬运 + 像素风适配
+  · 通道:
+    1. body-bounce 0.35s ── 心跳节奏 (主节拍 170 BPM)
+    2. breathe 3.2s ────── 慢呼吸叠加 (双层时间架构)
+    3. arm-l-type 0.16s ── 左钳狂敲 (rotate 8° ↔ -32°)
+    4. arm-r-type 0.13s ── 右钳更快 (5:4 错相, 镜像)
+    5. eye-code 8s ─────── 长眯眼 + 3 次扫视眨眼
+    6. code-line cl1-3 6s 错相 ── 3 行代码打字 + 滑出
+    7. key-flash kf1-4 互质周期 ── 4 颗按键随机闪
+    8. data-bit d1-d4 1.5s linear ── 4 颗数据粒子持续涌出
+  · 笔记本独立层不跟 body 抖
+  · 性格: "菜鸟工匠死磕 bug, 手忙脚乱但没认输"
+-->
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 30 30"
+     shape-rendering="crispEdges">
+
+  <title>crab-typing</title>
+
+  <style>
+    /* ── 1. body-bounce 0.35s 心跳 (主节拍) ── */
+    .body-bounce { animation: body-bounce 0.35s ease-in-out infinite; transform-origin: 15px 18px; }
+    @keyframes body-bounce {
+      0%, 100% { transform: translateY(0); }
+      50%      { transform: translateY(0.6px); }
+    }
+
+    /* ── 2. breathe 3.2s 慢呼吸叠加 ── */
+    .breathe { animation: breathe 3.2s ease-in-out infinite; transform-origin: 15px 18px; }
+    @keyframes breathe {
+      0%, 100% { transform: scale(1, 1)       translate(0, 0);    }
+      50%      { transform: scale(1.02, 0.98) translate(0, 0.5px); }
+    }
+
+    /* ── 3+4. 双钳异速敲击 (5:4 错相) ── */
+    .arm-l-type { transform-origin: 6px 13px;  animation: type-l 0.16s ease-in-out infinite; }
+    .arm-r-type { transform-origin: 24px 13px; animation: type-r 0.13s ease-in-out infinite; }
+    @keyframes type-l {
+      0%   { transform: rotate(-8deg);  }
+      25%  { transform: rotate(-32deg); }
+      50%  { transform: rotate(-12deg); }
+      75%  { transform: rotate(-26deg); }
+      100% { transform: rotate(-8deg);  }
+    }
+    @keyframes type-r {
+      0%   { transform: rotate(8deg);  }
+      25%  { transform: rotate(32deg); }
+      50%  { transform: rotate(12deg); }
+      75%  { transform: rotate(26deg); }
+      100% { transform: rotate(8deg);  }
+    }
+
+    /* ── 5. eyes-code 8s 长眯眼 + 3 次扫视眨眼 ── */
+    /* 修: transform-box fill-box + origin center, 避免 origin 算成 viewBox 外坐标导致位移飞 */
+    .eyes-code { transform-box: fill-box; transform-origin: center; animation: eye-code 8s ease-in-out infinite; }
+    @keyframes eye-code {
+      0%, 17%   { transform: scaleY(0.55); }   /* 盯键盘眯眼 (从 0.5 略放宽到 0.55 让眼睛更明显) */
+      18%       { transform: scaleY(0.1);  }   /* 微眨 1 */
+      19%, 44%  { transform: scaleY(0.55); }
+      45%       { transform: scaleY(0.1);  }   /* 微眨 2 */
+      46%, 70%  { transform: scaleY(0.55); }
+      71%       { transform: scaleY(0.1);  }   /* 微眨 3 */
+      72%, 100% { transform: scaleY(0.55); }
+    }
+
+    /* ── 6. code-line cl1-cl3 6s 错相 ── */
+    .code-line { transform-box: fill-box; transform-origin: left center; }
+    .cl1 { animation: cl1 6s infinite; }
+    .cl2 { animation: cl2 6s infinite; }
+    .cl3 { animation: cl3 6s infinite; }
+    @keyframes cl1 {
+      0%        { transform: scaleX(0); opacity: 0; }
+      3%        { transform: scaleX(0); opacity: 1; }
+      13%, 78%  { transform: scaleX(1) translateY(0);    opacity: 1; }
+      88%       { transform: scaleX(1) translateY(-2px); opacity: 0; }
+      89%, 100% { transform: scaleX(0) translateY(0);    opacity: 0; }
+    }
+    @keyframes cl2 {
+      0%, 21%   { transform: scaleX(0); opacity: 0; }
+      22%       { transform: scaleX(0); opacity: 1; }
+      34%, 82%  { transform: scaleX(1) translateY(0);    opacity: 1; }
+      91%       { transform: scaleX(1) translateY(-2px); opacity: 0; }
+      92%, 100% { transform: scaleX(0) translateY(0);    opacity: 0; }
+    }
+    @keyframes cl3 {
+      0%, 43%   { transform: scaleX(0); opacity: 0; }
+      44%       { transform: scaleX(0); opacity: 1; }
+      56%, 85%  { transform: scaleX(1) translateY(0);    opacity: 1; }
+      93%       { transform: scaleX(1) translateY(-2px); opacity: 0; }
+      94%, 100% { transform: scaleX(0) translateY(0);    opacity: 0; }
+    }
+
+    /* ── 7. key-flash 4 颗互质周期 (step 闪烁) ── */
+    .key-flash { opacity: 0; }
+    .kf1 { animation: kflash 0.5s  infinite;                       }
+    .kf2 { animation: kflash 0.7s  infinite; animation-delay: -0.2s; }
+    .kf3 { animation: kflash 0.85s infinite; animation-delay: -0.4s; }
+    .kf4 { animation: kflash 0.55s infinite; animation-delay: -0.3s; }
+    @keyframes kflash {
+      0%, 70%, 100% { opacity: 0; }
+      30%, 50%      { opacity: 1; }
+    }
+
+    /* ── 8. data-bit 4 颗 1.5s linear 上飘 ── */
+    .data-bit { opacity: 0; }
+    .d1 { animation: float-data 1.5s linear infinite;        }
+    .d2 { animation: float-data 1.5s linear infinite -0.4s;  }
+    .d3 { animation: float-data 1.5s linear infinite -0.8s;  }
+    .d4 { animation: float-data 1.5s linear infinite -1.2s;  }
+    @keyframes float-data {
+      0%   { transform: translateY(0);   opacity: 0;   }
+      15%  { transform: translateY(-1px); opacity: 0.9; }
+      85%  { transform: translateY(-8px); opacity: 0.9; }
+      100% { transform: translateY(-9px); opacity: 0;   }
+    }
+  </style>
+
+  <!-- ═══ 阴影（静态，typing 时不律动）═══ -->
+  <g id="shadow">
+    <rect x="9" y="24" width="12" height="1" fill="#000000" opacity="0.28"/>
+  </g>
+
+  <!-- ═══ 角色主体（呼吸 + 心跳双层包裹）═══ -->
+  <g class="breathe">
+    <g class="body-bounce">
+
+      <g id="legs">
+        <rect x="8"  y="20" width="2" height="3" fill="#B95E40"/>
+        <rect x="11" y="20" width="2" height="3" fill="#B95E40"/>
+        <rect x="17" y="20" width="2" height="3" fill="#B95E40"/>
+        <rect x="20" y="20" width="2" height="3" fill="#B95E40"/>
+      </g>
+
+      <!-- 左右钳各自 type-l/r 旋转 -->
+      <g class="arm-l-type">
+        <rect id="claw-left" x="4" y="12" width="2" height="3" fill="#D97856"/>
+      </g>
+      <g class="arm-r-type">
+        <rect id="claw-right" x="24" y="12" width="2" height="3" fill="#D97856"/>
+      </g>
+
+      <g id="body">
+        <rect x="7" y="7"  width="16" height="1"  fill="#D97856"/>
+        <rect x="6" y="8"  width="18" height="11" fill="#D97856"/>
+        <rect x="7" y="19" width="16" height="1"  fill="#D97856"/>
+      </g>
+      <rect x="8" y="8"  width="14" height="1" fill="#F3A98B"/>
+      <rect x="8" y="18" width="14" height="1" fill="#B95E40"/>
+
+      <!-- 眯眼盯键盘 -->
+      <g class="eyes-code">
+        <rect x="10" y="10" width="2" height="4" fill="#111111"/>
+        <rect x="18" y="10" width="2" height="4" fill="#111111"/>
+        <rect x="10" y="10" width="1" height="1" fill="#FFFFFF"/>
+        <rect x="18" y="10" width="1" height="1" fill="#FFFFFF"/>
+      </g>
+
+    </g>
+  </g>
+
+  <!-- ═══ 笔记本电脑（独立层，不被 body 动画带歪）═══ -->
+  <g id="laptop-group">
+
+    <!-- 屏幕外壳（下移 2px：y=13→15，让出眼睛 y=10-14 空间）-->
+    <rect x="9" y="15" width="12" height="6" fill="#263238"/>
+    <!-- 显示区 (深色) -->
+    <rect x="10" y="16" width="10" height="4" fill="#1E1E2E"/>
+    <!-- macOS 标题栏 -->
+    <rect x="10" y="16" width="10" height="1" fill="#2D2D3D"/>
+    <!-- 红黄绿 3 颗信号灯 -->
+    <rect x="11" y="16" width="1" height="1" fill="#FF5F56"/>
+    <rect x="13" y="16" width="1" height="1" fill="#FFBD2E"/>
+    <rect x="15" y="16" width="1" height="1" fill="#27C93F"/>
+
+    <!-- 3 行 code (transform-box: fill-box，scaleX 从左生长 + 滑出) -->
+    <g id="code-lines">
+      <rect class="code-line cl1" x="11" y="17.2" width="6" height="0.7" fill="#4CAF50"/>
+      <rect class="code-line cl2" x="12" y="18.2" width="7" height="0.7" fill="#40C4FF"/>
+      <rect class="code-line cl3" x="11" y="19.2" width="4" height="0.7" fill="#FFC107"/>
+    </g>
+
+    <!-- 键盘底座 -->
+    <rect x="7" y="21" width="16" height="2" fill="#37474F"/>
+
+    <!-- 4 颗 key-flash (overlay 在键盘上闪烁) -->
+    <g id="key-flashes" fill="#B0BEC5">
+      <rect class="key-flash kf1" x="9"  y="21" width="1" height="1"/>
+      <rect class="key-flash kf2" x="13" y="22" width="1" height="1"/>
+      <rect class="key-flash kf3" x="16" y="21" width="1" height="1"/>
+      <rect class="key-flash kf4" x="19" y="22" width="1" height="1"/>
+    </g>
+
+  </g>
+
+  <!-- ═══ 数据粒子（最顶层，从屏幕顶冒出飘升）═══ -->
+  <g id="data-particles">
+    <rect class="data-bit d1" x="11" y="15" width="1" height="1" fill="#40C4FF"/>
+    <rect class="data-bit d2" x="14" y="15" width="1" height="1" fill="#B388FF"/>
+    <rect class="data-bit d3" x="17" y="15" width="1" height="1" fill="#40C4FF"/>
+    <rect class="data-bit d4" x="19" y="15" width="1" height="1" fill="#B388FF"/>
+  </g>
+
+</svg>

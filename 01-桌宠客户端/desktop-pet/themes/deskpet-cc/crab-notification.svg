@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  crab-notification.svg  ·  通知 / 警觉 (新版本可用等)
+  · 头顶 "!" 标 (亮黄红脉动) + 身体快速跳 2 下回归
+-->
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 30 30"
+     shape-rendering="crispEdges">
+
+  <style>
+    .notify-hop { animation: notify-hop 1.4s ease-in-out infinite; transform-origin: 15px 23px; }
+    @keyframes notify-hop {
+      0%, 60%, 100% { transform: translateY(0); }
+      15%           { transform: translateY(-2px); }
+      30%           { transform: translateY(0)    scaleY(0.95); }
+      45%           { transform: translateY(-1px); }
+    }
+    #shadow { transform-origin: 15px 24.5px; animation: notify-shadow 1.4s ease-in-out infinite; }
+    @keyframes notify-shadow {
+      0%, 60%, 100% { transform: scaleX(1);    opacity: 1; }
+      15%           { transform: scaleX(0.75); opacity: 0.55; }
+    }
+    /* "!" 标脉动 (黄→红→黄)，强警觉感 */
+    .alert-bang { animation: alert-pulse 0.7s ease-in-out infinite; transform-origin: 15.5px 3.5px; }
+    @keyframes alert-pulse {
+      0%, 100% { transform: scale(1);    fill: #F5C870; }
+      50%      { transform: scale(1.25); fill: #FF3344; }
+    }
+    .eyes-blink { transform-box: fill-box; transform-origin: 15px 12px; animation: auto-blink 7.3s steps(1) infinite; }
+    @keyframes auto-blink {
+      0%, 17.9%    { transform: scaleY(1); }
+      18%, 19%     { transform: scaleY(0.05); }
+      19.1%, 66%   { transform: scaleY(1); }
+      66.5%, 67.5% { transform: scaleY(0.05); }
+      68%, 100%    { transform: scaleY(1); }
+    }
+  </style>
+
+  <g id="shadow">
+    <rect x="9" y="24" width="12" height="1" fill="#000000" opacity="0.28"/>
+  </g>
+
+  <g class="notify-hop">
+
+    <rect x="8"  y="20" width="2" height="3" fill="#B95E40"/>
+    <rect x="11" y="20" width="2" height="3" fill="#B95E40"/>
+    <rect x="17" y="20" width="2" height="3" fill="#B95E40"/>
+    <rect x="20" y="20" width="2" height="3" fill="#B95E40"/>
+
+    <rect x="4"  y="12" width="2" height="3" fill="#D97856"/>
+    <rect x="24" y="12" width="2" height="3" fill="#D97856"/>
+
+    <rect x="7" y="7"  width="16" height="1"  fill="#D97856"/>
+    <rect x="6" y="8"  width="18" height="11" fill="#D97856"/>
+    <rect x="7" y="19" width="16" height="1"  fill="#D97856"/>
+    <rect x="8" y="8"  width="14" height="1"  fill="#F3A98B"/>
+    <rect x="8" y="18" width="14" height="1"  fill="#B95E40"/>
+
+    <g class="eyes-blink">
+      <rect x="10" y="10" width="2" height="4" fill="#111111"/>
+      <rect x="18" y="10" width="2" height="4" fill="#111111"/>
+      <rect x="10" y="10" width="1" height="1" fill="#FFFFFF"/>
+      <rect x="18" y="10" width="1" height="1" fill="#FFFFFF"/>
+    </g>
+
+  </g>
+
+  <!-- "!" 头顶感叹号 -->
+  <g class="alert-bang">
+    <rect x="15" y="1" width="1" height="3"/>
+    <rect x="15" y="5" width="1" height="1"/>
+  </g>
+
+</svg>

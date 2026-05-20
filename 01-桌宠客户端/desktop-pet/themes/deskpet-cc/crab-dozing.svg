@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  crab-dozing.svg  ·  打盹 (A 类循环 4s, squashed 站姿)
+  ──────────────────────────────────────────────────────────────
+  · 起态 = 100% 终态 (B 类循环, 与 yawning 末态对齐)
+  · 多周期异步: 呼吸 4s + 头点头 3.2s (互质) + 眼皮挣扎 6s
+  · 性格: "嘴硬撑着, 偶尔抬一下头表示我没睡" — 不出 ZZZ
+-->
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 30 30"
+     shape-rendering="crispEdges">
+
+  <style>
+    /* squashed 起态固定为 doze 基底 */
+    .doze-pose {
+      transform: scale(1.05, 0.95) translateY(1px);
+      transform-origin: 15px 23px;
+    }
+    /* 慢呼吸 4s (在 squashed 之上微动) */
+    .doze-breathe { animation: doze-breathe 4s ease-in-out infinite; transform-origin: 15px 23px; }
+    @keyframes doze-breathe {
+      0%, 100% { transform: scale(1, 1);       }
+      50%      { transform: scale(1.02, 0.95); }
+    }
+    /* 头点头 3.2s (互质周期, 偶尔一下) */
+    .head-nod { animation: head-nod 3.2s ease-in-out infinite; transform-origin: 15px 18px; }
+    @keyframes head-nod {
+      0%, 55%, 100% { transform: rotate(0deg) translateY(0); }
+      62%           { transform: rotate(0deg) translateY(0.5px); }
+      68%           { transform: rotate(-3deg) translateY(1.5px); }
+      74%           { transform: rotate(-1deg) translateY(1px);   }
+      82%           { transform: rotate(0deg) translateY(0);      }
+    }
+    /* 钳子下垂静态 */
+    .claw-droop-l { transform: translateY(1px) rotate(-5deg); transform-origin: 5px 13px; }
+    .claw-droop-r { transform: translateY(1px) rotate(5deg);  transform-origin: 25px 13px; }
+
+    /* 眼皮挣扎 6s — 大部分时间半闭, 偶尔抬一下又掉下来 ("嘴硬瞬间") */
+    .eyes-doze { transform-box: fill-box; transform-origin: center; animation: eyes-doze 6s ease-in-out infinite; }
+    @keyframes eyes-doze {
+      0%, 60%   { transform: scaleY(0.5); }   /* 半闭基线 */
+      66%       { transform: scaleY(0.55);}
+      70%       { transform: scaleY(0.85);}   /* 突然抬眼皮 */
+      75%       { transform: scaleY(0.5); }
+      78%       { transform: scaleY(0.4); }   /* 又掉下来一点 */
+      82%, 100% { transform: scaleY(0.5); }
+    }
+
+    #shadow { transform-origin: 15px 24.5px; animation: doze-shadow 4s ease-in-out infinite; }
+    @keyframes doze-shadow {
+      0%, 100% { transform: scaleX(1.02); opacity: 0.32; }
+      50%      { transform: scaleX(1.05); opacity: 0.36; }
+    }
+  </style>
+
+  <g id="shadow">
+    <rect x="9" y="24" width="12" height="1" fill="#000000" opacity="0.32"/>
+  </g>
+
+  <g class="doze-breathe">
+    <g class="doze-pose">
+      <g class="head-nod">
+
+        <rect x="8"  y="20" width="2" height="3" fill="#B95E40"/>
+        <rect x="11" y="20" width="2" height="3" fill="#B95E40"/>
+        <rect x="17" y="20" width="2" height="3" fill="#B95E40"/>
+        <rect x="20" y="20" width="2" height="3" fill="#B95E40"/>
+
+        <g class="claw-droop-l"><rect x="4"  y="12" width="2" height="3" fill="#D97856"/></g>
+        <g class="claw-droop-r"><rect x="24" y="12" width="2" height="3" fill="#D97856"/></g>
+
+        <rect x="7" y="7"  width="16" height="1"  fill="#D97856"/>
+        <rect x="6" y="8"  width="18" height="11" fill="#D97856"/>
+        <rect x="7" y="19" width="16" height="1"  fill="#D97856"/>
+        <rect x="8" y="8"  width="14" height="1" fill="#F3A98B"/>
+        <rect x="8" y="18" width="14" height="1" fill="#B95E40"/>
+
+        <g class="eyes-doze">
+          <rect x="10" y="10" width="2" height="4" fill="#111111"/>
+          <rect x="18" y="10" width="2" height="4" fill="#111111"/>
+        </g>
+
+      </g>
+    </g>
+  </g>
+
+</svg>

@@ -1,0 +1,187 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  crab-search.svg  ·  搜索/侦查 (右钳举放大镜, 慢扫描左右)
+  ──────────────────────────────────────────────────────────────
+  · A 类循环 (0% == 100% 稳态回归)
+  · idle 基底通道: body-breathe / body-sway / shadow / claw-left-bob / leg-step / auto-blink
+  · 状态通道:
+      - .scan-arm   右钳 + 放大镜 一整体水平扫描 (-2px..+2px)
+      - .glass-tilt 放大镜轻微旋转, 像在端详
+      - .eyes-track 双眼跟着扫描方向左右挪 (±0.5px)
+  · 性格："嘴硬菜鸟工匠" — 死磕, 慢扫描, 眼睛紧跟放大镜
+  · magnifying-glass 几何 inline (照搬 crab-extras.svg, 已位移到右钳掌位置)
+  · viewBox 0 0 30 30 + crispEdges
+-->
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 30 30"
+     shape-rendering="crispEdges">
+
+  <title>crab-search</title>
+
+  <style>
+    /* ==================== idle 基底通道 ==================== */
+    .body-breathe { animation: crab-breathe 4.8s ease-in-out infinite; transform-origin: 15px 18px; }
+    @keyframes crab-breathe {
+      0%   { transform: translateY(0)    scaleY(1);    }
+      30%  { transform: translateY(-1px) scaleY(1.04); }
+      45%  { transform: translateY(-1px) scaleY(1.04); }
+      100% { transform: translateY(0)    scaleY(1);    }
+    }
+    .body-sway { animation: crab-sway 6.7s ease-in-out infinite; transform-origin: 15px 18px; }
+    @keyframes crab-sway {
+      0%, 100% { transform: translateX(0); }
+      25%      { transform: translateX(-0.3px); }
+      75%      { transform: translateX(0.3px); }
+    }
+    #shadow { transform-origin: 15px 24.5px; animation: crab-shadow 5.3s ease-in-out infinite; }
+    @keyframes crab-shadow {
+      0%, 100% { transform: scaleX(1);    opacity: 1; }
+      50%      { transform: scaleX(0.85); opacity: 0.6; }
+    }
+
+    /* 左钳 idle bob */
+    #claw-left { transform-box: fill-box; transform-origin: center; animation: claw-bob 3.6s ease-in-out infinite; }
+    @keyframes claw-bob {
+      0%, 100% { transform: translateY(0); }
+      50%      { transform: translateY(-0.6px); }
+    }
+
+    /* 腿步态 (idle, 慢) */
+    #leg-1, #leg-2, #leg-3, #leg-4 { transform-box: fill-box; transform-origin: top center; }
+    #leg-1 { animation: leg-step 7s linear infinite;          }
+    #leg-3 { animation: leg-step 7s linear infinite;          }
+    #leg-2 { animation: leg-step 7s linear infinite -0.245s;  }
+    #leg-4 { animation: leg-step 7s linear infinite -0.245s;  }
+    @keyframes leg-step {
+      0%   { transform: rotate(0deg)   scaleY(1);   }
+      7%   { transform: rotate(-25deg) scaleY(0.7); }
+      14%  { transform: rotate(0deg)   scaleY(1);   }
+      72%  { transform: rotate(0deg)   scaleY(1);   }
+      79%  { transform: rotate(-25deg) scaleY(0.7); }
+      86%  { transform: rotate(0deg)   scaleY(1);   }
+      100% { transform: rotate(0deg)   scaleY(1);   }
+    }
+
+    .eyes-blink-wrap {
+      transform-box: fill-box;
+      transform-origin: 15px 12px;
+      animation: auto-blink 7.3s steps(1) infinite;
+    }
+    @keyframes auto-blink {
+      0%, 17.9%    { transform: scaleY(1); }
+      18%, 19%     { transform: scaleY(0.05); }
+      19.1%, 66%   { transform: scaleY(1); }
+      66.5%, 67.5% { transform: scaleY(0.05); }
+      68%, 100%    { transform: scaleY(1); }
+    }
+
+    /* ==================== 状态通道: 搜索扫描 ==================== */
+
+    /* 右钳 + 放大镜 整体水平扫描 (慢, 4.4s 一个来回) */
+    .scan-arm {
+      transform-origin: 24px 13px;
+      animation: scan-sweep 4.4s ease-in-out infinite;
+    }
+    @keyframes scan-sweep {
+      0%, 100% { transform: translate(-2px, -1px) rotate(-4deg); }  /* 扫到左 */
+      25%      { transform: translate(0px,  -1px) rotate(0deg);  }
+      50%      { transform: translate(2px,  -1px) rotate(4deg);  }  /* 扫到右 */
+      75%      { transform: translate(0px,  -1px) rotate(0deg);  }
+    }
+
+    /* 放大镜本体: 轻微 wobble + 间歇 1px 高光闪 (端详感) */
+    .glass-tilt {
+      transform-origin: 30px 9px;
+      animation: glass-wobble 2.2s ease-in-out infinite;
+    }
+    @keyframes glass-wobble {
+      0%, 100% { transform: rotate(0deg);  }
+      50%      { transform: rotate(-3deg); }
+    }
+    .glass-glint {
+      animation: glass-glint 2.2s steps(1) infinite;
+    }
+    @keyframes glass-glint {
+      0%, 40%, 100% { opacity: 1;   }
+      45%, 60%      { opacity: 0.3; }
+    }
+
+    /* 双眼跟拍 — 同步 scan-sweep 4.4s, 眼睛跟放大镜方向看 */
+    .eyes-track {
+      transform-box: fill-box;
+      transform-origin: 15px 12px;
+      animation: eyes-track 4.4s ease-in-out infinite;
+    }
+    @keyframes eyes-track {
+      0%, 100% { transform: translateX(-0.5px); }
+      25%      { transform: translateX(0);      }
+      50%      { transform: translateX(0.5px);  }
+      75%      { transform: translateX(0);      }
+    }
+  </style>
+
+  <g id="shadow">
+    <rect x="9" y="24" width="12" height="1" fill="#000000" opacity="0.28"/>
+  </g>
+
+  <g class="body-breathe">
+    <g class="body-sway">
+
+      <g id="leg-1"><rect x="8"  y="20" width="2" height="3" fill="#B95E40"/></g>
+      <g id="leg-2"><rect x="11" y="20" width="2" height="3" fill="#B95E40"/></g>
+      <g id="leg-3"><rect x="17" y="20" width="2" height="3" fill="#B95E40"/></g>
+      <g id="leg-4"><rect x="20" y="20" width="2" height="3" fill="#B95E40"/></g>
+
+      <g id="claw-left"><rect x="4" y="12" width="2" height="3" fill="#D97856"/></g>
+
+      <!-- 身体 -->
+      <rect x="7" y="7"  width="16" height="1"  fill="#D97856"/>
+      <rect x="6" y="8"  width="18" height="11" fill="#D97856"/>
+      <rect x="7" y="19" width="16" height="1"  fill="#D97856"/>
+      <rect x="8" y="8"  width="14" height="1"  fill="#F3A98B"/>
+      <rect x="8" y="18" width="14" height="1"  fill="#B95E40"/>
+
+      <!-- 双眼 (跟拍扫描方向, 内嵌 blink) -->
+      <g class="eyes-track">
+        <g class="eyes-blink-wrap">
+          <rect x="10" y="10" width="2" height="4" fill="#111111"/>
+          <rect x="18" y="10" width="2" height="4" fill="#111111"/>
+          <rect x="10" y="10" width="1" height="1" fill="#FFFFFF"/>
+          <rect x="18" y="10" width="1" height="1" fill="#FFFFFF"/>
+        </g>
+      </g>
+
+      <!-- 右钳 + 放大镜 (整组扫描) -->
+      <g class="scan-arm">
+        <!-- 右钳 (举起位, 已上移 1px 抬高姿态) -->
+        <rect x="24" y="12" width="2" height="3" fill="#D97856"/>
+
+        <!-- 放大镜 (inline 几何, 已位移到右钳上方 — 锚点 29~33 x 7~11) -->
+        <g class="glass-tilt">
+          <!-- 金属框外圈 -->
+          <rect x="29" y="7"  width="3" height="1" fill="#555555"/>
+          <rect x="28" y="8"  width="1" height="1" fill="#555555"/>
+          <rect x="32" y="8"  width="1" height="1" fill="#555555"/>
+          <rect x="28" y="9"  width="1" height="1" fill="#555555"/>
+          <rect x="32" y="9"  width="1" height="1" fill="#555555"/>
+          <rect x="28" y="10" width="1" height="1" fill="#555555"/>
+          <rect x="32" y="10" width="1" height="1" fill="#555555"/>
+          <rect x="29" y="11" width="3" height="1" fill="#555555"/>
+          <!-- 玻璃片 (浅蓝) -->
+          <rect x="29" y="8"  width="3" height="1" fill="#A0D8E8"/>
+          <rect x="29" y="9"  width="3" height="1" fill="#A0D8E8"/>
+          <rect x="29" y="10" width="3" height="1" fill="#A0D8E8"/>
+          <!-- 玻璃高光 (闪烁) -->
+          <g class="glass-glint">
+            <rect x="29" y="8" width="1" height="1" fill="#FFFFFF"/>
+          </g>
+          <!-- 手柄 (阶梯对角线, 接到右钳) -->
+          <rect x="27" y="12" width="2" height="1" fill="#8B6240"/>
+          <rect x="26" y="13" width="2" height="1" fill="#8B6240"/>
+        </g>
+      </g>
+
+    </g>
+  </g>
+
+</svg>

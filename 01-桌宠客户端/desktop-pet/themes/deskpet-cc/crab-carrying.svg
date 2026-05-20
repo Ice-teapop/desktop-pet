@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  crab-carrying.svg  ·  搬运 (双钳抱箱子, 身体跟拍子轻摇 — 重)
+  ──────────────────────────────────────────────────────────────
+  · A 类循环 (0% == 100% 稳态)
+  · idle 基底: shadow / 腿 step / blink (无 breathe — 抱重物时不喘, 改成 strain 微抖)
+  · 状态通道:
+      - .body-strain  身体微弯 + 1.4s 轻摇 (重物拍子)
+      - .claw-grip-l / .claw-grip-r  双钳贴向箱子两侧 (静止位 + 微紧)
+      - .box-bob      箱子跟身体节拍上下挪 (惯性)
+      - .sweat-drip   零星汗珠 (嘴硬死磕, 但其实很沉)
+      - .eyes-strain  眼睛眯小 (用力)
+      - 腿 step       走路节奏比 idle 慢一点, 沉重感
+  · 性格："嘴硬菜鸟工匠" — 死磕, 抗不住但绝不放
+  · carrying-box 几何 inline (照搬 crab-extras.svg, 移到 y=15..21 抱在身前)
+  · viewBox 0 0 30 30 + crispEdges
+-->
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 30 30"
+     shape-rendering="crispEdges">
+
+  <title>crab-carrying</title>
+
+  <style>
+    /* ==================== 基底通道 ==================== */
+
+    /* 身体微弯 + 重物节拍 1.4s 轻摇 (前后微移 + scaleY 压一点) */
+    .body-strain {
+      transform-origin: 15px 22px;
+      animation: body-strain 1.4s ease-in-out infinite;
+    }
+    @keyframes body-strain {
+      0%, 100% { transform: translateY(0.5px)  scaleY(0.97) rotate(-1deg); }
+      50%      { transform: translateY(1px)    scaleY(0.95) rotate(1deg);  }
+    }
+
+    /* 阴影: 跟拍子, 略扁 (重) */
+    #shadow {
+      transform-origin: 15px 24.5px;
+      animation: shadow-strain 1.4s ease-in-out infinite;
+    }
+    @keyframes shadow-strain {
+      0%, 100% { transform: scaleX(1.05); opacity: 0.85; }
+      50%      { transform: scaleX(1.1);  opacity: 0.95; }
+    }
+
+    /* 腿步态 (比 idle 慢一档, 沉重) */
+    #leg-1, #leg-2, #leg-3, #leg-4 { transform-box: fill-box; transform-origin: top center; }
+    #leg-1 { animation: leg-heavy 1.4s ease-in-out infinite;        }
+    #leg-3 { animation: leg-heavy 1.4s ease-in-out infinite;        }
+    #leg-2 { animation: leg-heavy 1.4s ease-in-out infinite -0.7s;  }
+    #leg-4 { animation: leg-heavy 1.4s ease-in-out infinite -0.7s;  }
+    @keyframes leg-heavy {
+      0%, 100% { transform: rotate(0deg)   scaleY(1);    }
+      25%      { transform: rotate(-15deg) scaleY(0.85); }
+      50%      { transform: rotate(0deg)   scaleY(1);    }
+    }
+
+    /* 双钳抓握 — 静止稳住 + 1.4s 微紧 (用力) */
+    .claw-grip-l {
+      transform-origin: 5px 17px;
+      animation: grip-l 1.4s ease-in-out infinite;
+    }
+    @keyframes grip-l {
+      0%, 100% { transform: translate(5px, 4px) rotate(20deg);   }
+      50%      { transform: translate(5px, 4px) rotate(22deg);   }
+    }
+    .claw-grip-r {
+      transform-origin: 25px 17px;
+      animation: grip-r 1.4s ease-in-out infinite;
+    }
+    @keyframes grip-r {
+      0%, 100% { transform: translate(-5px, 4px) rotate(-20deg); }
+      50%      { transform: translate(-5px, 4px) rotate(-22deg); }
+    }
+
+    /* 箱子: 跟身体节拍上下挪 (惯性) */
+    .box-bob {
+      transform-origin: 15px 18px;
+      animation: box-bob 1.4s ease-in-out infinite;
+    }
+    @keyframes box-bob {
+      0%, 100% { transform: translateY(0);    }
+      50%      { transform: translateY(0.5px);}
+    }
+
+    /* 眼睛: 用力眯 (scaleY 0.7) + 偶尔眨 */
+    .eyes-strain {
+      transform-box: fill-box;
+      transform-origin: 15px 12px;
+      animation: eyes-strain 1.4s ease-in-out infinite;
+    }
+    @keyframes eyes-strain {
+      0%, 100% { transform: scaleY(0.75); }
+      50%      { transform: scaleY(0.6);  }
+    }
+    .eyes-blink-wrap {
+      transform-box: fill-box;
+      transform-origin: 15px 12px;
+      animation: auto-blink 6.1s steps(1) infinite;
+    }
+    @keyframes auto-blink {
+      0%, 22%      { transform: scaleY(1);    }
+      22.5%, 23.5% { transform: scaleY(0.05); }
+      24%, 100%    { transform: scaleY(1);    }
+    }
+
+    /* 汗珠 (偶尔掉) — 头顶右侧 1×1 蓝点 */
+    .sweat-drip {
+      animation: sweat-drip 3.2s ease-in infinite;
+      opacity: 0;
+    }
+    @keyframes sweat-drip {
+      0%, 60%   { transform: translate(0, 0);   opacity: 0; }
+      65%       { transform: translate(0, 0);   opacity: 1; }
+      90%       { transform: translate(1px, 4px); opacity: 1; }
+      95%, 100% { transform: translate(1px, 5px); opacity: 0; }
+    }
+  </style>
+
+  <g id="shadow">
+    <rect x="9" y="24" width="12" height="1" fill="#000000" opacity="0.28"/>
+  </g>
+
+  <g class="body-strain">
+
+    <g id="leg-1"><rect x="8"  y="20" width="2" height="3" fill="#B95E40"/></g>
+    <g id="leg-2"><rect x="11" y="20" width="2" height="3" fill="#B95E40"/></g>
+    <g id="leg-3"><rect x="17" y="20" width="2" height="3" fill="#B95E40"/></g>
+    <g id="leg-4"><rect x="20" y="20" width="2" height="3" fill="#B95E40"/></g>
+
+    <!-- 身体 -->
+    <rect x="7" y="7"  width="16" height="1"  fill="#D97856"/>
+    <rect x="6" y="8"  width="18" height="11" fill="#D97856"/>
+    <rect x="7" y="19" width="16" height="1"  fill="#D97856"/>
+    <rect x="8" y="8"  width="14" height="1"  fill="#F3A98B"/>
+    <rect x="8" y="18" width="14" height="1"  fill="#B95E40"/>
+
+    <!-- 双眼 (用力眯 + 偶眨) -->
+    <g class="eyes-strain">
+      <g class="eyes-blink-wrap">
+        <rect x="10" y="10" width="2" height="4" fill="#111111"/>
+        <rect x="18" y="10" width="2" height="4" fill="#111111"/>
+        <rect x="10" y="10" width="1" height="1" fill="#FFFFFF"/>
+        <rect x="18" y="10" width="1" height="1" fill="#FFFFFF"/>
+      </g>
+    </g>
+
+    <!-- 嘴 (一字咬牙) -->
+    <rect x="13" y="16" width="4" height="1" fill="#7A3D24"/>
+
+    <!-- 头顶汗珠 (蓝色, 偶尔掉) -->
+    <g class="sweat-drip">
+      <rect x="20" y="6" width="1" height="2" fill="#40C4FF"/>
+      <rect x="20.25" y="5.5" width="0.5" height="0.5" fill="#80D8FF"/>
+    </g>
+
+    <!-- 左钳: 抓箱子左下侧 (位移到 x=10 y=21) -->
+    <g class="claw-grip-l">
+      <rect x="4" y="12" width="2" height="3" fill="#D97856"/>
+    </g>
+
+    <!-- 右钳: 抓箱子右下侧 (位移到 x=20 y=21) -->
+    <g class="claw-grip-r">
+      <rect x="24" y="12" width="2" height="3" fill="#D97856"/>
+    </g>
+
+    <!-- 箱子 (inline 几何, 抱在身前 x=10..20 y=15..21) -->
+    <g class="box-bob">
+      <!-- 箱体主色 -->
+      <rect x="10" y="15" width="10" height="6" fill="#A06840"/>
+      <!-- 顶部高光 -->
+      <rect x="10" y="15" width="10" height="1" fill="#C58758"/>
+      <!-- 盖子横缝 (中段稍上) -->
+      <rect x="10" y="17" width="10" height="1" fill="#7A4D2E"/>
+      <!-- 垂直中缝 -->
+      <rect x="14" y="15" width="2"  height="2" fill="#7A4D2E"/>
+      <!-- 底部暗带 -->
+      <rect x="10" y="20" width="10" height="1" fill="#7A4D2E"/>
+      <!-- "易碎" 标签角 (1×1 白点) -->
+      <rect x="11" y="18" width="1" height="1" fill="#F3D8A4"/>
+    </g>
+
+  </g>
+
+</svg>

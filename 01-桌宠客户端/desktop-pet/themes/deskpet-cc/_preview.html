@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>DeskPet · deskpet-cc theme — full state preview</title>
+<style>
+  body { margin: 0; padding: 24px; background: #2a2a2a; color: #eee; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+  h2 { margin: 0 0 6px; font-weight: 500; }
+  .sub { opacity: 0.7; font-size: 12px; margin-bottom: 16px; }
+  .group-title { font-size: 13px; opacity: 0.7; margin: 26px 0 10px; text-transform: uppercase; letter-spacing: 0.06em; border-top: 1px solid #444; padding-top: 16px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px; }
+  .cell { background: #1a1a1a; border-radius: 8px; padding: 14px 12px; text-align: center; }
+  .cell-app { background: linear-gradient(180deg, #b8d4f0 0%, #e8f0f8 100%); color: #222; }
+  .label { font-size: 11px; opacity: 0.85; margin-top: 8px; font-family: 'SF Mono', monospace; }
+  .note { font-size: 10px; opacity: 0.55; margin-top: 2px; }
+  img { display: block; width: 140px; height: 140px; margin: 0 auto; image-rendering: pixelated; }
+  .reload-btn { display: inline-block; padding: 6px 14px; background: #5865C8; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 12px; margin-left: 8px; }
+</style>
+</head>
+<body>
+<h2>DeskPet · deskpet-cc — 全 state preview <button class="reload-btn" onclick="location.reload()">⟳ 重看</button></h2>
+<div class="sub">9 个 sprite · viewBox 0 0 30 30 · 像素 #FF6A3D 调色板 · 全 CSS 动画无 GIF</div>
+
+<div class="group-title">▸ 含 renderer hook (inline component)</div>
+<div class="grid">
+  <div class="cell cell-app">
+    <img src="crab-idle-follow.svg">
+    <div class="label">crab-idle-follow</div>
+    <div class="note">eyes/body/shadow rAF hook + 5 通道异步动画</div>
+  </div>
+  <div class="cell cell-app">
+    <img src="crab-working-wizard.svg">
+    <div class="label">crab-working-wizard</div>
+    <div class="note">idle + 巫师帽 + 4.6s 魔法事故 sequence</div>
+  </div>
+</div>
+
+<div class="group-title">▸ LLM 流状态</div>
+<div class="grid">
+  <div class="cell">
+    <img src="crab-thinking.svg">
+    <div class="label">crab-thinking</div>
+    <div class="note">? 泡泡脉动 + 头前倾</div>
+  </div>
+  <div class="cell">
+    <img src="crab-happy.svg">
+    <div class="label">crab-happy</div>
+    <div class="note">^^ 眼 + 弹跳 + 上扬嘴 + 钳举手</div>
+  </div>
+  <div class="cell">
+    <img src="crab-error.svg">
+    <div class="label">crab-error</div>
+    <div class="note">X X 眼 + 后仰 + 高频抖动</div>
+  </div>
+</div>
+
+<div class="group-title">▸ 活动 / 工作</div>
+<div class="grid">
+  <div class="cell">
+    <img src="crab-typing.svg">
+    <div class="label">crab-typing</div>
+    <div class="note">头低 + 双钳交替打字 0.5s</div>
+  </div>
+  <div class="cell">
+    <img src="crab-conducting.svg">
+    <div class="label">crab-conducting</div>
+    <div class="note">指挥棒 60bpm + 头顶 visualizer + 6 颗乐符</div>
+  </div>
+  <div class="cell">
+    <img src="crab-sweeping.svg">
+    <div class="label">crab-sweeping</div>
+    <div class="note">扫帚 3-stroke 节奏 + 灰尘颗粒</div>
+  </div>
+  <div class="cell">
+    <img src="crab-hammer.svg">
+    <div class="label">crab-hammer</div>
+    <div class="note">锤击 1.2s + 工作台热铁 + 火花</div>
+  </div>
+  <div class="cell">
+    <img src="crab-search.svg">
+    <div class="label">crab-search</div>
+    <div class="note">放大镜扫描 4.4s + 眼跟拍</div>
+  </div>
+  <div class="cell">
+    <img src="crab-carrying.svg">
+    <div class="label">crab-carrying</div>
+    <div class="note">抱箱子 + 咬牙嘴 + 偶尔汗珠</div>
+  </div>
+</div>
+
+<div class="group-title">▸ 交互 / 状态</div>
+<div class="grid">
+  <div class="cell">
+    <img src="crab-peek.svg">
+    <div class="label">crab-peek</div>
+    <div class="note">从屏幕外探头偷看 3.6s</div>
+  </div>
+  <div class="cell">
+    <img src="crab-wave.svg">
+    <div class="label">crab-wave</div>
+    <div class="note">招手挥 2 次歇 1.5s 友好问候</div>
+  </div>
+</div>
+
+<div class="group-title">▸ 睡眠链（5 步 sprite，5 专家联合设计）</div>
+<div class="grid">
+  <div class="cell">
+    <img src="crab-yawning.svg">
+    <div class="label">crab-yawning (1/5)</div>
+    <div class="note">C 类 3.8s · 哈欠 + O 嘴 + 眼泪 → 末态 = doze 起态</div>
+  </div>
+  <div class="cell">
+    <img src="crab-dozing.svg">
+    <div class="label">crab-dozing (2/5)</div>
+    <div class="note">A 类 4s loop · squashed 站姿 + 眼皮挣扎 (嘴硬不躺)</div>
+  </div>
+  <div class="cell">
+    <img src="crab-collapsing.svg">
+    <div class="label">crab-collapsing (3/5)</div>
+    <div class="note">C 类 1s · 一节节失力 → splooted (零跳变)</div>
+  </div>
+  <div class="cell">
+    <img src="crab-sleeping.svg">
+    <div class="label">crab-sleeping (4/5)</div>
+    <div class="note">A 类 6.8s loop · splooted 主子摊平 + zZz</div>
+  </div>
+  <div class="cell">
+    <img src="crab-wake.svg">
+    <div class="label">crab-wake (5/5)</div>
+    <div class="note">C 类 1.5s · 惊醒 + X X 晕 + 弹起 + 站定</div>
+  </div>
+</div>
+
+<div class="group-title">▸ idle / 系统</div>
+<div class="grid">
+  <div class="cell">
+    <img src="crab-notification.svg">
+    <div class="label">crab-notification</div>
+    <div class="note">! 黄红脉动 + 跳 2 下</div>
+  </div>
+  <div class="cell">
+    <img src="crab-mini-idle.svg">
+    <div class="label">crab-mini-idle</div>
+    <div class="note">tray 80×80 简化版</div>
+  </div>
+</div>
+
+<div class="group-title">▸ 你的原始资产</div>
+<div class="grid">
+  <div class="cell">
+    <img src="crab-base.svg">
+    <div class="label">crab-base</div>
+    <div class="note">canonical 静态</div>
+  </div>
+  <div class="cell">
+    <img src="crab-extras.svg" style="width:auto;height:280px;">
+    <div class="label">crab-extras</div>
+    <div class="note">配件 / 表情库</div>
+  </div>
+</div>
+
+<div style="margin-top:30px;padding:12px 16px;background:#333;border-radius:6px;font-size:13px;line-height:1.6">
+  <strong>看 30s+：</strong>每个 sprite 自循环播放，盯着看几遍找问题。<br>
+  <strong>P0 sprite 完成度：</strong>9 / 9 ✅。下一步要么调具体哪个，要么进入主题集成（改 theme.json + App.tsx imports + 发 v0.4.9）。
+</div>
+
+</body>
+</html>

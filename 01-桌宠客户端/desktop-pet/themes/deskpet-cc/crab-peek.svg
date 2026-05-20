@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  crab-peek.svg  ·  DeskPet 探头偷看 sprite (右→左 peek)
+  ──────────────────────────────────────────────────────────────
+  · 性格: 嘴硬菜鸟从屏幕右边探头 — "我不是好奇, 是确认"
+  · 起态: crab 完全藏在 viewBox 右边外 (translateX +20)
+  · 探头: 滑出到画面右侧，露出左半身 (translateX +10) + 微微歪头向左 (rotate -3°)
+  · hold 1s 让眼睛朝左瞟一眼
+  · 缩回: 滑回 viewBox 外
+  · 探头侧露出的钳子 (左钳) 微抬"巡视"一下假装不是好奇
+  · viewBox 0 0 30 30 + crispEdges
+  · A 类循环 3.6s
+-->
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 30 30"
+     shape-rendering="crispEdges">
+
+  <title>crab-peek (right-to-left peek)</title>
+
+  <style>
+    /* 整身水平平移: 从 viewBox 右外 → 探出左半 → 缩回 */
+    #peek-body {
+      transform-origin: 15px 22px;
+      animation: peek-cycle 3.6s ease-in-out infinite;
+    }
+    @keyframes peek-cycle {
+      0%,  10%  { transform: translateX(20px) rotate(0deg);  }  /* 完全藏在右边外 */
+      30%       { transform: translateX(10px) rotate(-3deg); }  /* 探出左半身 + 微歪 */
+      55%       { transform: translateX(10px) rotate(-3deg); }  /* hold */
+      75%       { transform: translateX(20px) rotate(0deg);  }  /* 缩回 */
+      100%      { transform: translateX(20px) rotate(0deg);  }  /* hidden hold */
+    }
+
+    /* 阴影同步 + 跟着 body 平移 (探出时才显示) */
+    #shadow-peek {
+      animation: shadow-peek 3.6s ease-in-out infinite;
+    }
+    @keyframes shadow-peek {
+      0%,  10%, 100% { opacity: 0;   transform: translateX(20px); }
+      30%, 55%       { opacity: 0.3; transform: translateX(10px); }
+      75%            { opacity: 0;   transform: translateX(20px); }
+    }
+
+    /* 瞳孔向左瞟: 探出阶段瞳孔从左上 → 左偏 1px (好奇张望) */
+    #eye-pupils {
+      animation: peek-glance 3.6s ease-in-out infinite;
+    }
+    @keyframes peek-glance {
+      0%, 20%, 80%, 100% { transform: translateX(0); }
+      30%, 60%           { transform: translateX(-1px); }
+    }
+
+    /* 左钳 (探头露出侧) 微抬巡视 — "假装不是好奇" */
+    #claw-scout {
+      transform-origin: 5px 13px;
+      animation: peek-claw 3.6s ease-in-out infinite;
+    }
+    @keyframes peek-claw {
+      0%,  25%, 70%, 100% { transform: rotate(0deg);  }
+      40%, 55%            { transform: rotate(-12deg);}
+    }
+  </style>
+
+  <!-- 阴影 (跟着 body 滑出/滑回) -->
+  <g id="shadow-peek">
+    <rect x="9" y="24" width="12" height="1" fill="#000000" opacity="0.28"/>
+  </g>
+
+  <!-- 整个身体: 探头载体 -->
+  <g id="peek-body">
+
+    <!-- 四条腿 -->
+    <rect x="8"  y="20" width="2" height="3" fill="#B95E40"/>
+    <rect x="11" y="20" width="2" height="3" fill="#B95E40"/>
+    <rect x="17" y="20" width="2" height="3" fill="#B95E40"/>
+    <rect x="20" y="20" width="2" height="3" fill="#B95E40"/>
+
+    <!-- 左钳 (探头露出侧 — 巡视微抬) -->
+    <g id="claw-scout">
+      <rect x="4" y="12" width="2" height="3" fill="#D97856"/>
+    </g>
+
+    <!-- 右钳 (藏侧, 静止) -->
+    <rect x="24" y="12" width="2" height="3" fill="#D97856"/>
+
+    <!-- 身体本体 -->
+    <rect x="7" y="7"  width="16" height="1"  fill="#D97856"/>
+    <rect x="6" y="8"  width="18" height="11" fill="#D97856"/>
+    <rect x="7" y="19" width="16" height="1"  fill="#D97856"/>
+    <rect x="8" y="8"  width="14" height="1"  fill="#F3A98B"/>
+    <rect x="8" y="18" width="14" height="1"  fill="#B95E40"/>
+
+    <!-- 眼睛 (黑底) -->
+    <rect x="10" y="10" width="2" height="4" fill="#111111"/>
+    <rect x="18" y="10" width="2" height="4" fill="#111111"/>
+
+    <!-- 瞳孔白点 (探出时向左偏 1px = 朝左瞟) -->
+    <g id="eye-pupils">
+      <rect x="10" y="10" width="1" height="1" fill="#FFFFFF"/>
+      <rect x="18" y="10" width="1" height="1" fill="#FFFFFF"/>
+    </g>
+
+  </g>
+
+</svg>

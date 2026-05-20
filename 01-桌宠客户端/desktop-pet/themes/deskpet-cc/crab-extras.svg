@@ -1,0 +1,329 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  crab-extras.svg  ·  配件库 + 表情库（纯像素版）
+  ──────────────────────────────────────────────────────────────
+  · 全像素硬边渲染：shape-rendering="crispEdges"
+  · 每个配件 / 表情都是独立 <g id="...">，由 <rect> 组成
+  · 配件锚点对齐 crab-base 30×30 像素网格
+-->
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 200 120"
+     width="1000" height="600"
+     shape-rendering="crispEdges">
+
+  <title>crab-extras (pixel)</title>
+
+  <defs>
+    <!-- ════ Base 螃蟹（无眼睛版）════ -->
+    <g id="crab-noeyes">
+      <rect x="9"  y="24" width="12" height="1" fill="#000000" opacity="0.28"/>
+      <rect x="8"  y="20" width="2"  height="3" fill="#B95E40"/>
+      <rect x="11" y="20" width="2"  height="3" fill="#B95E40"/>
+      <rect x="17" y="20" width="2"  height="3" fill="#B95E40"/>
+      <rect x="20" y="20" width="2"  height="3" fill="#B95E40"/>
+      <rect x="4"  y="12" width="2"  height="3" fill="#D97856"/>
+      <rect x="24" y="12" width="2"  height="3" fill="#D97856"/>
+      <rect x="7"  y="7"  width="16" height="1"  fill="#D97856"/>
+      <rect x="6"  y="8"  width="18" height="11" fill="#D97856"/>
+      <rect x="7"  y="19" width="16" height="1"  fill="#D97856"/>
+      <rect x="8"  y="8"  width="14" height="1"  fill="#F3A98B"/>
+      <rect x="8"  y="18" width="14" height="1"  fill="#B95E40"/>
+    </g>
+
+    <!-- ════ 默认睁眼 ════ -->
+    <g id="eyes-open">
+      <rect x="10" y="10" width="2" height="4" fill="#111111"/>
+      <rect x="18" y="10" width="2" height="4" fill="#111111"/>
+      <rect x="10" y="10" width="1" height="1" fill="#FFFFFF"/>
+      <rect x="18" y="10" width="1" height="1" fill="#FFFFFF"/>
+    </g>
+
+    <!-- ════ 配件 1：wizard-hat（用户终定稿：4 色阶紫 + 5 sub-group + 折痕 + 星点）════
+         配色：
+           hat-cone   #5865C8  中紫
+           hat-fold   #404CB0  深紫
+           hat-band   #2C2557  暗紫
+           hat-brim   #6A70D8  亮紫
+           stars      #FFFFFF
+         坐标已从原始 viewBox(-15 -25 45 45) 转换到本文件 viewBox(0 0 30 30)：
+         shift (x+7, y+1)，帽檐落在 y=6 紧贴 body 顶 y=7。
+    -->
+    <g id="wizard-hat">
+      <!-- 帽身锥形主体 -->
+      <g id="hat-cone" fill="#5865C8">
+        <rect x="10" y="-4" width="4"  height="1"/>
+        <rect x="9"  y="-3" width="6"  height="1"/>
+        <rect x="9"  y="-2" width="7"  height="1"/>
+        <rect x="11" y="-1" width="6"  height="1"/>
+        <rect x="10" y="0"  width="8"  height="1"/>
+        <rect x="10" y="1"  width="9"  height="1"/>
+        <rect x="9"  y="2"  width="11" height="1"/>
+        <rect x="9"  y="3"  width="11" height="1"/>
+      </g>
+
+      <!-- 帽身折痕（深紫小块）-->
+      <g id="hat-fold" fill="#404CB0">
+        <rect x="11" y="-2" width="1" height="1"/>
+        <rect x="11" y="-1" width="1" height="1"/>
+      </g>
+
+      <!-- 帽身星星（白色随机点）-->
+      <g id="hat-stars" fill="#FFFFFF">
+        <rect x="13" y="-3" width="1" height="1"/>
+        <rect x="10" y="-2" width="1" height="1"/>
+        <rect x="14" y="-1" width="1" height="1"/>
+        <rect x="15" y="1"  width="1" height="1"/>
+        <rect x="11" y="2"  width="1" height="1"/>
+        <rect x="17" y="3"  width="1" height="1"/>
+      </g>
+
+      <!-- 帽身底带（深紫横条）-->
+      <g id="hat-band" fill="#2C2557">
+        <rect x="8" y="4" width="13" height="2"/>
+      </g>
+
+      <!-- 帽檐（加厚 2px，亮紫宽条，分三段方便边缘弯曲动画）-->
+      <g id="hat-brim" fill="#6A70D8">
+        <rect class="brim-side"   x="4"  y="6" width="5"  height="2"/>
+        <rect class="brim-center" x="9"  y="6" width="11" height="2"/>
+        <rect class="brim-side"   x="20" y="6" width="5"  height="2"/>
+      </g>
+    </g>
+
+    <!-- ════ 配件 2：headphones（炫酷加 LED 灯）════ -->
+    <g id="headphones">
+      <!-- 头梁主体（粗弧）-->
+      <rect x="11" y="2" width="8"  height="1" fill="#1F1F1F"/>
+      <rect x="9"  y="3" width="12" height="1" fill="#1F1F1F"/>
+      <rect x="8"  y="4" width="2"  height="1" fill="#1F1F1F"/>
+      <rect x="20" y="4" width="2"  height="1" fill="#1F1F1F"/>
+      <rect x="7"  y="5" width="1"  height="2" fill="#1F1F1F"/>
+      <rect x="22" y="5" width="1"  height="2" fill="#1F1F1F"/>
+      <!-- 头梁顶部高光（金属感）-->
+      <rect x="12" y="2" width="6"  height="1" fill="#666666"/>
+      <rect x="10" y="3" width="10" height="1" fill="#444444"/>
+      <!-- 头梁顶部 1px 白光 -->
+      <rect x="14" y="2" width="2"  height="1" fill="#999999"/>
+      <!-- 连接线（梁到耳罩）-->
+      <rect x="5"  y="7" width="1"  height="3" fill="#1F1F1F"/>
+      <rect x="24" y="7" width="1"  height="3" fill="#1F1F1F"/>
+      <!-- 左耳罩（4×5 加厚）-->
+      <rect x="2"  y="10" width="4" height="5" fill="#1F1F1F"/>
+      <rect x="3"  y="11" width="2" height="3" fill="#555555"/>
+      <rect x="3"  y="11" width="1" height="1" fill="#777777"/>
+      <!-- 左耳罩 LED（红色）-->
+      <rect x="4"  y="14" width="1" height="1" fill="#FF3344"/>
+      <!-- 右耳罩 -->
+      <rect x="24" y="10" width="4" height="5" fill="#1F1F1F"/>
+      <rect x="25" y="11" width="2" height="3" fill="#555555"/>
+      <rect x="25" y="11" width="1" height="1" fill="#777777"/>
+      <!-- 右耳罩 LED（青色）-->
+      <rect x="26" y="14" width="1" height="1" fill="#33DDFF"/>
+    </g>
+
+    <!-- ════ 配件 3：conducting-baton（指挥棒，像素阶梯对角线）════ -->
+    <g id="conducting-baton">
+      <!-- 手柄（黑色 2×2 立方）-->
+      <rect x="26" y="13" width="2" height="2" fill="#2A1F18"/>
+      <!-- 棒身（像素阶梯，每格 1 像素往右上）-->
+      <rect x="28" y="11" width="1" height="1" fill="#FFFFFF"/>
+      <rect x="29" y="10" width="1" height="1" fill="#FFFFFF"/>
+      <rect x="30" y="9"  width="1" height="1" fill="#FFFFFF"/>
+      <rect x="31" y="8"  width="1" height="1" fill="#FFFFFF"/>
+      <rect x="32" y="7"  width="1" height="1" fill="#FFFFFF"/>
+      <rect x="33" y="6"  width="1" height="1" fill="#FFFFFF"/>
+      <rect x="34" y="5"  width="1" height="1" fill="#FFFFFF"/>
+    </g>
+
+    <!-- ════ 配件 4：eyes-closed-happy（开心眯眼像素 ^^）════ -->
+    <g id="eyes-closed-happy">
+      <!-- 左眼 ^ -->
+      <rect x="11" y="11" width="1" height="1" fill="#111111"/>
+      <rect x="10" y="12" width="1" height="1" fill="#111111"/>
+      <rect x="12" y="12" width="1" height="1" fill="#111111"/>
+      <!-- 右眼 ^ -->
+      <rect x="19" y="11" width="1" height="1" fill="#111111"/>
+      <rect x="18" y="12" width="1" height="1" fill="#111111"/>
+      <rect x="20" y="12" width="1" height="1" fill="#111111"/>
+    </g>
+
+    <!-- ════ 工作道具 1：broom（细节升级版）════ -->
+    <g id="broom">
+      <!-- 鬃毛顶部亮黄（最外层）-->
+      <rect x="28" y="2" width="4" height="1" fill="#F5C870"/>
+      <!-- 鬃毛主层（梯形）-->
+      <rect x="27" y="3" width="6" height="1" fill="#E0B373"/>
+      <rect x="27" y="4" width="6" height="1" fill="#E0B373"/>
+      <!-- 鬃毛分股（深色竖线，5 根）-->
+      <rect x="27" y="2" width="1" height="3" fill="#B7864D"/>
+      <rect x="29" y="2" width="1" height="3" fill="#B7864D"/>
+      <rect x="31" y="2" width="1" height="3" fill="#B7864D"/>
+      <rect x="32" y="3" width="1" height="2" fill="#B7864D"/>
+      <rect x="28" y="3" width="1" height="2" fill="#C99458"/>
+      <rect x="30" y="3" width="1" height="2" fill="#C99458"/>
+      <!-- 扎绳多层（深棕 + 棕 + 深棕）-->
+      <rect x="27" y="5" width="6" height="1" fill="#3D2A18"/>
+      <rect x="27" y="6" width="6" height="1" fill="#7A5230"/>
+      <rect x="27" y="7" width="6" height="1" fill="#3D2A18"/>
+      <!-- 扎绳交叉绳纹 -->
+      <rect x="28" y="6" width="1" height="1" fill="#5C3E22"/>
+      <rect x="30" y="6" width="1" height="1" fill="#5C3E22"/>
+      <rect x="32" y="6" width="1" height="1" fill="#5C3E22"/>
+      <!-- 木柄主体 -->
+      <rect x="29" y="8"  width="2" height="11" fill="#8B6240"/>
+      <!-- 木柄左侧高光 -->
+      <rect x="29" y="8"  width="1" height="11" fill="#A8794D"/>
+      <!-- 木纹颗粒（深棕点）-->
+      <rect x="30" y="10" width="1" height="1" fill="#6B4220"/>
+      <rect x="29" y="13" width="1" height="1" fill="#6B4220"/>
+      <rect x="30" y="16" width="1" height="1" fill="#6B4220"/>
+      <!-- 末端深色 -->
+      <rect x="29" y="18" width="2" height="1" fill="#5C3E22"/>
+    </g>
+
+    <!-- ════ 工作道具 2：hammer（细节升级版）════ -->
+    <g id="hammer">
+      <!-- 锤头顶部高光（亮金属）-->
+      <rect x="26" y="3" width="8" height="1" fill="#C8C8C8"/>
+      <!-- 锤头主体 -->
+      <rect x="26" y="4" width="8" height="1" fill="#888888"/>
+      <rect x="26" y="5" width="8" height="1" fill="#7F7F7F"/>
+      <!-- 锤头左侧高光（亮一条竖线）-->
+      <rect x="26" y="4" width="1" height="2" fill="#B0B0B0"/>
+      <!-- 锤头右侧暗影 -->
+      <rect x="33" y="3" width="1" height="3" fill="#5A5A5A"/>
+      <!-- 锤头底部暗带 -->
+      <rect x="26" y="6" width="8" height="1" fill="#4F4F4F"/>
+      <!-- 高光闪点（白色 1px）-->
+      <rect x="28" y="4" width="1" height="1" fill="#FFFFFF"/>
+      <!-- 金属环箍（连接处）-->
+      <rect x="28" y="7" width="4" height="1" fill="#3F3F3F"/>
+      <rect x="28" y="7" width="1" height="1" fill="#5A5A5A"/>
+      <!-- 木柄主体 -->
+      <rect x="29" y="8"  width="2" height="10" fill="#8B6240"/>
+      <!-- 木柄左侧高光 -->
+      <rect x="29" y="8"  width="1" height="10" fill="#A8794D"/>
+      <!-- 木纹颗粒 -->
+      <rect x="30" y="9"  width="1" height="1" fill="#6B4220"/>
+      <rect x="30" y="14" width="1" height="1" fill="#6B4220"/>
+      <!-- 手柄缠绕带（深色，2 道）-->
+      <rect x="29" y="11" width="2" height="1" fill="#3D2A18"/>
+      <rect x="29" y="15" width="2" height="1" fill="#3D2A18"/>
+      <!-- 末端深色 -->
+      <rect x="29" y="17" width="2" height="1" fill="#5C3E22"/>
+    </g>
+
+    <!-- ════ 工作道具 3：magnifying-glass（像素放大镜）════ -->
+    <g id="magnifying-glass">
+      <!-- 玻璃片（像素圆，5×5 去角）-->
+      <rect x="29" y="7"  width="3" height="1" fill="#A0D8E8"/>
+      <rect x="28" y="8"  width="5" height="1" fill="#A0D8E8"/>
+      <rect x="28" y="9"  width="5" height="1" fill="#A0D8E8"/>
+      <rect x="28" y="10" width="5" height="1" fill="#A0D8E8"/>
+      <rect x="29" y="11" width="3" height="1" fill="#A0D8E8"/>
+      <!-- 玻璃高光（1px 白色）-->
+      <rect x="29" y="8" width="1" height="1" fill="#FFFFFF"/>
+      <!-- 金属框（深灰描边） -->
+      <rect x="29" y="7"  width="3" height="1" fill="#555555"/>
+      <rect x="28" y="8"  width="1" height="1" fill="#555555"/>
+      <rect x="32" y="8"  width="1" height="1" fill="#555555"/>
+      <rect x="28" y="10" width="1" height="1" fill="#555555"/>
+      <rect x="32" y="10" width="1" height="1" fill="#555555"/>
+      <rect x="29" y="11" width="3" height="1" fill="#555555"/>
+      <!-- 重画玻璃内部蓝色 + 高光 -->
+      <rect x="29" y="8"  width="3" height="1" fill="#A0D8E8"/>
+      <rect x="29" y="9"  width="3" height="1" fill="#A0D8E8"/>
+      <rect x="29" y="10" width="3" height="1" fill="#A0D8E8"/>
+      <rect x="29" y="8"  width="1" height="1" fill="#FFFFFF"/>
+      <!-- 手柄（阶梯对角线）-->
+      <rect x="32" y="12" width="2" height="1" fill="#8B6240"/>
+      <rect x="33" y="13" width="2" height="1" fill="#8B6240"/>
+      <rect x="34" y="14" width="2" height="1" fill="#8B6240"/>
+    </g>
+
+    <!-- ════ 工作道具 4：carrying-box（像素搬运箱）════ -->
+    <g id="carrying-box">
+      <!-- 箱体 -->
+      <rect x="10" y="18" width="10" height="6" fill="#A06840"/>
+      <!-- 顶部高光 -->
+      <rect x="10" y="18" width="10" height="1" fill="#C58758"/>
+      <!-- 盖子横缝 -->
+      <rect x="10" y="20" width="10" height="1" fill="#7A4D2E"/>
+      <!-- 垂直中缝 -->
+      <rect x="14" y="18" width="2"  height="2" fill="#7A4D2E"/>
+      <!-- 底部暗带 -->
+      <rect x="10" y="23" width="10" height="1" fill="#7A4D2E"/>
+    </g>
+
+    <style>
+      .label { font-family: 'Courier New', monospace; font-size: 3px; fill: #555; text-anchor: middle; font-weight: 600; }
+      .cell-bg { fill: #FAFAFA; }
+    </style>
+  </defs>
+
+  <!-- ═══════ Row 1：配件 / 表情 ═══════ -->
+  <g transform="translate(5, 12)">
+    <rect class="cell-bg" x="-3" y="-10" width="46" height="50"/>
+    <use href="#crab-noeyes"/>
+    <use href="#eyes-open"/>
+    <use href="#wizard-hat"/>
+    <text class="label" x="15" y="35">wizard-hat</text>
+  </g>
+
+  <g transform="translate(55, 12)">
+    <rect class="cell-bg" x="-3" y="-10" width="46" height="50"/>
+    <use href="#crab-noeyes"/>
+    <use href="#eyes-open"/>
+    <use href="#headphones"/>
+    <text class="label" x="15" y="35">headphones</text>
+  </g>
+
+  <g transform="translate(105, 12)">
+    <rect class="cell-bg" x="-3" y="-10" width="46" height="50"/>
+    <use href="#crab-noeyes"/>
+    <use href="#eyes-open"/>
+    <use href="#conducting-baton"/>
+    <text class="label" x="15" y="35">conducting-baton</text>
+  </g>
+
+  <g transform="translate(155, 12)">
+    <rect class="cell-bg" x="-3" y="-10" width="46" height="50"/>
+    <use href="#crab-noeyes"/>
+    <use href="#eyes-closed-happy"/>
+    <text class="label" x="15" y="35">eyes-closed</text>
+  </g>
+
+  <!-- ═══════ Row 2：工作道具 ═══════ -->
+  <g transform="translate(5, 67)">
+    <rect class="cell-bg" x="-3" y="-10" width="46" height="50"/>
+    <use href="#crab-noeyes"/>
+    <use href="#eyes-open"/>
+    <use href="#broom"/>
+    <text class="label" x="15" y="35">broom</text>
+  </g>
+
+  <g transform="translate(55, 67)">
+    <rect class="cell-bg" x="-3" y="-10" width="46" height="50"/>
+    <use href="#crab-noeyes"/>
+    <use href="#eyes-open"/>
+    <use href="#hammer"/>
+    <text class="label" x="15" y="35">hammer</text>
+  </g>
+
+  <g transform="translate(105, 67)">
+    <rect class="cell-bg" x="-3" y="-10" width="46" height="50"/>
+    <use href="#crab-noeyes"/>
+    <use href="#eyes-open"/>
+    <use href="#magnifying-glass"/>
+    <text class="label" x="15" y="35">magnifying-glass</text>
+  </g>
+
+  <g transform="translate(155, 67)">
+    <rect class="cell-bg" x="-3" y="-10" width="46" height="50"/>
+    <use href="#crab-noeyes"/>
+    <use href="#eyes-open"/>
+    <use href="#carrying-box"/>
+    <text class="label" x="15" y="35">carrying-box</text>
+  </g>
+
+</svg>

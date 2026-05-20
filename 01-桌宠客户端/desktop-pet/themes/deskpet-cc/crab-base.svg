@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  crab-base.svg  ·  DeskPet base-idle  (像素版)
+  ──────────────────────────────────────────────────────────────
+  · 纯像素艺术：1 svg unit = 1 pixel
+  · 全部硬边：shape-rendering="crispEdges"
+  · 没有 rx/ry，没有 ellipse，没有 clip-path
+  · 全部矩形对齐整数网格
+  · viewBox: 0 0 30 30
+  · 图层 ID 全部保留（每层就是若干 <rect>）
+  · 像素圆角通过"四角各削 1 像素"实现
+-->
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 30 30"
+     width="600" height="600"
+     shape-rendering="crispEdges">
+
+  <title>crab-base-idle (pixel)</title>
+
+  <!-- ═══════════ 地面阴影（1px 横条）═══════════ -->
+  <g id="shadow">
+    <rect x="9" y="24" width="12" height="1" fill="#000000" opacity="0.28"/>
+  </g>
+
+  <!-- ═══════════ 四条腿（2×3 像素方块）═══════════ -->
+  <g id="leg-1"><rect x="8"  y="20" width="2" height="3" fill="#B95E40"/></g>
+  <g id="leg-2"><rect x="11" y="20" width="2" height="3" fill="#B95E40"/></g>
+  <g id="leg-3"><rect x="17" y="20" width="2" height="3" fill="#B95E40"/></g>
+  <g id="leg-4"><rect x="20" y="20" width="2" height="3" fill="#B95E40"/></g>
+
+  <!-- ═══════════ 两只钳子（2×3 像素方块）═══════════ -->
+  <g id="claw-left"><rect  x="4"  y="12" width="2" height="3" fill="#D97856"/></g>
+  <g id="claw-right"><rect x="24" y="12" width="2" height="3" fill="#D97856"/></g>
+
+  <!-- ═══════════ 身体（3 段拼接出像素圆角：18×13）═══════════ -->
+  <g id="body">
+    <rect x="7" y="7"  width="16" height="1"  fill="#D97856"/>  <!-- 顶行：左右各削 1 像素 -->
+    <rect x="6" y="8"  width="18" height="11" fill="#D97856"/>  <!-- 中段 -->
+    <rect x="7" y="19" width="16" height="1"  fill="#D97856"/>  <!-- 底行：左右各削 1 像素 -->
+  </g>
+
+  <!-- ═══════════ 身体高光（顶部 1 像素亮带）═══════════ -->
+  <g id="body-highlight">
+    <rect x="8" y="8" width="14" height="1" fill="#F3A98B"/>
+  </g>
+
+  <!-- ═══════════ 身体暗带（底部 1 像素暗带）═══════════ -->
+  <g id="body-shadow-band">
+    <rect x="8" y="18" width="14" height="1" fill="#B95E40"/>
+  </g>
+
+  <!-- ═══════════ 左眼（2×4 黑色方块）═══════════ -->
+  <g id="eye-left"><rect x="10" y="10" width="2" height="4" fill="#111111"/></g>
+
+  <!-- ═══════════ 右眼 ═══════════ -->
+  <g id="eye-right"><rect x="18" y="10" width="2" height="4" fill="#111111"/></g>
+
+  <!-- ═══════════ 左瞳孔/眼高光（1×1 白色，左上角）═══════════ -->
+  <g id="pupil-left"><rect  x="10" y="10" width="1" height="1" fill="#FFFFFF"/></g>
+
+  <!-- ═══════════ 右瞳孔/眼高光 ═══════════ -->
+  <g id="pupil-right"><rect x="18" y="10" width="1" height="1" fill="#FFFFFF"/></g>
+
+  <!-- ═══════════ 嘴（base-idle 无嘴，空 group 占位）═══════════ -->
+  <g id="mouth"></g>
+
+</svg>

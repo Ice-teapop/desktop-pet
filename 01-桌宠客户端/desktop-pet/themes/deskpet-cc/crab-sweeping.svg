@@ -1,0 +1,229 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  crab-sweeping.svg  ·  DeskPet 工作动作 · 扫地 (A 类循环)
+  ──────────────────────────────────────────────────────────────
+  · 性格: 嘴硬菜鸟工匠 — 死磕劳动, 不卖萌
+  · A 类循环 (LLM 工作中持续显示): 3 stroke 一组, 短暂换气, 再 3 stroke, 无限循环
+  · 搬运自 clawd-working-sweeping.svg 的 10s arc:
+      Phase A: 3 个 forward stroke (35° → -15°, 快推慢回)
+      Pause:   短暂稳钳 (无卖萌的挠头, 只是肌肉紧着的停顿)
+      Phase B: 又 3 个 stroke
+  · 几何: viewBox 0 0 30 30, 与 crab-base 完全对齐
+  · 钳子/扫帚的 pivot = 右钳几何中心 (25, 13.5)
+  · 扫帚几何 inline 自 crab-extras.svg #broom, 翻转为「鬃毛朝下打地」
+-->
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 30 30"
+     shape-rendering="crispEdges">
+
+  <title>crab-sweeping</title>
+
+  <style>
+    /* ===== idle 底层通道 (低幅, 不打架工作节奏) ===== */
+    .body-breathe { animation: crab-breathe 4.8s ease-in-out infinite; transform-origin: 15px 18px; }
+    @keyframes crab-breathe {
+      0%, 100% { transform: translateY(0) scaleY(1); }
+      45%      { transform: translateY(-0.5px) scaleY(1.03); }
+    }
+    #shadow-js { transform-origin: 15px 24.5px; animation: shadow-sweep 2.4s ease-in-out infinite; }
+    @keyframes shadow-sweep {
+      0%, 100% { transform: scaleX(1);    opacity: 1; }
+      50%      { transform: scaleX(1.06); opacity: 0.85; }
+    }
+
+    /* 自动眨眼 (工匠表情: 眨少, 一直瞪着地) */
+    .eyes-blink-wrap {
+      transform-box: fill-box;
+      transform-origin: 15px 12px;
+      animation: auto-blink 6.5s steps(1) infinite;
+    }
+    @keyframes auto-blink {
+      0%, 27.9%    { transform: scaleY(1); }
+      28%, 29%     { transform: scaleY(0.05); }
+      29.1%, 100%  { transform: scaleY(1); }
+    }
+    /* 眼睛微微向下盯着扫地区域 */
+    .eyes-look-down {
+      animation: eyes-look-down 7s ease-in-out infinite;
+    }
+    @keyframes eyes-look-down {
+      0%, 8%, 92%, 100% { transform: translate(0, 0); }
+      12%, 88%          { transform: translate(0.5px, 0.5px); }
+    }
+
+    /* 腿: 工作中保持站稳, 偶尔轻微踏一下 */
+    #leg-1, #leg-2, #leg-3, #leg-4 { transform-box: fill-box; transform-origin: top center; }
+    #leg-2 { animation: leg-shuffle 7s linear infinite; }
+    #leg-3 { animation: leg-shuffle 7s linear infinite -3.5s; }
+    @keyframes leg-shuffle {
+      0%, 92%, 100% { transform: scaleY(1); }
+      94%           { transform: scaleY(0.85); }
+      96%           { transform: scaleY(1); }
+    }
+
+    /* 左钳: 工匠不挠头, 只是握拳轻晃 */
+    #claw-left {
+      transform-box: fill-box;
+      transform-origin: center;
+      animation: claw-grip 2.4s ease-in-out infinite;
+    }
+    @keyframes claw-grip {
+      0%, 100% { transform: translate(0, 0); }
+      50%      { transform: translate(-0.3px, 0.2px); }
+    }
+
+    /* ===== A 类工作通道: 扫地 2.4s 一个 stroke 组 ===== */
+    /* 右钳 + 扫帚整体绕 (25, 14) 旋转
+       0% idle(0°) → 推(35°) → 拉(-15°) 三个 stroke → 稳定一拍 */
+    .sweep-arm {
+      transform-origin: 25px 14px;
+      animation: sweep-arm 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+    @keyframes sweep-arm {
+      0%        { transform: rotate(0deg); }
+      4%        { transform: rotate(35deg); }   /* 抬起预备 */
+      /* stroke 1: 快推 (forward 35→-15) */
+      8%        { transform: rotate(35deg); }
+      14%       { transform: rotate(-15deg); }
+      /* 慢回 */
+      24%       { transform: rotate(35deg); }
+      /* stroke 2 */
+      30%       { transform: rotate(-15deg); }
+      40%       { transform: rotate(35deg); }
+      /* stroke 3 */
+      46%       { transform: rotate(-15deg); }
+      52%       { transform: rotate(10deg); }
+      /* 嘴硬式停顿: 肌肉紧着, 没卖萌 */
+      66%, 80%  { transform: rotate(5deg); }
+      85%       { transform: rotate(10deg); }
+      92%       { transform: rotate(5deg); }
+      100%      { transform: rotate(0deg); }
+    }
+
+    /* 身体随扫地节奏轻微前倾后仰 (工匠死磕的躯干肌肉) */
+    .body-lean {
+      transform-origin: 15px 18px;
+      animation: body-lean 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+    @keyframes body-lean {
+      0%, 100% { transform: translate(0, 0) rotate(0deg); }
+      14%      { transform: translate(0.3px, 0) rotate(2deg); }
+      30%      { transform: translate(0.3px, 0) rotate(2deg); }
+      46%      { transform: translate(0.3px, 0) rotate(2deg); }
+      60%      { transform: translate(0, 0) rotate(0deg); }
+    }
+
+    /* ===== 灰尘颗粒 ===== */
+    .dust { opacity: 0; }
+    .dust-1 { animation: dust1 2.4s infinite; }
+    .dust-2 { animation: dust2 2.4s infinite; }
+    .dust-3 { animation: dust3 2.4s infinite; }
+    @keyframes dust1 {
+      0%, 12%   { opacity: 0; transform: translate(0, 0) scale(0); }
+      14%       { opacity: 0.8; transform: translate(0, 0) scale(1); }
+      22%       { opacity: 0; transform: translate(3px, -1px) scale(0.3); }
+      23%, 100% { opacity: 0; }
+    }
+    @keyframes dust2 {
+      0%, 28%   { opacity: 0; transform: translate(0, 0) scale(0); }
+      30%       { opacity: 0.7; transform: translate(0, 0) scale(1); }
+      38%       { opacity: 0; transform: translate(3px, -1.5px) scale(0.3); }
+      39%, 100% { opacity: 0; }
+    }
+    @keyframes dust3 {
+      0%, 44%   { opacity: 0; transform: translate(0, 0) scale(0); }
+      46%       { opacity: 0.7; transform: translate(0, 0) scale(1); }
+      54%       { opacity: 0; transform: translate(3px, -1px) scale(0.3); }
+      55%, 100% { opacity: 0; }
+    }
+  </style>
+
+  <!-- 地面阴影 -->
+  <g id="shadow-js">
+    <rect x="9" y="24" width="12" height="1" fill="#000000" opacity="0.28"/>
+  </g>
+
+  <!-- 灰尘颗粒 (锚点在扫帚鬃毛触地区域 x≈26-29, y=23) -->
+  <g class="dust dust-1" fill="#9E9E9E">
+    <rect x="26" y="23" width="1" height="1"/>
+  </g>
+  <g class="dust dust-2" fill="#B0BEC5">
+    <rect x="27" y="23" width="1" height="1"/>
+  </g>
+  <g class="dust dust-3" fill="#9E9E9E">
+    <rect x="28" y="23" width="1" height="1"/>
+  </g>
+
+  <!-- 身体主组 -->
+  <g class="body-breathe">
+    <g class="body-lean">
+
+      <g id="leg-1"><rect x="8"  y="20" width="2" height="3" fill="#B95E40"/></g>
+      <g id="leg-2"><rect x="11" y="20" width="2" height="3" fill="#B95E40"/></g>
+      <g id="leg-3"><rect x="17" y="20" width="2" height="3" fill="#B95E40"/></g>
+      <g id="leg-4"><rect x="20" y="20" width="2" height="3" fill="#B95E40"/></g>
+
+      <g id="claw-left"><rect x="4" y="12" width="2" height="3" fill="#D97856"/></g>
+
+      <g id="body">
+        <rect x="7" y="7"  width="16" height="1"  fill="#D97856"/>
+        <rect x="6" y="8"  width="18" height="11" fill="#D97856"/>
+        <rect x="7" y="19" width="16" height="1"  fill="#D97856"/>
+      </g>
+      <g id="body-highlight"><rect x="8" y="8" width="14" height="1" fill="#F3A98B"/></g>
+      <g id="body-shadow-band"><rect x="8" y="18" width="14" height="1" fill="#B95E40"/></g>
+      <g id="mouth"></g>
+
+      <!-- 眼睛 (盯地) -->
+      <g class="eyes-look-down">
+        <g class="eyes-blink-wrap">
+          <g id="eye-left"><rect  x="10" y="10" width="2" height="4" fill="#111111"/></g>
+          <g id="eye-right"><rect x="18" y="10" width="2" height="4" fill="#111111"/></g>
+          <g id="pupil-left"><rect  x="10" y="10" width="1" height="1" fill="#FFFFFF"/></g>
+          <g id="pupil-right"><rect x="18" y="10" width="1" height="1" fill="#FFFFFF"/></g>
+        </g>
+      </g>
+
+      <!-- 右钳 + 扫帚 (整体绕 25,14 摆) -->
+      <g class="sweep-arm">
+        <g id="claw-right"><rect x="24" y="12" width="2" height="3" fill="#D97856"/></g>
+
+        <!-- 扫帚 (inline 自 crab-extras #broom, 翻转: 手柄在上接钳, 鬃毛朝下打地) -->
+        <g id="broom">
+          <!-- 木柄主体 (y=14 钳底 → y=22 接近地面) -->
+          <rect x="24" y="14" width="2" height="8" fill="#8B6240"/>
+          <!-- 木柄左侧高光 -->
+          <rect x="24" y="14" width="1" height="8" fill="#A8794D"/>
+          <!-- 木纹颗粒 -->
+          <rect x="25" y="16" width="1" height="1" fill="#6B4220"/>
+          <rect x="24" y="19" width="1" height="1" fill="#6B4220"/>
+          <!-- 末端深色 (接鬃毛处) -->
+          <rect x="24" y="21" width="2" height="1" fill="#5C3E22"/>
+
+          <!-- 扎绳多层 (深棕 + 棕 + 深棕) -->
+          <rect x="22" y="22" width="6" height="1" fill="#3D2A18"/>
+          <!-- 扎绳绳纹 -->
+          <rect x="23" y="22" width="1" height="1" fill="#5C3E22"/>
+          <rect x="25" y="22" width="1" height="1" fill="#5C3E22"/>
+          <rect x="27" y="22" width="1" height="1" fill="#5C3E22"/>
+
+          <!-- 鬃毛主层 (横向, 接地 y=23-24) -->
+          <rect x="21" y="23" width="8" height="1" fill="#E0B373"/>
+          <rect x="21" y="24" width="8" height="1" fill="#E0B373"/>
+          <!-- 鬃毛分股 (深色竖线) -->
+          <rect x="21" y="23" width="1" height="2" fill="#B7864D"/>
+          <rect x="23" y="23" width="1" height="2" fill="#B7864D"/>
+          <rect x="25" y="23" width="1" height="2" fill="#B7864D"/>
+          <rect x="27" y="23" width="1" height="2" fill="#B7864D"/>
+          <rect x="22" y="23" width="1" height="2" fill="#C99458"/>
+          <rect x="24" y="23" width="1" height="2" fill="#C99458"/>
+          <rect x="26" y="23" width="1" height="2" fill="#C99458"/>
+          <!-- 鬃毛尖端亮黄 (最底层) -->
+          <rect x="22" y="24" width="6" height="1" fill="#F5C870" opacity="0.55"/>
+        </g>
+      </g>
+
+    </g>
+  </g>
+
+</svg>
