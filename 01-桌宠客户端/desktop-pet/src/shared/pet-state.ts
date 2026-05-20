@@ -33,7 +33,9 @@ export const PET_STATES = {
   // 惊醒动画：priority 2 让其能从 sleep chain 任意阶段抢占；minMs 0 让 thinking
   // 能随时抢（user 在 wake 期间 chat 时不被 wake 卡住）；scheduleReturnToIdle
   // 给 1500ms 让 wake SVG 动画播完整（clawd-wake.svg dur=1.5s）
-  waking: { priority: 2, minMs: 0 },
+  // waking minMs 1500 = 跟 crab-wake.svg 1.5s animation 严格对齐, 守护期内
+  // 不被低 priority transition 抢占 (确保 stir → 撑起 → 站定 → 眨眼 全程播完)
+  waking: { priority: 2, minMs: 1500 },
   thinking: { priority: 2, minMs: 300 },
   drag: { priority: 3, minMs: 0 },
   success: { priority: 4, minMs: 1500 },
