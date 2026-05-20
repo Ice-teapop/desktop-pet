@@ -651,6 +651,23 @@ function App(): React.JSX.Element {
     const wizEyes = wizardSvgEl?.querySelector<SVGGElement>('#eyes-js') ?? null
     const wizBody = wizardSvgEl?.querySelector<SVGGElement>('#body-js') ?? null
     const wizShadow = wizardSvgEl?.querySelector<SVGGElement>('#shadow-js') ?? null
+    // v0.4.5+ Batch 3 终极修: wizard SVG 内部 CSS 自带 4 个 keyframe 动画 (walking
+    // sway + 手臂甩 -90° + 眼睛 drift + 阴影 walk), wrapper element 同时承载 JS
+    // transform 时, CSS animation 的 specificity 高于 inline style → JS 写入被
+    // 无视, 桌宠一直走路 + 手臂飞出画面. 修: 同一 element 用 inline animation:
+    // 'none' 压过 CSS 规则 (inline 比 class specificity 高), 让 JS transform 生效.
+    // 保留 hat-* + magic-sparkle-* 动画 (是巫师视觉魅力的一部分, 不冲突).
+    if (wizardSvgEl) {
+      const killAnim = (sel: string): void => {
+        wizardSvgEl
+          .querySelectorAll<SVGElement>(sel)
+          .forEach((el) => (el.style.animation = 'none'))
+      }
+      killAnim('.body-hunch')
+      killAnim('.arm-fix')
+      killAnim('.eyes-wizard')
+      killAnim('.shadow-walk')
+    }
     let raf = 0
     const tick = (): void => {
       // 共享 gate: pure idle (state=idle + activity=idle) + full mode 时才 mutate.
@@ -1750,18 +1767,21 @@ function App(): React.JSX.Element {
         <WizardSvgComponent
           ref={wizardSvgRef}
           style={{
+            // v0.4.5+ 修: wizard 是 user 主动 mode (toggle 或 onboarding), 应该 activity
+            // 不 idle 时也显示 — 用户在 VS Code 工作中切到巫师, 期望立刻看到巫师.
+            // 只 gate state==='idle' (让 AI 真响应时让位 thinking/success/error GIF).
             opacity:
               petMode === 'full' &&
               showWizardOverlay &&
               !wizardCastPlaying &&
-              state === 'idle' &&
-              activity === 'idle'
+              state === 'idle'
                 ? 1
                 : 0,
             transition: `opacity ${FADE_HALF_MS}ms ${FADE_EASING}`,
             position: 'absolute',
             inset: 0,
-            pointerEvents: 'none'
+            pointerEvents: 'none',
+            zIndex: 2 // 压过 dual-img 层 (z-auto), belt-and-suspenders
           }}
         />
         {/* 双层 cross-fade：两个 absolute 叠加，opacity 互补 ramp。
@@ -1782,8 +1802,9 @@ function App(): React.JSX.Element {
               petMode === 'mini'
                 ? 0
                 : state === 'idle' &&
-                    activity === 'idle' &&
-                    (!showWizardOverlay || !wizardCastPlaying)
+                    (showWizardOverlay
+                      ? !wizardCastPlaying // wizard idle → WizardSvg 接管, dual-img 隐
+                      : activity === 'idle') // pure idle → IdleFollow 接管, dual-img 隐
                   ? 0
                   : frontIdx === 0
                     ? 1
@@ -1801,8 +1822,9 @@ function App(): React.JSX.Element {
               petMode === 'mini'
                 ? 0
                 : state === 'idle' &&
-                    activity === 'idle' &&
-                    (!showWizardOverlay || !wizardCastPlaying)
+                    (showWizardOverlay
+                      ? !wizardCastPlaying // wizard idle → WizardSvg 接管, dual-img 隐
+                      : activity === 'idle') // pure idle → IdleFollow 接管, dual-img 隐
                   ? 0
                   : frontIdx === 1
                     ? 1
