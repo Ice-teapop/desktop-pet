@@ -648,25 +648,17 @@ function App(): React.JSX.Element {
     const idleEyes = idleSvg?.querySelector<SVGGElement>('#eyes-js') ?? null
     const idleBody = idleSvg?.querySelector<SVGGElement>('#body-js') ?? null
     const idleShadow = idleSvg?.querySelector<SVGGElement>('#shadow-js') ?? null
+    // wizard 只 mutate eyes (body/shadow 让 CSS 跑 walking 动画 — 用户偏好)
     const wizEyes = wizardSvgEl?.querySelector<SVGGElement>('#eyes-js') ?? null
-    const wizBody = wizardSvgEl?.querySelector<SVGGElement>('#body-js') ?? null
-    const wizShadow = wizardSvgEl?.querySelector<SVGGElement>('#shadow-js') ?? null
-    // v0.4.5+ Batch 3 终极修: wizard SVG 内部 CSS 自带 4 个 keyframe 动画 (walking
-    // sway + 手臂甩 -90° + 眼睛 drift + 阴影 walk), wrapper element 同时承载 JS
-    // transform 时, CSS animation 的 specificity 高于 inline style → JS 写入被
-    // 无视, 桌宠一直走路 + 手臂飞出画面. 修: 同一 element 用 inline animation:
-    // 'none' 压过 CSS 规则 (inline 比 class specificity 高), 让 JS transform 生效.
-    // 保留 hat-* + magic-sparkle-* 动画 (是巫师视觉魅力的一部分, 不冲突).
+    // v0.4.5+ Batch 3 修 v2: 只杀 .eyes-wizard CSS drift (跟 rAF 眼跟随冲突),
+    // 保留 .body-hunch (走路摇晃) / .arm-fix (整理帽子姿态) / .shadow-walk
+    // (阴影跟走路同步) / .hat-* / .magic-sparkle-* — 用户反馈这些"生动" 更好.
+    // 代价: 走路摇晃跟 rAF body rotate 冲突 → 让 CSS 赢 (rAF 只写 eyes, 不写
+    // body/shadow); 阴影也走走路动画不跟光标拉伸 (一致, 因为 body 都没跟).
     if (wizardSvgEl) {
-      const killAnim = (sel: string): void => {
-        wizardSvgEl
-          .querySelectorAll<SVGElement>(sel)
-          .forEach((el) => (el.style.animation = 'none'))
-      }
-      killAnim('.body-hunch')
-      killAnim('.arm-fix')
-      killAnim('.eyes-wizard')
-      killAnim('.shadow-walk')
+      wizardSvgEl
+        .querySelectorAll<SVGElement>('.eyes-wizard')
+        .forEach((el) => (el.style.animation = 'none'))
     }
     let raf = 0
     const tick = (): void => {
@@ -684,12 +676,12 @@ function App(): React.JSX.Element {
       const eyesTfm = `translate(${normX * EYE_MAX_SVG}px, ${normY * EYE_MAX_SVG}px)`
       const bodyTfm = `rotate(${normX * BODY_MAX_DEG}deg)`
       const shadowTfm = `scaleX(${1 + Math.abs(normX) * SHADOW_MAX_STRETCH}) translateX(${normX * 0.5}px)`
-      // wizard 可见 (cast intro 已结束) → 写 wizard 的 3 个 group
+      // wizard 可见 (cast intro 已结束) → 只写 wizard 的 eyes group.
+      // body / shadow 留给 CSS body-hunch / shadow-walk 跑走路摇晃动画 (用户偏好).
+      // rAF body/shadow rotation 在这种 SVG 上效果跟 CSS sway 重复 + 冲突, skip 之.
       const wizardVisible = showWizardOverlay && !wizardCastPlaying
       if (wizardVisible) {
         if (wizEyes) wizEyes.style.transform = eyesTfm
-        if (wizBody) wizBody.style.transform = bodyTfm
-        if (wizShadow) wizShadow.style.transform = shadowTfm
       } else {
         // 普通 idle (非 wizard 模式) → 写 IdleFollow 的 3 个 group
         if (idleEyes) idleEyes.style.transform = eyesTfm
