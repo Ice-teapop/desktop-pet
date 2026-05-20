@@ -17,14 +17,15 @@
     <style>
       .body-hunch {
         transform-origin: 7.5px 15px;
-        animation: hunch-walk 7s infinite ease-in-out;
+        transform: translate(0, 1px) rotate(2deg);
       }
       .leg-step { transform-origin: top center; transform-box: fill-box; }
       .leg-1 { animation: leg-step 7s infinite linear; }
       .leg-2 { animation: leg-step 7s infinite linear; animation-delay: -0.245s; }
       .shadow-walk {
         transform-origin: 7.5px 15.5px;
-        animation: shadow-walk 7s infinite ease-in-out;
+        transform: translateX(0) scale(0.9);
+        opacity: 0.4;
       }
       .hat-drop {
         transform-origin: 7.5px 6px;
