@@ -272,16 +272,28 @@ export function isValidSelectedModel(value: unknown): value is SelectedModel {
   if (typeof value !== 'object' || value === null) return false
   const o = value as { provider?: unknown; modelId?: unknown }
   if (!isValidProvider(o.provider)) return false
-  if (typeof o.modelId !== 'string') return false
-  return AVAILABLE_MODELS.some((m) => m.provider === o.provider && m.id === o.modelId)
+  // 接受 provider listModels 返的任意 id (含 dated form 如 claude-haiku-4-5-20251001).
+  // 严格 allowlist 会拒 dynamic 拉的版本, 导致 prefs save spam.
+  return typeof o.modelId === 'string' && o.modelId.length > 0
 }
 
 export function modelsForProvider(provider: Provider): ModelEntry[] {
   return AVAILABLE_MODELS.filter((m) => m.provider === provider)
 }
 
+/** 剥掉 dated suffix: `-20251001` (Anthropic) 或 `-2024-08-06` (OpenAI). 返回 canonical id. */
+function stripDateSuffix(id: string): string {
+  return id.replace(/-(?:\d{8}|\d{4}-\d{2}-\d{2})$/, '')
+}
+
 export function findModel(sel: SelectedModel): ModelEntry | undefined {
-  return AVAILABLE_MODELS.find((m) => m.provider === sel.provider && m.id === sel.modelId)
+  const exact = AVAILABLE_MODELS.find((m) => m.provider === sel.provider && m.id === sel.modelId)
+  if (exact) return exact
+  // Fallback: dated form (claude-haiku-4-5-20251001) → canonical (claude-haiku-4-5)
+  // 让 supportsVision / supportsTools 检测对 dynamic 拉的 dated 模型也生效.
+  const canonical = stripDateSuffix(sel.modelId)
+  if (canonical === sel.modelId) return undefined
+  return AVAILABLE_MODELS.find((m) => m.provider === sel.provider && m.id === canonical)
 }
 
 /** 该 provider 的默认 SelectedModel —— UI 上首次切 provider 时用 */
