@@ -53,6 +53,10 @@ import IdleFollowSvg from '@themes/clawd-dev/clawd-idle-follow.svg?react'
 import miniIdleGif from '@themes/clawd-dev/clawd-mini-idle.gif'
 // v0.4.3+: 进 mini 时短暂播一次 enter.gif 当过渡 (~1.6s), 之后 settle 到 mini-idle
 import miniEnterGif from '@themes/clawd-dev/clawd-mini-enter.gif'
+// v0.4.5+ Batch 1: hover-peek 替换静态 SVG + success/error 在 mini 模式下的反应
+import miniPeekGif from '@themes/clawd-dev/clawd-mini-peek.gif'
+import miniHappyGif from '@themes/clawd-dev/clawd-mini-happy.gif'
+import miniAlertGif from '@themes/clawd-dev/clawd-mini-alert.gif'
 // activity → GIF 映射：识别到不同活动时桌宠"陪你做同样的事"
 import typingGif from '@themes/clawd-dev/clawd-typing.gif'
 import debuggerGif from '@themes/clawd-dev/clawd-debugger.gif'
@@ -224,6 +228,9 @@ function App(): React.JSX.Element {
   const [petMode, setPetMode] = useState<PetMode>(DEFAULT_PET_MODE)
   // v0.4.3+: 进 mini 时短暂播 enter.gif 当过渡, ~1.6s 后 settle 到 mini-idle
   const [miniEntering, setMiniEntering] = useState(false)
+  // v0.4.5+ Batch 1: main 主进程 hover-peek 边沿 → onMiniPeek push true/false,
+  // renderer 切 mini-peek.gif (有 user 靠近) / mini-idle.gif (回归默认).
+  const [miniPeeking, setMiniPeeking] = useState(false)
   // idle 6 变体池索引（仅 stateMachine=idle + activity=idle 时玩）
   const [idleVariantIdx, setIdleVariantIdx] = useState(0)
   // 双层 <img> cross-fade：两个 absolute 叠加，frontIdx 指当前显示的那层
@@ -359,6 +366,12 @@ function App(): React.JSX.Element {
     const tid = setTimeout(() => setMiniEntering(false), 1600)
     return () => clearTimeout(tid)
   }, [petMode])
+
+  // v0.4.5+ Batch 1: 订阅 main 的 mini-peek 边沿 push, 切 GIF 让桌宠探头看 user.
+  useEffect(() => {
+    const off = window.api.onMiniPeek((peeking) => setMiniPeeking(peeking))
+    return off
+  }, [])
 
   // M9-5b B-3: 进 mini 时 main 强制关 chat —— 直接 setChatPhase('closed') 跳过 closing
   // 动画（窗口已 100×100，'conv-fade-out' animation 看不见）。chatPhaseRef 由上面 effect
@@ -1084,7 +1097,12 @@ function App(): React.JSX.Element {
       yawningSvg,
       dozingSvg,
       collapsingSvg,
-      wakingSvg
+      wakingSvg,
+      // v0.4.5+ Batch 1: mini-mode 反应 GIF 预热, 防第一次切到 mini-peek/happy/alert
+      // 时 1-frame 透明闪 (Chromium 第一次 decode GIF 有 ~50ms 延迟)
+      miniPeekGif,
+      miniHappyGif,
+      miniAlertGif
     ]
     all.forEach((url) => {
       const img = new Image()
@@ -1537,7 +1555,17 @@ function App(): React.JSX.Element {
             Mini 模式下完全独立于下方 IdleFollow + dual-img 体系. */}
         {petMode === 'mini' && (
           <img
-            src={miniEntering ? miniEnterGif : miniIdleGif}
+            src={
+              miniEntering
+                ? miniEnterGif
+                : state === 'error'
+                  ? miniAlertGif
+                  : state === 'success'
+                    ? miniHappyGif
+                    : miniPeeking
+                      ? miniPeekGif
+                      : miniIdleGif
+            }
             alt=""
             draggable={false}
             style={{ opacity: 1 }}

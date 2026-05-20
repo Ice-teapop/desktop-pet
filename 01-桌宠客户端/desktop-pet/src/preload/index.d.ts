@@ -116,6 +116,8 @@ export interface DeskPetAPI {
   onTrayDropFiles(listener: (paths: string[]) => void): () => void
   // v0.4.3+ chat 输入栏 "📂 导入" 按钮 — 主进程弹系统文件选择器, 选完走 tray:drop-files
   openImportFilesDialog(): void
+  // v0.4.5+ Batch 1: mini-mode hover-peek 状态推送 — true 切 mini-peek.gif, false 回 mini-idle.gif
+  onMiniPeek(listener: (peeking: boolean) => void): () => void
   // v0.4.0 改动 4 [B] 动态 listModels
   requestAvailableModels(): void
   onAvailableModels(listener: (modelsByProvider: Record<string, string[]>) => void): () => void

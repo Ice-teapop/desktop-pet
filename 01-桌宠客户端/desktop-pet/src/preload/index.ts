@@ -400,6 +400,13 @@ const api = {
   openImportFilesDialog(): void {
     ipcRenderer.send('chat:import-files-dialog')
   },
+  // v0.4.5+ Batch 1: mini 模式 user 鼠标靠近 / 离开时主进程推 peek 状态,
+  // renderer 切 mini-peek.gif / 回 mini-idle.gif.
+  onMiniPeek(listener: (peeking: boolean) => void): () => void {
+    const handler = (_e: IpcRendererEvent, peeking: boolean): void => listener(peeking)
+    ipcRenderer.on('pet:mini-peek', handler)
+    return () => ipcRenderer.off('pet:mini-peek', handler)
+  },
   // v0.4.0 改动 4 [B] listModels — 触发 main 拉 + push, listener 收 per-provider 列表
   requestAvailableModels(): void {
     ipcRenderer.send('available-models:request')

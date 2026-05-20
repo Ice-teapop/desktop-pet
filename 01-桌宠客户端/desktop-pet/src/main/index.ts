@@ -374,6 +374,17 @@ function broadcastPetMode(): void {
 }
 
 /**
+ * v0.4.5+ Batch 1: mini-peek state 推 renderer 让它切 mini-peek.gif 替代 idle.gif.
+ * 当前 miniPeeking 只是窗口几何 (右滑 32px), 视觉无变化; 加这条让 renderer 知道
+ * "user 鼠标靠近了" → 换 GIF 让桌宠"探头看你". 仅在 enter/leave 边沿调.
+ */
+function broadcastMiniPeek(peeking: boolean): void {
+  if (petWindow && !petWindow.isDestroyed()) {
+    petWindow.webContents.send('pet:mini-peek', peeking)
+  }
+}
+
+/**
  * 切换 pet mode 并 resize/reposition window。
  * - mini: 80×80, 藏在 workArea 右边（只露 MINI_VISIBLE_PX = 24px）
  * - full: 260×280, 回到右下角 MARGIN_FROM_EDGE
@@ -520,8 +531,14 @@ function startMiniPeekWatcher(): void {
     } else {
       if (dist < MINI_PEEK_ENTER_DIST) miniPeeking = true
     }
-    if (!prevPeeking && miniPeeking) cancelMicroPeek() // user 进 peek → 抢占
-    if (prevPeeking && !miniPeeking) scheduleNextMicroPeek() // user 离 peek → 重排下一次 micro
+    if (!prevPeeking && miniPeeking) {
+      cancelMicroPeek() // user 进 peek → 抢占
+      broadcastMiniPeek(true) // 推 renderer 切 mini-peek.gif
+    }
+    if (prevPeeking && !miniPeeking) {
+      scheduleNextMicroPeek() // user 离 peek → 重排下一次 micro
+      broadcastMiniPeek(false) // 推 renderer 回 mini-idle.gif
+    }
     // Target X 优先级: hover-peek > micro-peek (out/hold) > retract (in/idle)
     let targetX: number
     if (miniPeeking) {
@@ -568,8 +585,11 @@ function stopMiniPeekWatcher(): void {
     clearInterval(miniPeekTimer)
     miniPeekTimer = null
   }
+  const wasPeeking = miniPeeking
   miniPeeking = false
   cancelMicroPeek()
+  // v0.4.5+ Batch 1: 离 mini 模式时若正在 peek, 推 false 让 renderer 别留 stale peek.gif
+  if (wasPeeking) broadcastMiniPeek(false)
 }
 
 /**
