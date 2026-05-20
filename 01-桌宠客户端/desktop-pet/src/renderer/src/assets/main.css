@@ -1023,6 +1023,24 @@ body,
     pet-fade-out 0.3s ease-in 3.3s both;
 }
 
+/* v0.4.5+ Batch 3: wizard hat overlay — onboarding setup 期间桌宠头顶戴 wizard
+ * hat 当 ambient hint. 持续显示 (无 fade-out, 由 setupCompleted 状态驱动 unmount).
+ * 同 Batch 2: `.pet img.x` specificity (0,2,1) 才能压过 .pet img 通用规则 (0,1,1).
+ * 72×72 比 notification 96×96 小, top:-20 比 notification top:-28 低 — 视觉错开 */
+.pet img.pet-wizard-overlay {
+  position: absolute;
+  left: 50%;
+  top: -20px;
+  inset: auto;
+  transform: translateX(-50%);
+  width: 72px;
+  height: 72px;
+  z-index: 5;
+  pointer-events: none;
+  image-rendering: pixelated;
+  animation: pet-pop-in 0.22s steps(4) both;
+}
+
 /* === S5.1 [D] msg-file 卡 === */
 .msg-file {
   align-self: flex-start;

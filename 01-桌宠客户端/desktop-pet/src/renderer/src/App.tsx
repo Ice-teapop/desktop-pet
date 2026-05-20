@@ -26,6 +26,7 @@ import { DEFAULT_PET_MODE } from '../../shared/pet-mode'
 import { detectProvider } from '../../shared/key-detect'
 import { PROVIDERS, PROVIDER_ORDER } from '../../shared/provider-types'
 import type { SelectedModel } from '../../shared/provider-types'
+import type { UserProfile } from '../../shared/user-profile-types'
 import { getToolDisplay } from '../../shared/tool-display'
 import { t } from '../../shared/i18n'
 // idle 池 6 种"无聊时的小动作"，闲态随机切
@@ -60,6 +61,10 @@ import miniAlertGif from '@themes/clawd-dev/clawd-mini-alert.gif'
 // v0.4.5+ Batch 2: 检查更新发现新版时桌宠头顶弹动画通知 (full mode);
 // mini mode 复用 mini-alert.gif (80×80 装不下 96×96 notification.gif)
 import notificationGif from '@themes/clawd-dev/clawd-notification.gif'
+// v0.4.5+ Batch 3: wizard 期 overlay (setup mode 期间桌宠头顶戴 wizard hat 标
+// "AI 正在 onboarding 你") + idle 池加 1 个变体
+import wizardSvg from '@themes/clawd-dev/clawd-working-wizard.svg'
+import idleLivingSvg from '@themes/clawd-dev/clawd-idle-living.svg'
 // activity → GIF 映射：识别到不同活动时桌宠"陪你做同样的事"
 import typingGif from '@themes/clawd-dev/clawd-typing.gif'
 import debuggerGif from '@themes/clawd-dev/clawd-debugger.gif'
@@ -110,7 +115,9 @@ const IDLE_POOL: ReadonlyArray<string> = [
   sweepingGif,
   jugglingGif,
   buildingGif,
-  conductingGif
+  conductingGif,
+  // v0.4.5+ Batch 3: 加 living 静态变体 — pickNextIdle 自动适配 length 变化, 不动逻辑
+  idleLivingSvg
 ]
 
 function pickNextIdle(currentIdx: number): number {
@@ -234,6 +241,10 @@ function App(): React.JSX.Element {
   // v0.4.5+ Batch 1: main 主进程 hover-peek 边沿 → onMiniPeek push true/false,
   // renderer 切 mini-peek.gif (有 user 靠近) / mini-idle.gif (回归默认).
   const [miniPeeking, setMiniPeeking] = useState(false)
+  // v0.4.5+ Batch 3: user profile state — setupCompleted=false 时桌宠头顶戴
+  // wizard hat 当 onboarding ambient hint. null = 启动后还没收到 main 推送,
+  // 用 `?.setupCompleted === false` 防止 first-frame 闪.
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
   // v0.4.5+ Batch 2: update:available 真有新版本时桌宠头顶弹通知 GIF ~3.6s.
   // notifyPop.id 触发 key 重挂让 GIF 从 frame 0 重启 (多次点"检查更新"也能重 restart).
   const [notifyPop, setNotifyPop] = useState<{ id: number; url: string } | null>(null)
@@ -377,6 +388,14 @@ function App(): React.JSX.Element {
   // v0.4.5+ Batch 1: 订阅 main 的 mini-peek 边沿 push, 切 GIF 让桌宠探头看 user.
   useEffect(() => {
     const off = window.api.onMiniPeek((peeking) => setMiniPeeking(peeking))
+    return off
+  }, [])
+
+  // v0.4.5+ Batch 3: 订阅 user profile — 用于 wizard overlay 显隐判断.
+  // 启动时 requestUserProfileState() 让 main 推一次, 否则 null 一直在 wait.
+  useEffect(() => {
+    const off = window.api.onUserProfileState((p) => setUserProfile(p))
+    window.api.requestUserProfileState()
     return off
   }, [])
 
@@ -1060,6 +1079,18 @@ function App(): React.JSX.Element {
   //   → sleep → 活动识别 → idle 变体池
   // M8: AI 调 set_pet_animation 时 stateMachine 转到 juggling/sweeping/etc
   // priority 5 > thinking priority 2 → 自动覆盖 thinking，让动画播完 minMs cycle。
+
+  // v0.4.5+ Batch 3: wizard overlay 显隐 — setup mode 期间桌宠头顶戴 wizard hat.
+  // 必须 chat 真打开 + 有 key + setupCompleted===false (用 `===false` 不是 `!==true`
+  // 防 userProfile=null 启动期闪一下), 且不在 error 状态 (error 视觉优先).
+  // 仅 full mode (mini 80×80 装不下 72px overlay).
+  const showWizardOverlay =
+    petMode === 'full' &&
+    chatPhase === 'open' &&
+    keyState === 'ready' &&
+    userProfile?.setupCompleted === false &&
+    state !== 'error'
+
   let gifUrl: string
   if (state === 'error') {
     gifUrl = errorGif
@@ -1124,7 +1155,10 @@ function App(): React.JSX.Element {
       miniAlertGif,
       // v0.4.5+ Batch 2: 通知 GIF (full mode 头顶弹) 也预热, 防首次"检查更新"
       // 发现新版本时 1-frame 闪
-      notificationGif
+      notificationGif,
+      // v0.4.5+ Batch 3: wizard overlay SVG 预热 (idleLivingSvg 已通过 IDLE_POOL
+      // spread 自动预热, 不需单独加)
+      wizardSvg
     ]
     all.forEach((url) => {
       const img = new Image()
@@ -1580,6 +1614,17 @@ function App(): React.JSX.Element {
               setNotifyPop(null)
               if (notifyTimerRef.current) clearTimeout(notifyTimerRef.current)
             }}
+          />
+        )}
+        {/* v0.4.5+ Batch 3: wizard hat overlay — onboarding setup 期间桌宠头顶
+            戴 wizard hat 提示 "AI 正在引导你". 持续显示 (无 timer), 等 AI 调
+            save_user_profile → main 推 setupCompleted=true → 自动消失. */}
+        {showWizardOverlay && (
+          <img
+            className="pet-wizard-overlay"
+            src={wizardSvg}
+            alt=""
+            draggable={false}
           />
         )}
         {/* v0.4.0 S6.2 [D] pet-drop overlay — 用户拖文件到 pet 时弹大字提示
