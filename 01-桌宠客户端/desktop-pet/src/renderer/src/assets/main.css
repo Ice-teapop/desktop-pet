@@ -998,6 +998,31 @@ body,
     pet-fade-out 0.3s ease-in 3.7s both;
 }
 
+/* v0.4.5+ Batch 2: 检查更新发现新版时桌宠头顶弹通知 GIF.
+ * 复用 pet-pop-in + pet-fade-out keyframe; 96×96 GIF 居中桌宠头顶往上 28px.
+ * z-index 5 > pet-toast 4 让通知压在普通字条上; pointer-events: auto + cursor:
+ * pointer 让用户点击 (handler 调 openExternal 跳 release URL).
+ *
+ * CR fix: 必须用 `.pet img.pet-notification-pop` 多选择器 specificity (0,2,1) 才
+ * 能压过同文件 .pet img 的 (0,1,1) — 否则 width/height/position/pointer-events
+ * 都被 .pet img 通用规则吃掉, 通知会铺满 240×240 + 不可点击. */
+.pet img.pet-notification-pop {
+  position: absolute;
+  left: 50%;
+  top: -28px;
+  inset: auto; /* 显式 reset .pet img 的 inset: 0 */
+  transform: translateX(-50%);
+  width: 96px;
+  height: 96px;
+  z-index: 5;
+  cursor: pointer;
+  pointer-events: auto;
+  image-rendering: pixelated;
+  animation:
+    pet-pop-in 0.22s steps(4) both,
+    pet-fade-out 0.3s ease-in 3.3s both;
+}
+
 /* === S5.1 [D] msg-file 卡 === */
 .msg-file {
   align-self: flex-start;

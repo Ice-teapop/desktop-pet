@@ -2041,6 +2041,24 @@ function registerIpc(): void {
     void runImportFilesDialog()
   })
 
+  // v0.4.5+ Batch 2: renderer 让 main 用 shell.openExternal 打开 URL.
+  // 仅 http/https 放行 (拒 file:// / javascript: / custom protocol — 防 compromised
+  // renderer 滥用). 通知 GIF 点击跳 release URL 等场景用.
+  ipcMain.handle('shell:open-external', async (_event, rawUrl: unknown) => {
+    if (typeof rawUrl !== 'string') return { ok: false, error: 'url must be string' }
+    let parsed: URL
+    try {
+      parsed = new URL(rawUrl)
+    } catch {
+      return { ok: false, error: 'invalid URL' }
+    }
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      return { ok: false, error: `protocol ${parsed.protocol} not allowed (https/http only)` }
+    }
+    await shell.openExternal(parsed.toString())
+    return { ok: true }
+  })
+
   // v0.4.0 改动 4 [B] 动态 listModels — UI dropdown 拉各 provider 真实可用 model
   // renderer 调 requestAvailableModels(): main 先 push cached (即时显示), 再异步
   // refresh (拉 listModels API 24h cache miss/expired) → push 更新.

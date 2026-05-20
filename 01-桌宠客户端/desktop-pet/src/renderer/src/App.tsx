@@ -57,6 +57,9 @@ import miniEnterGif from '@themes/clawd-dev/clawd-mini-enter.gif'
 import miniPeekGif from '@themes/clawd-dev/clawd-mini-peek.gif'
 import miniHappyGif from '@themes/clawd-dev/clawd-mini-happy.gif'
 import miniAlertGif from '@themes/clawd-dev/clawd-mini-alert.gif'
+// v0.4.5+ Batch 2: 检查更新发现新版时桌宠头顶弹动画通知 (full mode);
+// mini mode 复用 mini-alert.gif (80×80 装不下 96×96 notification.gif)
+import notificationGif from '@themes/clawd-dev/clawd-notification.gif'
 // activity → GIF 映射：识别到不同活动时桌宠"陪你做同样的事"
 import typingGif from '@themes/clawd-dev/clawd-typing.gif'
 import debuggerGif from '@themes/clawd-dev/clawd-debugger.gif'
@@ -231,6 +234,10 @@ function App(): React.JSX.Element {
   // v0.4.5+ Batch 1: main 主进程 hover-peek 边沿 → onMiniPeek push true/false,
   // renderer 切 mini-peek.gif (有 user 靠近) / mini-idle.gif (回归默认).
   const [miniPeeking, setMiniPeeking] = useState(false)
+  // v0.4.5+ Batch 2: update:available 真有新版本时桌宠头顶弹通知 GIF ~3.6s.
+  // notifyPop.id 触发 key 重挂让 GIF 从 frame 0 重启 (多次点"检查更新"也能重 restart).
+  const [notifyPop, setNotifyPop] = useState<{ id: number; url: string } | null>(null)
+  const notifyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // idle 6 变体池索引（仅 stateMachine=idle + activity=idle 时玩）
   const [idleVariantIdx, setIdleVariantIdx] = useState(0)
   // 双层 <img> cross-fade：两个 absolute 叠加，frontIdx 指当前显示的那层
@@ -657,8 +664,20 @@ function App(): React.JSX.Element {
           status: 'done' as const
         }
       ])
+      // v0.4.5+ Batch 2: 真新版本 (非 upToDate) 才弹通知 GIF — 已是最新不弹
+      // (避免训练用户忽略信号). htmlUrl 必须有才能点击跳转.
+      if (!event.upToDate && event.htmlUrl) {
+        if (notifyTimerRef.current) clearTimeout(notifyTimerRef.current)
+        setNotifyPop({ id: Date.now(), url: event.htmlUrl })
+        notifyTimerRef.current = setTimeout(() => setNotifyPop(null), 3600)
+      }
     })
-    return off
+    // unsubscribe + 清 timer 合并到一个 cleanup, 防 React StrictMode / HMR 下
+    // effect 重跑时 timer 仍在 fire 改 unmount 树的 state
+    return () => {
+      off()
+      if (notifyTimerRef.current) clearTimeout(notifyTimerRef.current)
+    }
   }, [])
 
   const handleApprovalDecision = (decision: ApprovalDecision): void => {
@@ -1102,7 +1121,10 @@ function App(): React.JSX.Element {
       // 时 1-frame 透明闪 (Chromium 第一次 decode GIF 有 ~50ms 延迟)
       miniPeekGif,
       miniHappyGif,
-      miniAlertGif
+      miniAlertGif,
+      // v0.4.5+ Batch 2: 通知 GIF (full mode 头顶弹) 也预热, 防首次"检查更新"
+      // 发现新版本时 1-frame 闪
+      notificationGif
     ]
     all.forEach((url) => {
       const img = new Image()
@@ -1542,6 +1564,24 @@ function App(): React.JSX.Element {
         {/* v0.4.0 S4.4 [B] pet-emote-hint — activity 切换时 4s 表情气泡.
             companion mode (🎭 pill) 开启时才显示, 否则被 useEffect gate 拦住. */}
         {emoteHint && <div className="pet-emote-hint">{emoteHint}</div>}
+        {/* v0.4.5+ Batch 2: update:available 真有新版时桌宠头顶弹通知 GIF ~3.6s.
+            key={notifyPop.id} 让 React 重挂 <img> 让 GIF 从 frame 0 重启 (多次
+            "检查更新" 也能 restart). 点击 → openExternal(release URL) + 自关.
+            仅 full mode 渲染; mini mode 走上面 <img src> ternary 用 alert.gif. */}
+        {petMode === 'full' && notifyPop && (
+          <img
+            className="pet-notification-pop"
+            key={notifyPop.id}
+            src={notificationGif}
+            alt=""
+            draggable={false}
+            onClick={() => {
+              void window.api.openExternal(notifyPop.url)
+              setNotifyPop(null)
+              if (notifyTimerRef.current) clearTimeout(notifyTimerRef.current)
+            }}
+          />
+        )}
         {/* v0.4.0 S6.2 [D] pet-drop overlay — 用户拖文件到 pet 时弹大字提示
             "松手喂我". 实际文件处理 S6.3-S6.5 后续接入. */}
         {dragOver && (
@@ -1560,11 +1600,13 @@ function App(): React.JSX.Element {
                 ? miniEnterGif
                 : state === 'error'
                   ? miniAlertGif
-                  : state === 'success'
-                    ? miniHappyGif
-                    : miniPeeking
-                      ? miniPeekGif
-                      : miniIdleGif
+                  : notifyPop
+                    ? miniAlertGif // Batch 2: 通知期 mini 复用 alert.gif (无 96×96 GIF 空间)
+                    : state === 'success'
+                      ? miniHappyGif
+                      : miniPeeking
+                        ? miniPeekGif
+                        : miniIdleGif
             }
             alt=""
             draggable={false}

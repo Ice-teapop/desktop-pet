@@ -407,6 +407,13 @@ const api = {
     ipcRenderer.on('pet:mini-peek', handler)
     return () => ipcRenderer.off('pet:mini-peek', handler)
   },
+  // v0.4.5+ Batch 2: 让 main 用 shell.openExternal 打开 URL (only http/https).
+  // 通知 GIF 点击跳 release URL / 其它"打开浏览器"场景.
+  openExternal(url: string): Promise<{ ok: true } | { ok: false; error: string }> {
+    return ipcRenderer.invoke('shell:open-external', url) as Promise<
+      { ok: true } | { ok: false; error: string }
+    >
+  },
   // v0.4.0 改动 4 [B] listModels — 触发 main 拉 + push, listener 收 per-provider 列表
   requestAvailableModels(): void {
     ipcRenderer.send('available-models:request')

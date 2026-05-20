@@ -118,6 +118,9 @@ export interface DeskPetAPI {
   openImportFilesDialog(): void
   // v0.4.5+ Batch 1: mini-mode hover-peek 状态推送 — true 切 mini-peek.gif, false 回 mini-idle.gif
   onMiniPeek(listener: (peeking: boolean) => void): () => void
+  // v0.4.5+ Batch 2: main 用 shell.openExternal 打开 URL (only http/https allowlisted)
+  openExternal(url: string): Promise<{ ok: true } | { ok: false; error: string }>
+
   // v0.4.0 改动 4 [B] 动态 listModels
   requestAvailableModels(): void
   onAvailableModels(listener: (modelsByProvider: Record<string, string[]>) => void): () => void
