@@ -1,15 +1,17 @@
 name: Release multi-platform installers
 
 # 触发：
-#  - 推 tag v* → 3 OS × 2 locale (zh/en) = 6 个并行 job 上传到那个 tag 的 GitHub Release
-#  - 手动 workflow_dispatch → 用当前 main / 任一分支 build (不上传, dist/* 当 artifact)
+#  - 推 tag v* → build 阶段 6 个并行 (mac/win/linux × zh/en) → publish 单 job 串行
+#    合并所有 artifact 一次性创建 GitHub Release (避开 electron-builder 多 job
+#    同时 publish 到同 release 时的 GitHub API race condition).
+#  - 手动 workflow_dispatch → 只跑 build, artifact 14 天保留, 不 publish.
 on:
   push:
     tags:
       - 'v*'
   workflow_dispatch:
 
-# 防同 tag 并发 (重 push 同 tag 时不冲突)
+# 防同 tag 并发重 push 时冲突
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
@@ -43,12 +45,6 @@ jobs:
             locale: en
             build_script: build:linux:en
 
-    # GH_TOKEN 让 electron-builder publish=always 写回 Releases.
-    # 默认 GITHUB_TOKEN 是 ephemeral PAT, 有 contents:write 权限 (本仓库已在
-    # repo settings 允许). 不需额外 PAT secret.
-    permissions:
-      contents: write
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -57,7 +53,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          # Chinese 路径 cache: 显式指定 working-directory 的 lock file 路径
           cache: 'npm'
           cache-dependency-path: '01-桌宠客户端/desktop-pet/package-lock.json'
 
@@ -65,36 +60,26 @@ jobs:
         working-directory: '01-桌宠客户端/desktop-pet'
         run: npm ci
 
-      - name: Build & publish (tag push)
-        if: startsWith(github.ref, 'refs/tags/v')
+      # 关键: --publish never. 让 electron-builder 只 build, 不 upload 到
+      # GitHub Releases (避开 6 job 并发同 draft release race 丢文件).
+      # locale env 双轨: cross-env in script + GHA env: 兜底.
+      - name: Build (no publish)
         working-directory: '01-桌宠客户端/desktop-pet'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # locale: build:*:en npm scripts 通过 cross-env 注入 DESKPET_LOCALE=en
-          # (cross-platform safe, 不依赖 POSIX 前缀). 这里 env: 也设, 双保险 —
-          # cross-env 已 spawned shell 时此 env 也已 propagate.
           DESKPET_LOCALE: ${{ matrix.locale }}
           # macOS code signing 暂留空 — identity:null + notarize:false in
           # electron-builder.yml. Phase 2 接 Developer ID 时填:
           #   CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
           #   CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
-        run: npm run ${{ matrix.build_script }} -- --publish always
-
-      - name: Build only (manual / no publish)
-        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
-        working-directory: '01-桌宠客户端/desktop-pet'
-        env:
-          DESKPET_LOCALE: ${{ matrix.locale }}
-        # --publish never 显式禁掉 publish: electron-builder.yml 有 publish: github
-        # 配, 默认行为是 "CI 环境检测到就 auto-publish", 手动触发没 GH_TOKEN 会跪.
         run: npm run ${{ matrix.build_script }} -- --publish never
 
-      - name: Upload artifacts (manual build)
-        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+      # 6 个 job 各自 upload 自己的 dist 到 GHA artifact (短期 7 天保留).
+      # publish job 后面 download-artifact merge-multiple 合到一处.
+      # 排掉 latest*.yml — zh/en 同名会冲突 (auto-updater 未接, 暂不需要).
+      - name: Upload dist artifact
         uses: actions/upload-artifact@v4
         with:
-          # locale 进 artifact 名避免 6 个 job 撞名
-          name: deskpet-${{ matrix.os }}-${{ matrix.locale }}
+          name: dist-${{ matrix.os }}-${{ matrix.locale }}
           path: |
             01-桌宠客户端/desktop-pet/dist/*.zip
             01-桌宠客户端/desktop-pet/dist/*.dmg
@@ -102,6 +87,53 @@ jobs:
             01-桌宠客户端/desktop-pet/dist/*.AppImage
             01-桌宠客户端/desktop-pet/dist/*.deb
             01-桌宠客户端/desktop-pet/dist/*.blockmap
-            01-桌宠客户端/desktop-pet/dist/latest*.yml
-          if-no-files-found: warn
-          retention-days: 14
+          if-no-files-found: error
+          retention-days: 7
+
+  # 6 个 build 全 success 后, 单线 publish job 合并 + 一次性 create release.
+  # 仅 tag push 触发 (workflow_dispatch 只 build 不 publish).
+  publish:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout (need CHANGELOG)
+        uses: actions/checkout@v4
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist-all
+          pattern: dist-*
+          merge-multiple: true
+
+      - name: List assets to publish
+        run: |
+          echo "Total files:"
+          find dist-all/ -type f | wc -l
+          echo ""
+          ls -la dist-all/
+
+      - name: Create release (delete prior draft if exists)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # 若上一次同 tag CI 跑了一半留了 draft, 先删 (tag 自身保留 — --cleanup-tag
+        # 默认 false). 然后 gh release create 一次性 upload 所有 dist asset.
+        # --verify-tag 防止把 release 挂到不存在的 tag 上.
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          gh release view "$TAG" --json id >/dev/null 2>&1 \
+            && gh release delete "$TAG" --yes \
+            || true
+          gh release create "$TAG" \
+            --draft \
+            --verify-tag \
+            --title "$TAG" \
+            --notes "Multi-platform installers (mac arm64/x64 zip, win nsis, linux AppImage/deb) × ZH + EN locale builds. See [CHANGELOG.md](https://github.com/Ice-teapop/desktop-pet/blob/main/CHANGELOG.md) for changes." \
+            dist-all/*
+          echo ""
+          echo "Release created as draft. Asset count:"
+          gh release view "$TAG" --json assets --jq '.assets | length'
