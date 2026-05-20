@@ -1676,8 +1676,16 @@ function App(): React.JSX.Element {
         <IdleFollowSvg
           ref={idleFollowSvgRef}
           style={{
+            // v0.4.5+ fix: wizard 模式时让位让 dual-img (装着 wizardSvg) 显示;
+            // 否则 IdleFollowSvg 硬编码 idle 姿势盖在最上面, gifUrl 切到 wizardSvg
+            // 也看不到效果.
             opacity:
-              petMode === 'full' && state === 'idle' && activity === 'idle' ? 1 : 0,
+              petMode === 'full' &&
+              state === 'idle' &&
+              activity === 'idle' &&
+              !showWizardOverlay
+                ? 1
+                : 0,
             transition: `opacity ${FADE_HALF_MS}ms ${FADE_EASING}`
           }}
         />
@@ -1692,10 +1700,12 @@ function App(): React.JSX.Element {
           draggable={false}
           onLoad={handleImgLoad(0)}
           style={{
+            // v0.4.5+ fix: pure idle 时本来 opacity 0 (让位 IdleFollowSvg);
+            // 但 wizard 模式时必须显示 (dual-img 装着 wizardSvg).
             opacity:
               petMode === 'mini'
                 ? 0
-                : state === 'idle' && activity === 'idle'
+                : state === 'idle' && activity === 'idle' && !showWizardOverlay
                   ? 0
                   : frontIdx === 0
                     ? 1
@@ -1712,7 +1722,7 @@ function App(): React.JSX.Element {
             opacity:
               petMode === 'mini'
                 ? 0
-                : state === 'idle' && activity === 'idle'
+                : state === 'idle' && activity === 'idle' && !showWizardOverlay
                   ? 0
                   : frontIdx === 1
                     ? 1
