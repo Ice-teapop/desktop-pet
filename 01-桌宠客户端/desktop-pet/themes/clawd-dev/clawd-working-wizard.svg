@@ -258,9 +258,9 @@
     </style>
   </defs>
 
-  <rect id="ground-shadow" class="shadow-walk" x="3" y="15" width="9" height="1" fill="#000000" opacity="0.5"/>
+  <g id="shadow-js"><rect id="ground-shadow" class="shadow-walk" x="3" y="15" width="9" height="1" fill="#000000" opacity="0.5"/></g>
 
-  <g class="body-hunch">
+  <g id="body-js" class="body-hunch">
 
     <g id="legs" fill="#DE886D">
       <rect class="leg-step leg-1" x="3" y="13" width="1" height="2"/>
@@ -274,7 +274,7 @@
       <rect id="left-arm" x="0" y="9" width="2" height="2"/>
     </g>
 
-    <g class="eyes-wizard" fill="#000000">
+    <g id="eyes-js" class="eyes-wizard" fill="#000000">
       <rect x="4" y="8" width="1" height="2"/>
       <rect x="10" y="8" width="1" height="2"/>
       <rect x="4" y="8" width="0.35" height="0.35" fill="#FFFFFF"/>

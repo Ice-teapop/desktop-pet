@@ -61,9 +61,12 @@ import miniAlertGif from '@themes/clawd-dev/clawd-mini-alert.gif'
 // v0.4.5+ Batch 2: 检查更新发现新版时桌宠头顶弹动画通知 (full mode);
 // mini mode 复用 mini-alert.gif (80×80 装不下 96×96 notification.gif)
 import notificationGif from '@themes/clawd-dev/clawd-notification.gif'
-// v0.4.5+ Batch 3: wizard 期 overlay (setup mode 期间桌宠头顶戴 wizard hat 标
-// "AI 正在 onboarding 你") + idle 池加 1 个变体
-import wizardSvg from '@themes/clawd-dev/clawd-working-wizard.svg'
+// v0.4.5+ Batch 3 后续: wizard 通过 svgr ?react 当 inline 组件加载, 拿到 DOM ref
+// 给 rAF mutator 接管 #eyes-js / #body-js / #shadow-js → wizard 模式 idle 时
+// 也有眼跟随 + body lean + shadow stretch (跟 IdleFollowSvg 同一套 rig 接口).
+// 原 URL 形式 import (wizardSvg) 已弃用 — 之前 dual-img 替换方案被换成 cast +
+// inline SVG 两阶段方案, cast 复用 conducting.gif, idle 阶段走 inline 这条.
+import WizardSvgComponent from '@themes/clawd-dev/clawd-working-wizard.svg?react'
 import idleLivingSvg from '@themes/clawd-dev/clawd-idle-living.svg'
 // activity → GIF 映射：识别到不同活动时桌宠"陪你做同样的事"
 import typingGif from '@themes/clawd-dev/clawd-typing.gif'
@@ -248,6 +251,11 @@ function App(): React.JSX.Element {
   // v0.4.5+ Batch 3 后续: 托盘 🧙 巫师模式 手动 toggle. 跟 wizard onboarding 是
   // 两条独立触发路径 (OR 关系). 不持久化, 重启 = false.
   const [manualWizardMode, setManualWizardMode] = useState(false)
+  // v0.4.5+ Batch 3 后续: wizard 入场 cast 动画 (~1.6s conducting.gif "施法挥棒"),
+  // 之后切到 wizard idle SVG (带眼跟随). showWizardOverlay rising edge → true,
+  // 1.6s 后 timer 清回 false. toggle off → 立刻清 (无 exit 动画).
+  const [wizardCastPlaying, setWizardCastPlaying] = useState(false)
+  const wizardCastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // v0.4.5+ Batch 2: update:available 真有新版本时桌宠头顶弹通知 GIF ~3.6s.
   // notifyPop.id 触发 key 重挂让 GIF 从 frame 0 重启 (多次点"检查更新"也能重 restart).
   const [notifyPop, setNotifyPop] = useState<{ id: number; url: string } | null>(null)
@@ -310,6 +318,8 @@ function App(): React.JSX.Element {
    */
   const cursorRef = useRef<{ dx: number; dy: number }>({ dx: 0, dy: 0 })
   const idleFollowSvgRef = useRef<SVGSVGElement>(null)
+  // v0.4.5+ Batch 3 后续: wizard SVG ref 给 rAF mutator 同一接口 (#eyes-js/body-js/shadow-js)
+  const wizardSvgRef = useRef<SVGSVGElement>(null)
 
   const isConvMounted = chatPhase === 'open' || chatPhase === 'closing'
   // 等 AI 回复：ready 状态下最后一条是 user 才显示 typing
@@ -578,6 +588,43 @@ function App(): React.JSX.Element {
     }
   }, [])
 
+  // v0.4.5+ Batch 3 后续: wizard 显隐 + cast 入场 timer 提到这里 — rAF effect 下面
+  // 用 showWizardOverlay / wizardCastPlaying 作 deps, JS TDZ 要求声明在前.
+  //  (a) onboarding 自动: chat 打开 + key ready + setupCompleted===false
+  //  (b) 手动 toggle: 托盘 🧙 巫师模式
+  // 共同 gate: full mode + 非 error.
+  const wizardOnboardingActive =
+    chatPhase === 'open' &&
+    keyState === 'ready' &&
+    userProfile?.setupCompleted === false
+  const showWizardOverlay =
+    petMode === 'full' &&
+    state !== 'error' &&
+    (wizardOnboardingActive || manualWizardMode)
+  // rising edge → 1.6s cast intro (conducting.gif "施法挥棒"); falling edge → 清.
+  useEffect(() => {
+    if (!showWizardOverlay) {
+      if (wizardCastTimerRef.current) {
+        clearTimeout(wizardCastTimerRef.current)
+        wizardCastTimerRef.current = null
+      }
+      setWizardCastPlaying(false)
+      return
+    }
+    setWizardCastPlaying(true)
+    if (wizardCastTimerRef.current) clearTimeout(wizardCastTimerRef.current)
+    wizardCastTimerRef.current = setTimeout(() => {
+      setWizardCastPlaying(false)
+      wizardCastTimerRef.current = null
+    }, 1600)
+    return () => {
+      if (wizardCastTimerRef.current) {
+        clearTimeout(wizardCastTimerRef.current)
+        wizardCastTimerRef.current = null
+      }
+    }
+  }, [showWizardOverlay])
+
   /**
    * M9-4 eye tracking rAF loop：每帧从 cursorRef 读取最新 cursor 位置 → mutate
    * IdleFollow SVG 内部 `#eyes-js` / `#body-js` / `#shadow-js` group 的
@@ -592,37 +639,52 @@ function App(): React.JSX.Element {
    * CSS 已 transition: transform 0.2s ease-out 让 30Hz 输入平滑，不需手动 lerp.
    */
   useEffect(() => {
-    const svg = idleFollowSvgRef.current
-    if (!svg) return
-    // querySelector 一次性 mount 时拿 3 group 引用，rAF 直接读 closure 变量
-    const eyes = svg.querySelector<SVGGElement>('#eyes-js')
-    const body = svg.querySelector<SVGGElement>('#body-js')
-    const shadow = svg.querySelector<SVGGElement>('#shadow-js')
+    const idleSvg = idleFollowSvgRef.current
+    const wizardSvgEl = wizardSvgRef.current
+    if (!idleSvg && !wizardSvgEl) return
+    // 一次 mount querySelector 拿 6 个 group ref (idle + wizard), rAF 直接读 closure
+    // v0.4.5+ Batch 3 后续: wizard SVG 也有 #eyes-js / #body-js / #shadow-js
+    // (sed 加的 wrappers), 同一 rAF loop 复用同一份 cursor 计算, 按可见 SVG 写入
+    const idleEyes = idleSvg?.querySelector<SVGGElement>('#eyes-js') ?? null
+    const idleBody = idleSvg?.querySelector<SVGGElement>('#body-js') ?? null
+    const idleShadow = idleSvg?.querySelector<SVGGElement>('#shadow-js') ?? null
+    const wizEyes = wizardSvgEl?.querySelector<SVGGElement>('#eyes-js') ?? null
+    const wizBody = wizardSvgEl?.querySelector<SVGGElement>('#body-js') ?? null
+    const wizShadow = wizardSvgEl?.querySelector<SVGGElement>('#shadow-js') ?? null
     let raf = 0
     const tick = (): void => {
-      // 非 idle-follow 模式 skip mutation（SVG 不可见，无意义的 style write）
-      // 当前 inline check 比把 state 进 deps 触发 rAF 重启更简单
-      if (petMode === 'full' && state === 'idle' && activity === 'idle') {
-        const { dx, dy } = cursorRef.current
-        const normX = Math.max(-1, Math.min(1, dx / SENSE_RANGE_PX))
-        const normY = Math.max(-1, Math.min(1, dy / SENSE_RANGE_PX))
-        if (eyes) {
-          eyes.style.transform = `translate(${normX * EYE_MAX_SVG}px, ${normY * EYE_MAX_SVG}px)`
-        }
-        if (body) {
-          body.style.transform = `rotate(${normX * BODY_MAX_DEG}deg)`
-        }
-        if (shadow) {
-          shadow.style.transform = `scaleX(${1 + Math.abs(normX) * SHADOW_MAX_STRETCH}) translateX(${normX * 0.5}px)`
-        }
+      // 共享 gate: pure idle (state=idle + activity=idle) + full mode 时才 mutate.
+      // wizard / idle 哪个可见走哪边 — 由 showWizardOverlay && !wizardCastPlaying
+      // 区分 (cast 期 dual-img 跑 conducting.gif, wizard SVG 还没显示, 不要 mutate).
+      const pureIdle = petMode === 'full' && state === 'idle' && activity === 'idle'
+      if (!pureIdle) {
+        raf = requestAnimationFrame(tick)
+        return
+      }
+      const { dx, dy } = cursorRef.current
+      const normX = Math.max(-1, Math.min(1, dx / SENSE_RANGE_PX))
+      const normY = Math.max(-1, Math.min(1, dy / SENSE_RANGE_PX))
+      const eyesTfm = `translate(${normX * EYE_MAX_SVG}px, ${normY * EYE_MAX_SVG}px)`
+      const bodyTfm = `rotate(${normX * BODY_MAX_DEG}deg)`
+      const shadowTfm = `scaleX(${1 + Math.abs(normX) * SHADOW_MAX_STRETCH}) translateX(${normX * 0.5}px)`
+      // wizard 可见 (cast intro 已结束) → 写 wizard 的 3 个 group
+      const wizardVisible = showWizardOverlay && !wizardCastPlaying
+      if (wizardVisible) {
+        if (wizEyes) wizEyes.style.transform = eyesTfm
+        if (wizBody) wizBody.style.transform = bodyTfm
+        if (wizShadow) wizShadow.style.transform = shadowTfm
+      } else {
+        // 普通 idle (非 wizard 模式) → 写 IdleFollow 的 3 个 group
+        if (idleEyes) idleEyes.style.transform = eyesTfm
+        if (idleBody) idleBody.style.transform = bodyTfm
+        if (idleShadow) idleShadow.style.transform = shadowTfm
       }
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-    // state + activity + petMode 进 deps —— gate inline 判断需要拿最新值，重启 rAF 更稳。
-    // mini mode 时 SVG opacity=0 不可见 → 不必每帧 write 3 个 invisible style.transform
-  }, [state, activity, petMode])
+    // deps: gate inline 用最新 state/activity/petMode, wizard 切换重启 rAF
+  }, [state, activity, petMode, showWizardOverlay, wizardCastPlaying])
 
   // v0.4.0 改动 1: vision/tavily state 订阅 已迁移到 Settings 窗口
 
@@ -1096,14 +1158,8 @@ function App(): React.JSX.Element {
   //  (b) 手动 toggle: 托盘 🧙 巫师模式 (manualWizardMode), 不需 chat/key 任何
   //      条件 — 用户主动想戴就戴
   // 共同 gate: full mode (mini 80×80 装不下) + 非 error (error 视觉优先).
-  const wizardOnboardingActive =
-    chatPhase === 'open' &&
-    keyState === 'ready' &&
-    userProfile?.setupCompleted === false
-  const showWizardOverlay =
-    petMode === 'full' &&
-    state !== 'error' &&
-    (wizardOnboardingActive || manualWizardMode)
+  // wizardOnboardingActive + showWizardOverlay + cast 边沿 useEffect 已提到 rAF
+  // useEffect 前面 (line ~590), 避免 TDZ. 这里直接用.
 
   let gifUrl: string
   if (state === 'error') {
@@ -1140,11 +1196,11 @@ function App(): React.JSX.Element {
     gifUrl = wakingSvg
   } else if (state === 'sleep') {
     gifUrl = sleepingGif
-  } else if (showWizardOverlay) {
-    // v0.4.5+ Batch 3 fix: wizard 期整 body 替换成 wizard pose (而非 overlay),
-    // 否则 wizard SVG 是完整身体的巫师姿势 + 下面 pet body GIF = 用户看到两只
-    // 螃蟹重叠. AI 真在 thinking/success/error/动画时上面分支已 match, wizard 让位.
-    gifUrl = wizardSvg
+  } else if (showWizardOverlay && wizardCastPlaying) {
+    // v0.4.5+ Batch 3 后续: wizard 入场 cast 动画 — 复用 conducting.gif 当 "施法
+    // 挥棒" 入场 ~1.6s, 之后 wizardCastPlaying=false → 下面 WizardSvgComponent
+    // 层 (带 rAF 眼跟随) 接管. 期间 dual-img 是可见的 (gifUrl 走 conductingGif).
+    gifUrl = conductingGif
   } else if (activity !== 'idle') {
     gifUrl = ACTIVITY_GIF[activity]
   } else {
@@ -1174,10 +1230,10 @@ function App(): React.JSX.Element {
       miniAlertGif,
       // v0.4.5+ Batch 2: 通知 GIF (full mode 头顶弹) 也预热, 防首次"检查更新"
       // 发现新版本时 1-frame 闪
-      notificationGif,
-      // v0.4.5+ Batch 3: wizard overlay SVG 预热 (idleLivingSvg 已通过 IDLE_POOL
-      // spread 自动预热, 不需单独加)
-      wizardSvg
+      notificationGif
+      // v0.4.5+ Batch 3 后续: wizard 改用 svgr ?react inline 组件, 不再走 URL
+      // import, 这里也不需要预热 (svgr 编译时 inline 进 bundle).
+      // idleLivingSvg 已通过 IDLE_POOL spread 自动预热, 不需单独加.
     ]
     all.forEach((url) => {
       const img = new Image()
@@ -1676,9 +1732,7 @@ function App(): React.JSX.Element {
         <IdleFollowSvg
           ref={idleFollowSvgRef}
           style={{
-            // v0.4.5+ fix: wizard 模式时让位让 dual-img (装着 wizardSvg) 显示;
-            // 否则 IdleFollowSvg 硬编码 idle 姿势盖在最上面, gifUrl 切到 wizardSvg
-            // 也看不到效果.
+            // wizard 模式让位 (整身切 WizardSvgComponent 或 cast GIF)
             opacity:
               petMode === 'full' &&
               state === 'idle' &&
@@ -1687,6 +1741,27 @@ function App(): React.JSX.Element {
                 ? 1
                 : 0,
             transition: `opacity ${FADE_HALF_MS}ms ${FADE_EASING}`
+          }}
+        />
+        {/* v0.4.5+ Batch 3 后续: wizard idle SVG inline (svgr ?react), 同 #eyes-js
+            等 group rAF mutate. 仅 showWizardOverlay && cast 已完 && pure idle 显示.
+            cast 期 (wizardCastPlaying) 让位 dual-img 跑 conducting.gif; AI 真响应
+            (state !== idle) 让位 dual-img 跑 thinking/success/error. */}
+        <WizardSvgComponent
+          ref={wizardSvgRef}
+          style={{
+            opacity:
+              petMode === 'full' &&
+              showWizardOverlay &&
+              !wizardCastPlaying &&
+              state === 'idle' &&
+              activity === 'idle'
+                ? 1
+                : 0,
+            transition: `opacity ${FADE_HALF_MS}ms ${FADE_EASING}`,
+            position: 'absolute',
+            inset: 0,
+            pointerEvents: 'none'
           }}
         />
         {/* 双层 cross-fade：两个 absolute 叠加，opacity 互补 ramp。
@@ -1700,12 +1775,15 @@ function App(): React.JSX.Element {
           draggable={false}
           onLoad={handleImgLoad(0)}
           style={{
-            // v0.4.5+ fix: pure idle 时本来 opacity 0 (让位 IdleFollowSvg);
-            // 但 wizard 模式时必须显示 (dual-img 装着 wizardSvg).
+            // pure idle 时 dual-img 让位给 SVG 层 (IdleFollow / WizardSvg);
+            // wizard cast 期 (wizardCastPlaying=true) 例外 — dual-img 跑 conducting.gif
+            // 让"施法"挥棒姿态可见, 之后切到 WizardSvgComponent inline SVG.
             opacity:
               petMode === 'mini'
                 ? 0
-                : state === 'idle' && activity === 'idle' && !showWizardOverlay
+                : state === 'idle' &&
+                    activity === 'idle' &&
+                    (!showWizardOverlay || !wizardCastPlaying)
                   ? 0
                   : frontIdx === 0
                     ? 1
@@ -1722,7 +1800,9 @@ function App(): React.JSX.Element {
             opacity:
               petMode === 'mini'
                 ? 0
-                : state === 'idle' && activity === 'idle' && !showWizardOverlay
+                : state === 'idle' &&
+                    activity === 'idle' &&
+                    (!showWizardOverlay || !wizardCastPlaying)
                   ? 0
                   : frontIdx === 1
                     ? 1
