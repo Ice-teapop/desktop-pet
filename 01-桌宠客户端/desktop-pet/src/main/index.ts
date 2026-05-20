@@ -365,6 +365,9 @@ function stopCursorPoll(): void {
  * 走不同 render path（只用 mini-* GIF）。切换通过 setPetMode(mode)。
  */
 let petMode: PetMode = DEFAULT_PET_MODE
+// v0.4.5+ Batch 3 后续: 托盘手动 wizard 模式 toggle. 不持久化 (重启 = false),
+// 跟 setupCompleted 联动的 wizard 是两条独立路径, renderer 取 OR.
+let manualWizardMode = false
 
 function broadcastPetMode(): void {
   // 单播给 petWindow（跟 pet:state / pet:cursor 拓扑对齐；settings 等其它 window 不需要这条 channel）
@@ -381,6 +384,15 @@ function broadcastPetMode(): void {
 function broadcastMiniPeek(peeking: boolean): void {
   if (petWindow && !petWindow.isDestroyed()) {
     petWindow.webContents.send('pet:mini-peek', peeking)
+  }
+}
+
+/**
+ * v0.4.5+ Batch 3 后续: 托盘 "🧙 巫师模式" toggle. 不持久化.
+ */
+function broadcastManualWizardMode(): void {
+  if (petWindow && !petWindow.isDestroyed()) {
+    petWindow.webContents.send('pet:manual-wizard-mode', manualWizardMode)
   }
 }
 
@@ -1401,6 +1413,17 @@ function buildTrayMenu(): Menu {
     },
     { type: 'separator' },
     {
+      // v0.4.5+ Batch 3 后续: 手动 wizard 模式 toggle (不持久化, 重启 = off).
+      label: t('tray.wizard_toggle'),
+      type: 'checkbox',
+      checked: manualWizardMode,
+      click: (item) => {
+        manualWizardMode = item.checked
+        broadcastManualWizardMode()
+        rebuildTrayMenu() // 让 checkmark 反映新状态 (Electron menu 不 reactive)
+      }
+    },
+    {
       label: t('tray.demo'),
       click: () => stateMachine.demoCycle()
     },
@@ -1595,6 +1618,12 @@ function registerIpc(): void {
   ipcMain.on('pet:request-mode-state', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     win?.webContents.send('pet:mode', petMode)
+  })
+
+  // v0.4.5+ Batch 3 后续: renderer 启动 / HMR 后请求当前手动 wizard 模式状态.
+  ipcMain.on('pet:request-manual-wizard-mode', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    win?.webContents.send('pet:manual-wizard-mode', manualWizardMode)
   })
 
   /**

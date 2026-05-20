@@ -28,6 +28,7 @@ export const zh = {
   'tray.model_unconfigured': '（未配置任何 provider key — 打开设置）',
   'tray.import_files': '📂 导入文件给桌宠…',
   'tray.import_dialog_title': '选要喂给桌宠的文件',
+  'tray.wizard_toggle': '🧙 巫师模式',
   'tray.demo': 'Demo: 思考 → 庆祝 → 待机',
   'tray.update_check': '检查更新（当前 v{0}）',
   'tray.quit': '退出 DeskPet',

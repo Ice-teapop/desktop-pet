@@ -118,6 +118,9 @@ export interface DeskPetAPI {
   openImportFilesDialog(): void
   // v0.4.5+ Batch 1: mini-mode hover-peek 状态推送 — true 切 mini-peek.gif, false 回 mini-idle.gif
   onMiniPeek(listener: (peeking: boolean) => void): () => void
+  // v0.4.5+ Batch 3 后续: 托盘 🧙 巫师模式 toggle (非持久, 重启 = off)
+  onManualWizardMode(listener: (active: boolean) => void): () => void
+  requestManualWizardMode(): void
   // v0.4.5+ Batch 2: main 用 shell.openExternal 打开 URL (only http/https allowlisted)
   openExternal(url: string): Promise<{ ok: true } | { ok: false; error: string }>
 

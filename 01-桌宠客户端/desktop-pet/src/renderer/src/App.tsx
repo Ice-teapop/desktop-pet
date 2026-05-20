@@ -245,6 +245,9 @@ function App(): React.JSX.Element {
   // wizard hat 当 onboarding ambient hint. null = 启动后还没收到 main 推送,
   // 用 `?.setupCompleted === false` 防止 first-frame 闪.
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
+  // v0.4.5+ Batch 3 后续: 托盘 🧙 巫师模式 手动 toggle. 跟 wizard onboarding 是
+  // 两条独立触发路径 (OR 关系). 不持久化, 重启 = false.
+  const [manualWizardMode, setManualWizardMode] = useState(false)
   // v0.4.5+ Batch 2: update:available 真有新版本时桌宠头顶弹通知 GIF ~3.6s.
   // notifyPop.id 触发 key 重挂让 GIF 从 frame 0 重启 (多次点"检查更新"也能重 restart).
   const [notifyPop, setNotifyPop] = useState<{ id: number; url: string } | null>(null)
@@ -396,6 +399,13 @@ function App(): React.JSX.Element {
   useEffect(() => {
     const off = window.api.onUserProfileState((p) => setUserProfile(p))
     window.api.requestUserProfileState()
+    return off
+  }, [])
+
+  // v0.4.5+ Batch 3 后续: 订阅托盘 🧙 巫师模式 toggle.
+  useEffect(() => {
+    const off = window.api.onManualWizardMode((active) => setManualWizardMode(active))
+    window.api.requestManualWizardMode()
     return off
   }, [])
 
@@ -1080,16 +1090,20 @@ function App(): React.JSX.Element {
   // M8: AI 调 set_pet_animation 时 stateMachine 转到 juggling/sweeping/etc
   // priority 5 > thinking priority 2 → 自动覆盖 thinking，让动画播完 minMs cycle。
 
-  // v0.4.5+ Batch 3: wizard overlay 显隐 — setup mode 期间桌宠头顶戴 wizard hat.
-  // 必须 chat 真打开 + 有 key + setupCompleted===false (用 `===false` 不是 `!==true`
-  // 防 userProfile=null 启动期闪一下), 且不在 error 状态 (error 视觉优先).
-  // 仅 full mode (mini 80×80 装不下 72px overlay).
-  const showWizardOverlay =
-    petMode === 'full' &&
+  // v0.4.5+ Batch 3: wizard 形象触发两条路径 OR:
+  //  (a) onboarding 自动: chat 打开 + key ready + setupCompleted===false (严格
+  //      `===false` 防 userProfile=null 启动闪)
+  //  (b) 手动 toggle: 托盘 🧙 巫师模式 (manualWizardMode), 不需 chat/key 任何
+  //      条件 — 用户主动想戴就戴
+  // 共同 gate: full mode (mini 80×80 装不下) + 非 error (error 视觉优先).
+  const wizardOnboardingActive =
     chatPhase === 'open' &&
     keyState === 'ready' &&
-    userProfile?.setupCompleted === false &&
-    state !== 'error'
+    userProfile?.setupCompleted === false
+  const showWizardOverlay =
+    petMode === 'full' &&
+    state !== 'error' &&
+    (wizardOnboardingActive || manualWizardMode)
 
   let gifUrl: string
   if (state === 'error') {

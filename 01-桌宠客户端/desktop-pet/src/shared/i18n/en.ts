@@ -23,6 +23,7 @@ export const en: I18nDict = {
   'tray.model_unconfigured': '(no provider key — open Settings)',
   'tray.import_files': '📂 Feed files to pet…',
   'tray.import_dialog_title': 'Pick files to feed the pet',
+  'tray.wizard_toggle': '🧙 Wizard mode',
   'tray.demo': 'Demo: thinking → celebrate → idle',
   'tray.update_check': 'Check for updates (current v{0})',
   'tray.quit': 'Quit DeskPet',

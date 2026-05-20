@@ -407,6 +407,15 @@ const api = {
     ipcRenderer.on('pet:mini-peek', handler)
     return () => ipcRenderer.off('pet:mini-peek', handler)
   },
+  // v0.4.5+ Batch 3 后续: 托盘 🧙 巫师模式 toggle. 主进程推, renderer 订阅.
+  onManualWizardMode(listener: (active: boolean) => void): () => void {
+    const handler = (_e: IpcRendererEvent, active: boolean): void => listener(active)
+    ipcRenderer.on('pet:manual-wizard-mode', handler)
+    return () => ipcRenderer.off('pet:manual-wizard-mode', handler)
+  },
+  requestManualWizardMode(): void {
+    ipcRenderer.send('pet:request-manual-wizard-mode')
+  },
   // v0.4.5+ Batch 2: 让 main 用 shell.openExternal 打开 URL (only http/https).
   // 通知 GIF 点击跳 release URL / 其它"打开浏览器"场景.
   openExternal(url: string): Promise<{ ok: true } | { ok: false; error: string }> {
