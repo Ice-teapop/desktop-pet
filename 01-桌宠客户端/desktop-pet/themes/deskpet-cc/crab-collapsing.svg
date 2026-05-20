@@ -78,6 +78,7 @@
       100%  { transform: scaleY(0.1)  scaleX(1.3);  }  /* = sleeping 横划 */
     }
   </style>
+  <g class="pet-scale-wrap" transform="translate(15 23) scale(0.7) translate(-15 -23)">
 
   <g class="collapse-shadow">
     <rect x="9" y="24" width="12" height="1" fill="#000000" opacity="0.32"/>
@@ -108,4 +109,5 @@
 
   </g>
 
+</g>
 </svg>

@@ -154,3 +154,9 @@ env GH_TOKEN=<your-github-personal-access-token> npm run build:mac -- --publish 
 - M4-B local tools: clipboard / open_url / copy_to_clipboard / current_app_info
 - M4-C local tools: read_file / list_directory / write_file / create_directory / find_files / delete_file / run_command / open_system_settings / read_system_preference + per-action approval modal + audit log
 - M4-D web tools: fetch_url + web_search (Tavily)
+
+## 鸣谢
+
+特别感谢 **[@rullerzhou](https://github.com/rullerzhou-afk)** —— 无偿提供了 [pet-forge](https://github.com/rullerzhou-afk/pet-forge) (MIT) 这套 SVG 桌宠制作 skill + 完整工作流，并在 Claude Code 小螃蟹形象设计 / 像素动画规范 / 状态衔接节奏上给予关键指导与持续鼓励。本项目 deskpet-cc 主题的 21 个 sprite 全部参考 pet-forge 的 SVG 路线规范创作；睡眠链 / 打字 / 巫师事故 / 抛球 等动画 keyframes 节奏直接借鉴老 Clawd 设计语言。
+
+没有她的开源精神和细致带教，DeskPet 的桌宠形象不可能在这么短时间内完成从零到 21 个 sprite 的全套替换。一切归功于她。

@@ -111,16 +111,16 @@
   "jugglingTiers": [
     {
       "minSessions": 2,
-      "file": "crab-conducting.svg"
+      "file": "crab-juggling.svg"
     },
     {
       "minSessions": 1,
-      "file": "crab-conducting.svg"
+      "file": "crab-juggling.svg"
     }
   ],
   "idleAnimations": [
     {
-      "file": "crab-idle-follow.svg",
+      "file": "crab-looking-around.svg",
       "duration": 6500
     },
     {
@@ -162,8 +162,8 @@
     "yawnDuration": 3800,
     "wakeDuration": 1500,
     "deepSleepTimeout": 600000,
-    "mouseIdleTimeout": 20000,
-    "mouseSleepTimeout": 60000
+    "mouseIdleTimeout": 60000,
+    "mouseSleepTimeout": 180000
   },
   "hitBoxes": {
     "default": {

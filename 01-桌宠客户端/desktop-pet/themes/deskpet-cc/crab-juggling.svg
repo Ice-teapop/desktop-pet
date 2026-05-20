@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  crab-juggling.svg  ·  抛小球 (1:1 移植自老 clawd-working-juggling.svg)
+  ──────────────────────────────────────────────────────────────
+  · 几何替换: clawd→crab pixel (base 几何, 不缩放)
+  · 球: 3 颗 circle r=1.5, 每颗 3 层 (主色 + 高光 + 阴影) 跟老 Clawd 一致
+  · keyframes 坐标系平移: 老 (1-14, 10) 跨度 13 → 新 (5-25, 13) 跨度 20
+  · 三颗球错相 delay 0 / -0.4 / -0.8 (周期 1.2s)
+  · viewBox 跟其它 crab-* sprite 一致: -7.5 -7.5 45 45, 内容 0-30
+  · 取消旧版 pet-scale-wrap (其它 sprite 也没用, 防止球被缩成 0.7px)
+-->
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="-7.5 -7.5 45 45"
+     width="600" height="600"
+     shape-rendering="geometricPrecision">
+
+  <defs>
+    <style>
+      /* ===== Independent sub-animations ===== */
+      .breathe   { transform-origin: 15px 13px; animation: breathe 3.2s infinite ease-in-out; }
+      .body-rock { transform-origin: 15px 22px; animation: rock 1.2s infinite ease-in-out; }
+      .shadow-anim { transform-origin: 15px 24.5px; animation: shadow-rock 1.2s infinite ease-in-out; }
+
+      /* Arms: alternate catch/throw, synced with rock */
+      .arm-juggle-l { transform-origin: 5px 13px;  animation: arm-jl 1.2s infinite ease-in-out; }
+      .arm-juggle-r { transform-origin: 25px 13px; animation: arm-jr 1.2s infinite ease-in-out; }
+
+      /* Eyes track balls */
+      .eye-track { animation: eye-track 2.4s infinite ease-in-out; }
+
+      /* Juggling packets: parabolic arc */
+      .packet { animation: juggle 1.2s infinite ease-in-out; }
+      .p1 { animation-delay: 0s;    }
+      .p2 { animation-delay: -0.4s; }
+      .p3 { animation-delay: -0.8s; }
+
+      @keyframes breathe {
+        0%, 100% { transform: scale(1, 1)        translate(0, 0); }
+        50%      { transform: scale(1.02, 0.98)  translate(0, 0.5px); }
+      }
+      @keyframes rock {
+        0%, 50%, 100% { transform: rotate(0deg)  translateY(0); }
+        25%           { transform: rotate(-3deg) translateY(0.3px); }
+        75%           { transform: rotate(3deg)  translateY(0.3px); }
+      }
+      @keyframes shadow-rock {
+        0%, 50%, 100% { transform: scaleX(1);    opacity: 0.4;  }
+        25%           { transform: scaleX(1.03) translateX(-0.3px); opacity: 0.42; }
+        75%           { transform: scaleX(1.03) translateX(0.3px);  opacity: 0.42; }
+      }
+      /* Left arm: up at 25% (catch left), down at 75% (throw across) */
+      @keyframes arm-jl {
+        0%, 50%, 100% { transform: rotate(20deg); }
+        25%           { transform: rotate(35deg); }
+        75%           { transform: rotate(5deg);  }
+      }
+      /* Right arm: down at 25%, up at 75% (catch right) */
+      @keyframes arm-jr {
+        0%, 50%, 100% { transform: rotate(-20deg); }
+        25%           { transform: rotate(-5deg);  }
+        75%           { transform: rotate(-35deg); }
+      }
+      /* Eyes track ball arc left-right */
+      @keyframes eye-track {
+        0%, 100% { transform: translate(-1px, -1px);  }
+        15%      { transform: translate(0,    -1.5px); }
+        30%      { transform: translate(1px,  -1px);  }
+        45%      { transform: translate(1px,   0.5px); }
+        50%      { transform: translate(1px,  -1px);  }
+        65%      { transform: translate(0,    -1.5px); }
+        80%      { transform: translate(-1px, -1px);  }
+        90%      { transform: translate(-1px,  0.5px); }
+      }
+      /* Juggle parabolic arc — 跨度 (5,13) → (15,3) → (25,13) → 回 (5,13)
+         · 0%   左手 (5, 13)
+         · 18%  上升 (8, 6)
+         · 30%  顶 (11, 3)
+         · 42%  下降 (14, 6)
+         · 50%  右手 (25, 13)
+         · 58%  上升 (22, 6)
+         · 68%  顶 (19, 3)
+         · 80%  下降 (16, 6)
+         · 92%  接近原 (10, 8)
+         · 100% 回左手 (5, 13)
+         球元素自身 cx/cy=0, translate 直接落到目标坐标 */
+      @keyframes juggle {
+        0%   { transform: translate(5px,  13px); }
+        8%   { transform: translate(6px,  9px);  }
+        18%  { transform: translate(8px,  5px);  }
+        30%  { transform: translate(11px, 3px);  }
+        42%  { transform: translate(14px, 5px);  }
+        50%  { transform: translate(25px, 13px); }
+        58%  { transform: translate(23px, 9px);  }
+        68%  { transform: translate(20px, 5px);  }
+        80%  { transform: translate(17px, 3px);  }
+        92%  { transform: translate(10px, 8px);  }
+        100% { transform: translate(5px,  13px); }
+      }
+    </style>
+  </defs>
+
+  <title>crab-juggling</title>
+
+  <!-- 加 pet-scale-wrap 让 juggling 跟其他 sprite 同尺寸 (跟 idle-follow 一致) -->
+  <g class="pet-scale-wrap" transform="translate(15 23) scale(0.7) translate(-15 -23)">
+
+  <!-- ═══════════ 地面阴影 ═══════════ -->
+  <rect class="shadow-anim" x="9" y="24" width="12" height="1" fill="#000000" opacity="0.4"/>
+
+  <!-- ═══════════ Juggling Packets (3 colors, 3-layer balls) ═══════════ -->
+  <g>
+    <!-- Red ball -->
+    <g class="packet p1">
+      <circle cx="0"     cy="0"     r="1.5" fill="#FF5252"/>
+      <circle cx="-0.4"  cy="-0.4"  r="0.55" fill="#FF8A80" opacity="0.75"/>
+      <circle cx="0.35"  cy="0.45"  r="0.7"  fill="#D32F2F" opacity="0.35"/>
+    </g>
+    <!-- Yellow ball -->
+    <g class="packet p2">
+      <circle cx="0"     cy="0"     r="1.5" fill="#FFC107"/>
+      <circle cx="-0.4"  cy="-0.4"  r="0.55" fill="#FFE082" opacity="0.75"/>
+      <circle cx="0.35"  cy="0.45"  r="0.7"  fill="#FFA000" opacity="0.35"/>
+    </g>
+    <!-- Green ball -->
+    <g class="packet p3">
+      <circle cx="0"     cy="0"     r="1.5" fill="#4CAF50"/>
+      <circle cx="-0.4"  cy="-0.4"  r="0.55" fill="#81C784" opacity="0.75"/>
+      <circle cx="0.35"  cy="0.45"  r="0.7"  fill="#388E3C" opacity="0.35"/>
+    </g>
+  </g>
+
+  <!-- ═══════════ Static legs ═══════════ -->
+  <g fill="#B95E40">
+    <rect x="8"  y="20" width="2" height="3"/>
+    <rect x="11" y="20" width="2" height="3"/>
+    <rect x="17" y="20" width="2" height="3"/>
+    <rect x="20" y="20" width="2" height="3"/>
+  </g>
+
+  <!-- ═══════════ Body rock + breathe ═══════════ -->
+  <g class="body-rock">
+    <g class="breathe">
+
+      <!-- Left arm (juggle motion) -->
+      <g class="arm-juggle-l">
+        <rect x="4" y="12" width="2" height="3" fill="#D97856"/>
+      </g>
+      <!-- Right arm (juggle motion) -->
+      <g class="arm-juggle-r">
+        <rect x="24" y="12" width="2" height="3" fill="#D97856"/>
+      </g>
+
+      <!-- Torso (pixel rounded rect: 3-band stack) -->
+      <rect x="7" y="7"  width="16" height="1"  fill="#D97856"/>
+      <rect x="6" y="8"  width="18" height="11" fill="#D97856"/>
+      <rect x="7" y="19" width="16" height="1"  fill="#D97856"/>
+      <rect x="8" y="8"  width="14" height="1"  fill="#F3A98B"/>
+      <rect x="8" y="18" width="14" height="1"  fill="#B95E40"/>
+
+      <!-- Eyes (track juggling balls) -->
+      <g class="eye-track">
+        <rect x="10" y="10" width="2" height="4" fill="#111111"/>
+        <rect x="18" y="10" width="2" height="4" fill="#111111"/>
+        <rect x="10" y="10" width="1" height="1" fill="#FFFFFF"/>
+        <rect x="18" y="10" width="1" height="1" fill="#FFFFFF"/>
+      </g>
+
+    </g>
+  </g>
+
+  </g>
+</svg>

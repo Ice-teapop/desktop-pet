@@ -40,7 +40,7 @@ export const PET_STATES = {
   working: { priority: 5, minMs: 400 },
   moving: { priority: 5, minMs: 400 },
   organizing: { priority: 5, minMs: 400 },
-  building: { priority: 5, minMs: 400 },
+  building: { priority: 5, minMs: 4800 },  // crab-hammer.svg 1.2s infinite loop × 4 完整锤击周期 (user 反馈"时间不够")
   multitask: { priority: 5, minMs: 400 },
   // —— M8 表演动画（AI 通过 set_pet_animation tool 主动触发） ——
   // priority 5（同执行类）= 高于 success/thinking，让动画播完一个 GIF cycle
@@ -57,7 +57,7 @@ export const PET_STATES = {
   // priority 4（同 success）= 高于 idle/sleep/thinking，低于 multitask 等执行类
   // 不打断 AI 动画但能从 sleep / idle 拉醒；minMs 1200ms 让动画播完。
   poked: { priority: 4, minMs: 1200 },
-  looking_around: { priority: 4, minMs: 1500 },
+  looking_around: { priority: 4, minMs: 6000 }, // crab-looking-around.svg 6s forwards 一次性, 7 phase 完整播完
   error: { priority: 6, minMs: 1200 },
   awaiting: { priority: 7, minMs: 0 }
 } as const

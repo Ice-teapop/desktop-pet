@@ -34,15 +34,19 @@ import { t } from '../../shared/i18n'
 import idleGif from '@themes/deskpet-cc/crab-idle-follow.svg'
 import idleReadingGif from '@themes/deskpet-cc/crab-idle-follow.svg'
 import sweepingGif from '@themes/deskpet-cc/crab-sweeping.svg'
-import jugglingGif from '@themes/deskpet-cc/crab-conducting.svg'
+import jugglingGif from '@themes/deskpet-cc/crab-juggling.svg'
 import buildingGif from '@themes/deskpet-cc/crab-hammer.svg'
 import conductingGif from '@themes/deskpet-cc/crab-conducting.svg'
 import sleepingGif from '@themes/deskpet-cc/crab-sleeping.svg'
 import carryingGif from '@themes/deskpet-cc/crab-carrying.svg'
 import ultrathinkSvg from '@themes/deskpet-cc/crab-thinking.svg'
 // M9-2 click reactions
-import reactDoubleJumpGif from '@themes/deskpet-cc/crab-happy.svg'
-import reactAnnoyedGif from '@themes/deskpet-cc/crab-error.svg'
+// poked (2-3 击) → crab-jump.svg「跳一跳」(原 react-double-jump 搬运)
+// looking_around (4+ 击) → crab-looking-around.svg「东张西望」(原 react-annoyed 反应)
+// 历史坑: 这两个 import 曾错指向 crab-looking-around.svg / crab-error.svg
+//   导致双击只闪 looking、四击显示 error, 完全反了
+import reactDoubleJumpGif from '@themes/deskpet-cc/crab-jump.svg'
+import reactAnnoyedGif from '@themes/deskpet-cc/crab-looking-around.svg'
 // M9-3 sleep sequence 多阶段
 import yawningSvg from '@themes/deskpet-cc/crab-yawning.svg'
 import dozingSvg from '@themes/deskpet-cc/crab-dozing.svg'
@@ -76,10 +80,10 @@ const DRAG_THRESHOLD_PX = 5
 //   EYE_MAX_SVG = eye group transform 最大偏移（svg units, pixel 风建议 0.3-0.5）
 //   BODY_MAX_DEG = 身体倾斜最大角度（pixel rotate >5° 锯齿明显, 降到 3°）
 //   SHADOW_MAX_STRETCH = 影子 scaleX 增量
-const SENSE_RANGE_PX = 600
-const EYE_MAX_SVG = 0.3
+const SENSE_RANGE_PX = 400
+const EYE_MAX_SVG = 0.8
 const BODY_MAX_DEG = 3
-const SHADOW_MAX_STRETCH = 0.2
+// SHADOW_MAX_STRETCH 已删 — shadow 不再 cursor-driven, 改纯 body breathe + body lean shift
 
 // M9-2 click burst 时间常量：
 //   POKE_DETECT_MS = 单击 burst window；250ms 内没新 click → fire burst action
@@ -547,10 +551,11 @@ function App(): React.JSX.Element {
   }, [])
 
   // idle 子调度器：state=idle && activity=idle 时按 pickNextIdle 完全随机切（不重复 current）。
-  // 姿态硬跳由 fade 透明度过渡掩盖。reading "喝茶动作" 一次性 7s 后切走（GIF 一个 loop 时长）。
-  // 加 idleVariantIdx 到依赖：每次切了 variant 重 schedule，让 reading 用短 delay。
+  // v0.4.10+: chat open 期间 gate — chat panel 打开时 pet 强制保持当前 idle sprite,
+  // 不切 variant (避免 chat 框旁边 pet 突然东张西望 / 看报纸 等动作)
   useEffect(() => {
     if (state !== 'idle' || activity !== 'idle') return
+    if (chatPhase !== 'closed') return  // chat 打开期间锁定 idle sprite, 不切 variant
     const schedule = (): NodeJS.Timeout => {
       const isReading = IDLE_POOL[idleVariantIdx] === idleReadingGif
       const delay = isReading
@@ -562,7 +567,7 @@ function App(): React.JSX.Element {
     }
     const timer = schedule()
     return () => clearTimeout(timer)
-  }, [state, activity, idleVariantIdx])
+  }, [state, activity, idleVariantIdx, chatPhase])
 
   // mount 后立刻 ping 主进程要当前 keyState —— 防御启动 race：
   // 主进程 did-finish-load 推 key:state 时若这个 useEffect 还没 subscribe 会丢
@@ -593,6 +598,16 @@ function App(): React.JSX.Element {
     petMode === 'full' &&
     state !== 'error' &&
     (wizardOnboardingActive || manualWizardMode)
+  // wizard mount counter: 每次 showWizardOverlay 上升沿 +1, 让 <WizardSvgComponent>
+  // key 变化 → React remount → hat-drop 入场 animation 重新播 (否则只在初次加载时播一次)
+  const [wizardMountKey, setWizardMountKey] = useState(0)
+  const prevWizardVisibleRef = useRef(false)
+  useEffect(() => {
+    if (showWizardOverlay && !prevWizardVisibleRef.current) {
+      setWizardMountKey((k) => k + 1)
+    }
+    prevWizardVisibleRef.current = showWizardOverlay
+  }, [showWizardOverlay])
   // rising edge → 1.6s cast intro (conducting.gif "施法挥棒"); falling edge → 清.
   useEffect(() => {
     if (!showWizardOverlay) {
@@ -667,7 +682,20 @@ function App(): React.JSX.Element {
       const normY = Math.max(-1, Math.min(1, dy / SENSE_RANGE_PX))
       const eyesTfm = `translate(${normX * EYE_MAX_SVG}px, ${normY * EYE_MAX_SVG}px)`
       const bodyTfm = `rotate(${normX * BODY_MAX_DEG}deg)`
-      const shadowTfm = `scaleX(${1 + Math.abs(normX) * SHADOW_MAX_STRETCH}) translateX(${normX * 0.5}px)`
+      // shadow: 仅跟 body 本体空间站位变化, 不跟 cursor 远近
+      // · breathe sin 3.2s (跟 body .breathe-anim 同周期同相): body 压扁时影子变宽
+      // · body lean 间接驱动: body rotate normX*BODY_MAX_DEG 时, 影子横向 translate
+      //   微跟随 (不是直接 cursor, 是 body 几何中心横移的反射)
+      // · 历史教训: SVG <style> 里写 #shadow-js {animation: ...} 跟 inline
+      //   style.transform 同 property 抢占, animation 永远赢 — shadow breathe
+      //   必须在这里 inline 计算, 不能用 CSS keyframe.
+      const SCALE_COMP = 1 / 0.7 // ≈ 1.43, 抵消 outer .pet-scale-wrap scale(0.7)
+      const breathePhase = (performance.now() % 3200) / 3200 // 0..1
+      // body breathe 50% 时 scaleY 0.98 (压扁 + 下沉), 影子相应变宽 (反相)
+      const breatheStretch = 0.08 * Math.sin(breathePhase * Math.PI * 2) // ±8%
+      // body 倾斜带动 shadow 横向跟随 (是 body 位置的反射, 不是 cursor 距离)
+      const bodyLeanShift = (normX * BODY_MAX_DEG * 0.15) * SCALE_COMP
+      const shadowTfm = `scaleX(${1 + breatheStretch}) translateX(${bodyLeanShift}px)`
       // wizard 身子叠加 2deg 基础前倾 (SVG .body-hunch 静态位姿) + 光标 tilt
       const wizBodyTfm = `translate(0, 1px) rotate(${2 + normX * BODY_MAX_DEG}deg)`
       const wizardVisible = showWizardOverlay && !wizardCastPlaying
@@ -1750,6 +1778,7 @@ function App(): React.JSX.Element {
             cast 期 (wizardCastPlaying) 让位 dual-img 跑 conducting.gif; AI 真响应
             (state !== idle) 让位 dual-img 跑 thinking/success/error. */}
         <WizardSvgComponent
+          key={wizardMountKey}
           ref={wizardSvgRef}
           style={{
             // v0.4.5+ 修: wizard 是 user 主动 mode (toggle 或 onboarding), 应该 activity

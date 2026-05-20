@@ -117,6 +117,7 @@
       95%, 100% { transform: translate(1px, 5px); opacity: 0; }
     }
   </style>
+  <g class="pet-scale-wrap" transform="translate(15 23) scale(0.7) translate(-15 -23)">
 
   <g id="shadow">
     <rect x="9" y="24" width="12" height="1" fill="#000000" opacity="0.28"/>
@@ -183,4 +184,5 @@
 
   </g>
 
+</g>
 </svg>

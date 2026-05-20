@@ -137,6 +137,7 @@
       55%, 100% { opacity: 0; }
     }
   </style>
+  <g class="pet-scale-wrap" transform="translate(15 23) scale(0.7) translate(-15 -23)">
 
   <!-- 地面阴影 -->
   <g id="shadow-js">
@@ -226,4 +227,5 @@
     </g>
   </g>
 
+</g>
 </svg>

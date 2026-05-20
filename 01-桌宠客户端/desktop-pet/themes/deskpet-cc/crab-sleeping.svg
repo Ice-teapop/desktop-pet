@@ -1,146 +1,105 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  crab-sleeping.svg  ·  睡眠终态 (splooted 主子摊平)
-  ──────────────────────────────────────────────────────────────
-  · 改深为 splooted: scale(1.18, 0.71) translateY(+3), 腿缩短藏入身体
-  · 跟 collapse 末态 / wake 起态 几何完全对齐 (零跳变)
-  · zZz 浮起 3 颗 (彩蛋: 只 sleeping 才有, dozing 不出 — 保"嘴硬不承认睡了"人设)
-  · 节奏: 慢呼吸 6.8s + 阴影同步
+  crab-sleeping.svg  ·  睡眠 (idle geometry + transform 缩压)
+  · 用 idle 同 geometry, 通过 scale(1.18, 0.71) translateY(3) 模拟瘫倒
+  · 这样 sleeping ↔ wake ↔ collapsing 三个 sprite **几何一致**, 切换零跳变
+  · 牺牲 splooted 真姿势换"位置统一" (用户要求)
 -->
 <svg xmlns="http://www.w3.org/2000/svg"
      viewBox="-7.5 -7.5 45 45"
      shape-rendering="crispEdges">
 
   <style>
-    /* splooted 主子姿: 横向拉 + 纵向压 + 下沉, 锚地面 */
     .sleep-pose {
       transform: translateY(3px) scale(1.18, 0.71);
       transform-origin: 15px 23px;
     }
-    /* 呼吸: 在 splooted 之上做微 scaleY */
-    .sleep-breathe { animation: sleep-breathe 6.8s ease-in-out infinite; transform-origin: 15px 23px; }
+    .sleep-breathe {
+      animation: sleep-breathe 6.8s ease-in-out infinite;
+      transform-origin: 15px 23px;
+    }
     @keyframes sleep-breathe {
       0%, 100% { transform: scaleY(1);    }
       50%      { transform: scaleY(1.05); }
     }
-    /* 腿缩短藏入 body */
     .legs-flat { transform: translateY(-2px) scaleY(0.4); transform-origin: 15px 20px; }
-    /* 钳子摊在身体两侧 */
     .claw-flat-l { transform: translate(-2px, 3px) rotate(-10deg); transform-origin: 5px 13px; }
     .claw-flat-r { transform: translate(2px, 3px)  rotate(10deg);  transform-origin: 25px 13px; }
-    /* 眼睛: 睡眠横划 (top-left 锚, 压扁到顶部一条线) */
     .eyes-flat { transform: scaleX(1.3) scaleY(0.1); transform-origin: 10px 10px; }
-    #eye-right.eye-flat-r { transform: scaleX(1.3) scaleY(0.1); transform-origin: 18px 10px; }
+    .eye-flat-r { transform: scaleX(1.3) scaleY(0.1); transform-origin: 18px 10px; }
 
-    #shadow-js { transform-origin: 15px 24.5px; animation: shadow-breathe 6.8s ease-in-out infinite; }
+    #shadow-js {
+      transform-origin: 15px 24.5px;
+      transition: transform 0.2s ease-out;
+      animation: shadow-breathe 6.8s ease-in-out infinite;
+    }
     @keyframes shadow-breathe {
       0%, 100% { transform: scaleX(1.18); opacity: 0.55; }
       50%      { transform: scaleX(1.15); opacity: 0.5;  }
     }
 
-    /* zZz 浮起 3 颗错相, 周期不规律 1.0 / 2.7 / 4.4 (避免整秒) */
-    .zz-a { animation: zz-float 3.3s linear infinite;        }
-    .zz-b { animation: zz-float 3.3s linear infinite -1.1s;  }
-    .zz-c { animation: zz-float 3.3s linear infinite -2.2s;  }
-    @keyframes zz-float {
-      0%   { transform: translate(0, 0);        opacity: 0;   }
-      20%  { transform: translate(0.3px, -1px); opacity: 1;   }
-      80%  { transform: translate(1px,   -4px); opacity: 0.7; }
-      100% { transform: translate(1.5px, -5px); opacity: 0;   }
-    }
-
-    /* —— sleep-twitch 联系动作（4 专家共识）——
-       梦里抽动 / 敲键盘 — 3 个互质长周期, 99% 时间静止
-       性格: 强化"梦里还在 typing"的匠人魂彩蛋 */
-
-    /* 左钳抽搐 (主手, 22s 周期) - "梦到敲 Enter" */
-    .sleep-twitch-claw-l {
-      animation: sleep-twitch-claw-l 22s ease-in-out infinite;
-      transform-origin: 5px 13px;
-    }
-    @keyframes sleep-twitch-claw-l {
-      0%, 95%, 100% { transform: translate(-2px, 3px)    rotate(-10deg); }
-      96%           { transform: translate(-2.3px, 2.8px) rotate(-15deg); }
-      97%           { transform: translate(-1.8px, 3.2px) rotate(-7deg);  }
-      98%, 99%      { transform: translate(-2px, 3px)    rotate(-10deg); }
-    }
-
-    /* 右钳抽搐 (副手, 31s 周期, 紧跟左钳后 — 梦里在配合 typing) */
-    .sleep-twitch-claw-r {
-      animation: sleep-twitch-claw-r 31s ease-in-out infinite;
-      transform-origin: 25px 13px;
-    }
-    @keyframes sleep-twitch-claw-r {
-      0%, 95%, 100% { transform: translate(2px, 3px)    rotate(10deg); }
-      96%, 97%      { transform: translate(2px, 3px)    rotate(10deg); }
-      97.5%         { transform: translate(2.2px, 2.9px) rotate(13deg); }
-      98%, 99%      { transform: translate(2px, 3px)    rotate(10deg); }
-    }
-
-    /* 全身梦呓 / 翻身 (45s 周期, 跟两个钳子全错相) */
-    .sleep-twitch-body {
-      animation: sleep-twitch-body 45s ease-in-out infinite;
-      transform-origin: 15px 23px;
-    }
-    @keyframes sleep-twitch-body {
-      0%, 97%, 100% { transform: translate(0, 0); }
-      98%           { transform: translate(0.3px, -0.2px); }
-      99%           { transform: translate(-0.2px, 0.1px); }
+    .z-particle { opacity: 0; }
+    .z1 { animation: z-float 6s linear infinite;       }
+    .z2 { animation: z-float 6s linear infinite -2.1s; }
+    .z3 { animation: z-float 6s linear infinite -4.2s; }
+    @keyframes z-float {
+      0%   { transform: translate(0, 0)      scale(0.7); opacity: 0;   }
+      15%  { transform: translate(0.2px, -1px) scale(0.85); opacity: 0.9; }
+      80%  { transform: translate(2px, -7px)  scale(1.1); opacity: 0.5; }
+      100% { transform: translate(3px, -9px)  scale(1.2); opacity: 0;   }
     }
   </style>
+  <g class="pet-scale-wrap" transform="translate(15 23) scale(0.7) translate(-15 -23)">
 
-  <g id="shadow-js">
-    <rect x="9" y="24" width="12" height="1" fill="#000000" opacity="0.55"/>
-  </g>
+    <g id="shadow-js">
+      <rect x="9" y="24" width="12" height="1" fill="#000000" opacity="0.55"/>
+    </g>
 
-  <g class="sleep-twitch-body">
-  <g class="sleep-breathe">
-    <g class="sleep-pose">
+    <g class="sleep-breathe">
+      <g class="sleep-pose">
 
-      <g class="legs-flat">
-        <rect x="8"  y="20" width="2" height="3" fill="#B95E40"/>
-        <rect x="11" y="20" width="2" height="3" fill="#B95E40"/>
-        <rect x="17" y="20" width="2" height="3" fill="#B95E40"/>
-        <rect x="20" y="20" width="2" height="3" fill="#B95E40"/>
+        <g class="legs-flat">
+          <rect x="8"  y="20" width="2" height="3" fill="#B95E40"/>
+          <rect x="11" y="20" width="2" height="3" fill="#B95E40"/>
+          <rect x="17" y="20" width="2" height="3" fill="#B95E40"/>
+          <rect x="20" y="20" width="2" height="3" fill="#B95E40"/>
+        </g>
+
+        <g class="claw-flat-l"><rect x="4"  y="12" width="2" height="3" fill="#D97856"/></g>
+        <g class="claw-flat-r"><rect x="24" y="12" width="2" height="3" fill="#D97856"/></g>
+
+        <g id="body">
+          <rect x="7" y="7"  width="16" height="1"  fill="#D97856"/>
+          <rect x="6" y="8"  width="18" height="11" fill="#D97856"/>
+          <rect x="7" y="19" width="16" height="1"  fill="#D97856"/>
+        </g>
+        <rect x="8" y="8"  width="14" height="1" fill="#F3A98B"/>
+        <rect x="8" y="18" width="14" height="1" fill="#B95E40"/>
+
+        <rect class="eyes-flat" x="10" y="10" width="2" height="4" fill="#111111"/>
+        <rect class="eye-flat-r" x="18" y="10" width="2" height="4" fill="#111111"/>
+
       </g>
+    </g>
 
-      <g class="sleep-twitch-claw-l"><rect x="4"  y="12" width="2" height="3" fill="#D97856"/></g>
-      <g class="sleep-twitch-claw-r"><rect x="24" y="12" width="2" height="3" fill="#D97856"/></g>
-
-      <g id="body">
-        <rect x="7" y="7"  width="16" height="1"  fill="#D97856"/>
-        <rect x="6" y="8"  width="18" height="11" fill="#D97856"/>
-        <rect x="7" y="19" width="16" height="1"  fill="#D97856"/>
+    <g fill="#5865C8">
+      <g class="z-particle z1">
+        <rect x="22" y="11" width="2" height="1"/>
+        <rect x="23" y="12" width="1" height="1"/>
+        <rect x="22" y="13" width="2" height="1"/>
       </g>
-      <rect x="8" y="8"  width="14" height="1" fill="#F3A98B"/>
-      <rect x="8" y="18" width="14" height="1" fill="#B95E40"/>
-
-      <!-- 睡眠横划眼 (top-left 锚, scale 后顶部对齐) -->
-      <rect class="eyes-flat" x="10" y="10" width="2" height="4" fill="#111111"/>
-      <rect class="eye-flat-r" id="eye-right" x="18" y="10" width="2" height="4" fill="#111111"/>
-
+      <g class="z-particle z2">
+        <rect x="24" y="8"  width="3" height="1"/>
+        <rect x="25" y="9"  width="2" height="1"/>
+        <rect x="24" y="10" width="1" height="1"/>
+        <rect x="24" y="11" width="3" height="1"/>
+      </g>
+      <g class="z-particle z3">
+        <rect x="26" y="5"  width="2" height="1"/>
+        <rect x="27" y="6"  width="1" height="1"/>
+        <rect x="26" y="7"  width="2" height="1"/>
+      </g>
     </g>
+
   </g>
-  </g>
-
-  <!-- zZz 浮起 (头顶右侧, splooted 后头向左下，所以 zzz 在 x=22+ 区域 y=10+ 起飞) -->
-  <g fill="#5865C8">
-    <g class="zz-a">
-      <rect x="22" y="11" width="2" height="1"/>
-      <rect x="23" y="12" width="1" height="1"/>
-      <rect x="22" y="13" width="2" height="1"/>
-    </g>
-    <g class="zz-b">
-      <rect x="24" y="8" width="3" height="1"/>
-      <rect x="25" y="9" width="2" height="1"/>
-      <rect x="24" y="10" width="1" height="1"/>
-      <rect x="24" y="11" width="3" height="1"/>
-    </g>
-    <g class="zz-c">
-      <rect x="26" y="5" width="2" height="1"/>
-      <rect x="27" y="6" width="1" height="1"/>
-      <rect x="26" y="7" width="2" height="1"/>
-    </g>
-  </g>
-
 </svg>

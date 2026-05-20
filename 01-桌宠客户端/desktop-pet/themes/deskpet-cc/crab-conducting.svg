@@ -89,6 +89,7 @@
       100% { opacity: 0;   transform: translate(1px, -5px)  scale(0.8); }
     }
   </style>
+  <g class="pet-scale-wrap" transform="translate(15 23) scale(0.7) translate(-15 -23)">
 
   <g id="shadow">
     <rect x="9" y="24" width="12" height="1" fill="#000000" opacity="0.28"/>
@@ -145,4 +146,5 @@
   <g transform="translate(25 5)"><g class="note n5" fill="#4FC3A1"><use href="#music-note"/></g></g>
   <g transform="translate(26 12)"><g class="note n6" fill="#FF89B5"><use href="#music-note"/></g></g>
 
+</g>
 </svg>

@@ -1,0 +1,215 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  crab-looking-around.svg  ·  四击反应: 不耐烦 + 找谁打的 (搬自老 clawd-react-annoyed.svg)
+  ────────────────────────────────────────────────────────────────────────
+  · Reaction state (priority 4, minMs 1500): 一次播完 stateMachine 切回 idle
+  · 6s 一次性, 7 阶段完整照搬老 clawd-react-annoyed.svg keyframes:
+      Phase 1 (0-6%,    ~0.36s): Flinch       缩身
+      Phase 2 (6-18%,   ~0.72s): Lean away    向右倾 + 左钳举起挡 + 问号弹出
+      Phase 3 (18-35%,  ~1.02s): Hold         保持烦躁, 问号渐隐
+      Phase 4 (35-55%,  ~1.20s): Sigh         钳子放下, 身体瘫 + 叹气云
+      Phase 5 (55-70%,  ~0.90s): Linger       继续累瘫
+      Phase 6 (70-90%,  ~1.20s): Slow return  慢慢回正
+      Phase 7 (90-100%, ~0.60s): Still        归位
+  · 几何换 crab pixel (body 6-24 x 7-20, claw L x=4 y=12 w=2 h=3, eyes x=10/18 y=10 w=2 h=4)
+  · forwards: 播完留在最后一帧, stateMachine 监听 animationend 切回 idle
+-->
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="-7.5 -7.5 45 45"
+     shape-rendering="crispEdges">
+
+  <defs>
+    <style>
+      .body-react {
+        transform-origin: 15px 13px;
+        animation: body-react 6s 1 ease-in-out forwards;
+      }
+      .arm-l-react {
+        transform-origin: 5px 13px;
+        animation: arm-l-react 6s 1 ease-in-out forwards;
+      }
+      .eyes-react {
+        transform-origin: 15px 12px;
+        animation: eyes-react 6s 1 ease-in-out forwards;
+      }
+      /* Pupils scan left → right during hold/linger — make "looking around" literal */
+      .pupils-react {
+        animation: pupils-scan 6s 1 ease-in-out forwards;
+      }
+      @keyframes pupils-scan {
+        0%, 14%   { transform: translate(0, 0); }
+        20%       { transform: translate(-0.7px, 0); }  /* 看左 */
+        28%       { transform: translate(-0.7px, 0); }
+        32%       { transform: translate(0.7px, 0); }   /* 扫右 */
+        38%       { transform: translate(0.7px, 0); }   /* 停右 */
+        46%       { transform: translate(0, 0.4px); }   /* 收回 + 微低头 */
+        62%       { transform: translate(-0.4px, 0.3px); } /* linger 期再扫一眼左 */
+        78%       { transform: translate(0, 0); }
+        100%      { transform: translate(0, 0); }
+      }
+      /* Head sway during hold phase — 让 phase 3 不再静止 */
+      .head-sway {
+        transform-origin: 15px 13px;
+        animation: head-sway 6s 1 ease-in-out forwards;
+      }
+      @keyframes head-sway {
+        0%, 14%   { transform: rotate(0deg); }
+        22%       { transform: rotate(-4deg); }  /* 偏头看左 */
+        30%       { transform: rotate(4deg); }   /* 偏头看右 */
+        35%       { transform: rotate(2deg); }
+        46%       { transform: rotate(0deg); }
+        60%       { transform: rotate(-2deg); }  /* linger 微晃 */
+        100%      { transform: rotate(0deg); }
+      }
+      .shadow-react {
+        transform-origin: 15px 24.5px;
+        animation: shadow-react 6s 1 ease-in-out forwards;
+      }
+      .qmark {
+        opacity: 0;
+        transform-origin: 16px 0px;
+        animation: qmark-pop 6s 1 ease-out forwards;
+      }
+      .sigh-cloud {
+        opacity: 0;
+        transform-origin: 26px 12px;
+        animation: sigh-puff 6s 1 ease-out forwards;
+      }
+
+      /* Body: flinch → lean → HOLD annoyed → sigh slump → linger → slow return */
+      @keyframes body-react {
+        0%        { transform: translate(0, 0) scale(1, 1); }
+        4%        { transform: translate(0, 1.5px) scale(1, 1); }
+        6%        { transform: translate(0, 1px) scale(1, 1); }
+        14%       { transform: translate(2px, 0) scale(1, 1); }
+        35%       { transform: translate(2px, 0) scale(1, 1); }
+        40%       { transform: translate(1.5px, -0.5px) scale(1, 1.01); }
+        46%       { transform: translate(1px, 1px) scale(1.03, 0.97); }
+        52%       { transform: translate(0.5px, 0.5px) scale(1.01, 0.99); }
+        68%       { transform: translate(0.3px, 0.3px) scale(1, 1); }
+        85%       { transform: translate(0, 0) scale(1, 1); }
+        100%      { transform: translate(0, 0) scale(1, 1); }
+      }
+
+      /* Left claw: block (举起挡脸) → hold → resigned drop */
+      @keyframes arm-l-react {
+        0%        { transform: rotate(0deg); }
+        6%        { transform: rotate(0deg); }
+        14%       { transform: rotate(-50deg); }
+        35%       { transform: rotate(-45deg); }
+        43%       { transform: rotate(-15deg); }
+        48%       { transform: rotate(0deg); }
+        100%      { transform: rotate(0deg); }
+      }
+
+      /* Eyes: squint → half-lid (烦躁眯眼) → HOLD → sigh close → tired linger → blink recover */
+      @keyframes eyes-react {
+        0%        { transform: scaleY(1); }
+        3%        { transform: scaleY(0.2); }
+        6%        { transform: scaleY(0.6); }
+        14%       { transform: scaleY(0.5); }
+        35%       { transform: scaleY(0.5); }
+        40%       { transform: scaleY(0.1); }
+        46%       { transform: scaleY(0.6); }
+        68%       { transform: scaleY(0.6); }
+        74%       { transform: scaleY(0.1); }
+        78%       { transform: scaleY(1); }
+        100%      { transform: scaleY(1); }
+      }
+
+      /* Question mark "?" : pop during lean, fade during hold */
+      @keyframes qmark-pop {
+        0%, 4%    { opacity: 0; transform: translate(0, 4px) scale(0.5); }
+        10%       { opacity: 1; transform: translate(0, 0) scale(1.1); }
+        14%, 26%  { opacity: 1; transform: translate(0, 0) scale(1); }
+        34%       { opacity: 0; transform: translate(0, -3px) scale(1.1); }
+        100%      { opacity: 0; }
+      }
+
+      /* Sigh puff cloud — breath cloud after hold */
+      @keyframes sigh-puff {
+        0%, 37%   { opacity: 0; transform: translate(0, 1px) scale(0.3); }
+        43%       { opacity: 0.6; transform: translate(0, 0) scale(0.8); }
+        48%       { opacity: 0.7; transform: translate(1px, 0) scale(1); }
+        60%       { opacity: 0; transform: translate(4px, -4px) scale(1.3); }
+        100%      { opacity: 0; }
+      }
+
+      /* Shadow follows body sway + slump squish */
+      @keyframes shadow-react {
+        0%        { transform: translate(0, 0) scaleX(1);    opacity: 0.5; }
+        4%        { transform: translate(0, 0) scaleX(0.93); opacity: 0.45; }
+        14%       { transform: translate(1px, 0) scaleX(1);    opacity: 0.5; }
+        35%       { transform: translate(1px, 0) scaleX(1);    opacity: 0.5; }
+        46%       { transform: translate(0.5px, 0) scaleX(1.05); opacity: 0.55; }
+        68%       { transform: translate(0.3px, 0) scaleX(1.02); opacity: 0.52; }
+        85%       { transform: translate(0, 0) scaleX(1);    opacity: 0.5; }
+        100%      { transform: translate(0, 0) scaleX(1);    opacity: 0.5; }
+      }
+    </style>
+  </defs>
+
+  <g class="pet-scale-wrap" transform="translate(15 23) scale(0.7) translate(-15 -23)">
+
+    <!-- Ground shadow -->
+    <rect class="shadow-react" x="9" y="24" width="12" height="1" fill="#000000" opacity="0.5"/>
+
+    <!-- Static legs -->
+    <g fill="#B95E40">
+      <rect x="8"  y="20" width="2" height="3"/>
+      <rect x="11" y="20" width="2" height="3"/>
+      <rect x="17" y="20" width="2" height="3"/>
+      <rect x="20" y="20" width="2" height="3"/>
+    </g>
+
+    <!-- Right claw (static) -->
+    <rect x="24" y="12" width="2" height="3" fill="#D97856"/>
+
+    <!-- Animated upper body (annoyed reaction) -->
+    <g class="body-react">
+
+      <!-- Torso (crab base geometry) -->
+      <rect x="7" y="7"  width="16" height="1"  fill="#D97856"/>
+      <rect x="6" y="8"  width="18" height="11" fill="#D97856"/>
+      <rect x="7" y="19" width="16" height="1"  fill="#D97856"/>
+      <rect x="8" y="8"  width="14" height="1"  fill="#F3A98B"/>
+      <rect x="8" y="18" width="14" height="1"  fill="#B95E40"/>
+
+      <!-- Left claw: blocks face when annoyed -->
+      <g class="arm-l-react">
+        <rect x="4" y="12" width="2" height="3" fill="#D97856"/>
+      </g>
+
+      <!-- Eyes (squint/half-lid) + head sway tilt + pupil scan -->
+      <g class="head-sway">
+        <g class="eyes-react">
+          <rect x="10" y="10" width="2" height="4" fill="#111111"/>
+          <rect x="18" y="10" width="2" height="4" fill="#111111"/>
+          <g class="pupils-react">
+            <rect x="10" y="10" width="1" height="1" fill="#FFFFFF"/>
+            <rect x="18" y="10" width="1" height="1" fill="#FFFFFF"/>
+          </g>
+        </g>
+      </g>
+
+      <!-- Question mark "?" above head: 谁打我? -->
+      <g class="qmark" fill="#5C9CE6">
+        <rect x="15" y="-3" width="2" height="1"/>
+        <rect x="14" y="-2" width="1" height="1"/>
+        <rect x="17" y="-2" width="1" height="2"/>
+        <rect x="16" y="0"  width="1" height="1"/>
+        <rect x="15" y="1"  width="1" height="1"/>
+        <rect x="15" y="3"  width="1" height="1"/>
+      </g>
+
+      <!-- Sigh puff cloud (right side of face) -->
+      <g class="sigh-cloud" fill="#FFFFFF">
+        <rect x="24" y="12" width="2" height="1"/>
+        <rect x="25" y="11" width="2" height="1"/>
+        <rect x="26" y="10" width="2" height="1"/>
+      </g>
+
+    </g>
+
+  </g>
+</svg>
