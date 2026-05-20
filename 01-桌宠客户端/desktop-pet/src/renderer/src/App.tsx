@@ -1126,6 +1126,11 @@ function App(): React.JSX.Element {
     gifUrl = wakingSvg
   } else if (state === 'sleep') {
     gifUrl = sleepingGif
+  } else if (showWizardOverlay) {
+    // v0.4.5+ Batch 3 fix: wizard 期整 body 替换成 wizard pose (而非 overlay),
+    // 否则 wizard SVG 是完整身体的巫师姿势 + 下面 pet body GIF = 用户看到两只
+    // 螃蟹重叠. AI 真在 thinking/success/error/动画时上面分支已 match, wizard 让位.
+    gifUrl = wizardSvg
   } else if (activity !== 'idle') {
     gifUrl = ACTIVITY_GIF[activity]
   } else {
@@ -1616,17 +1621,9 @@ function App(): React.JSX.Element {
             }}
           />
         )}
-        {/* v0.4.5+ Batch 3: wizard hat overlay — onboarding setup 期间桌宠头顶
-            戴 wizard hat 提示 "AI 正在引导你". 持续显示 (无 timer), 等 AI 调
-            save_user_profile → main 推 setupCompleted=true → 自动消失. */}
-        {showWizardOverlay && (
-          <img
-            className="pet-wizard-overlay"
-            src={wizardSvg}
-            alt=""
-            draggable={false}
-          />
-        )}
+        {/* v0.4.5+ Batch 3 (修): wizard SVG 改成 body-swap (不是 overlay) —
+            wizard 是完整巫师姿势, 当 overlay 会跟 pet body GIF 重叠. 现在直接进
+            gifUrl 优先级链 (sleep < wizard < activity), 不在这渲染. */}
         {/* v0.4.0 S6.2 [D] pet-drop overlay — 用户拖文件到 pet 时弹大字提示
             "松手喂我". 实际文件处理 S6.3-S6.5 后续接入. */}
         {dragOver && (

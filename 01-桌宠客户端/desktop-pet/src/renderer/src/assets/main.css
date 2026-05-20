@@ -1023,23 +1023,9 @@ body,
     pet-fade-out 0.3s ease-in 3.3s both;
 }
 
-/* v0.4.5+ Batch 3: wizard hat overlay — onboarding setup 期间桌宠头顶戴 wizard
- * hat 当 ambient hint. 持续显示 (无 fade-out, 由 setupCompleted 状态驱动 unmount).
- * 同 Batch 2: `.pet img.x` specificity (0,2,1) 才能压过 .pet img 通用规则 (0,1,1).
- * 72×72 比 notification 96×96 小, top:-20 比 notification top:-28 低 — 视觉错开 */
-.pet img.pet-wizard-overlay {
-  position: absolute;
-  left: 50%;
-  top: -20px;
-  inset: auto;
-  transform: translateX(-50%);
-  width: 72px;
-  height: 72px;
-  z-index: 5;
-  pointer-events: none;
-  image-rendering: pixelated;
-  animation: pet-pop-in 0.22s steps(4) both;
-}
+/* v0.4.5+ Batch 3 (修): wizard SVG 之前作为 overlay 跟 pet body 视觉重叠 (SVG
+ * 是完整巫师姿势, 不是单纯帽子). 改成 body-swap 后 wizard 走标准 dual-img
+ * 路径, 不再需要 .pet-wizard-overlay 这条独立 CSS — 已删. */
 
 /* === S5.1 [D] msg-file 卡 === */
 .msg-file {
