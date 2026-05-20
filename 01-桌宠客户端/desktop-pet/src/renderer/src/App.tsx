@@ -648,11 +648,18 @@ function App(): React.JSX.Element {
     const idleEyes = idleSvg?.querySelector<SVGGElement>('#eyes-js') ?? null
     const idleBody = idleSvg?.querySelector<SVGGElement>('#body-js') ?? null
     const idleShadow = idleSvg?.querySelector<SVGGElement>('#shadow-js') ?? null
-    // v0.4.5+ Batch 3 修 v3 (用户回滚到此): wizard 完全交给 SVG 内部 CSS 自己跑
-    // (.body-hunch 走路 + .arm-fix 整理帽子 + .eyes-wizard 眼睛 drift +
-    // .shadow-walk 阴影同步 + .hat-* + .magic-sparkle-*). rAF 不写 wizard 的
-    // 任何 group — 用户反馈 CSS 原生编排"更生动", 不要光标 follow 干预.
-    // (idle 模式仍走 rAF 眼跟随 — 没动那个路径).
+    // wizard 只 mutate eyes (body/shadow 让 CSS 跑 walking 动画 — 用户偏好)
+    const wizEyes = wizardSvgEl?.querySelector<SVGGElement>('#eyes-js') ?? null
+    // v0.4.5+ Batch 3 修 v2: 只杀 .eyes-wizard CSS drift (跟 rAF 眼跟随冲突),
+    // 保留 .body-hunch (走路摇晃) / .arm-fix (整理帽子姿态) / .shadow-walk
+    // (阴影跟走路同步) / .hat-* / .magic-sparkle-* — 用户反馈这些"生动" 更好.
+    // 代价: 走路摇晃跟 rAF body rotate 冲突 → 让 CSS 赢 (rAF 只写 eyes, 不写
+    // body/shadow); 阴影也走走路动画不跟光标拉伸 (一致, 因为 body 都没跟).
+    if (wizardSvgEl) {
+      wizardSvgEl
+        .querySelectorAll<SVGElement>('.eyes-wizard')
+        .forEach((el) => (el.style.animation = 'none'))
+    }
     let raf = 0
     const tick = (): void => {
       // 共享 gate: pure idle (state=idle + activity=idle) + full mode 时才 mutate.
@@ -669,10 +676,14 @@ function App(): React.JSX.Element {
       const eyesTfm = `translate(${normX * EYE_MAX_SVG}px, ${normY * EYE_MAX_SVG}px)`
       const bodyTfm = `rotate(${normX * BODY_MAX_DEG}deg)`
       const shadowTfm = `scaleX(${1 + Math.abs(normX) * SHADOW_MAX_STRETCH}) translateX(${normX * 0.5}px)`
-      // v0.4.5+ Batch 3 修 v3: wizard 模式不写 SVG group (用户偏好 CSS 原生
-      // 编排). 仅普通 idle (非 wizard) 时 rAF 写 IdleFollow 的 3 个 group.
+      // wizard 可见 (cast intro 已结束) → 只写 wizard 的 eyes group.
+      // body / shadow 留给 CSS body-hunch / shadow-walk 跑走路摇晃动画 (用户偏好).
+      // rAF body/shadow rotation 在这种 SVG 上效果跟 CSS sway 重复 + 冲突, skip 之.
       const wizardVisible = showWizardOverlay && !wizardCastPlaying
-      if (!wizardVisible) {
+      if (wizardVisible) {
+        if (wizEyes) wizEyes.style.transform = eyesTfm
+      } else {
+        // 普通 idle (非 wizard 模式) → 写 IdleFollow 的 3 个 group
         if (idleEyes) idleEyes.style.transform = eyesTfm
         if (idleBody) idleBody.style.transform = bodyTfm
         if (idleShadow) idleShadow.style.transform = shadowTfm
