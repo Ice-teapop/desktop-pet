@@ -6,6 +6,39 @@
 
 ---
 
+## [0.4.4] — 2026-05-20
+
+### 新增
+- **📂 "导入文件" 按钮**：聊天框模型 pill 旁边新增图标按钮，点击打开 macOS 系统文件选择器（multi-select），绕开透明 NSPanel 的 HTML5 drag-drop 限制
+- **Tray drop-files 回退**：拖文件到 menu bar 螃蟹小图标也行（macOS 原生 `tray.on('drop-files')`）
+- **PDF 真解析**：`read_file` 接 `pdf-parse` v2，返回全文 + 页数 metadata，AI 真能总结/翻译
+- **DOCX 真解析**：`read_file` 接 `mammoth.extractRawText`，剥 XML 返 raw text
+- **XLSX 真解析**：`read_file` 用已有 `exceljs` 读 sheets → tab-separated 文本
+- **图片 vision input**：`read_file` 检测 PNG/JPG/GIF/WEBP → 返回 ToolContentBlock image (base64) 给 vision-capable model（Claude / GPT-4o / Gemini）真"看到"图片
+- **接 3 个之前没用上的 sprite**：Settings about 头图、set_pet_animation 加 `carrying` / `ultrathink` 两种动画、进 mini 模式播 `mini-enter.gif` 过渡（~1.6s settle）
+
+### 变更
+- **`execReadFile` 加二进制嗅探**（前 8KB null byte + magic bytes）：PDF/Office/图片走专门 parser；未知二进制直接 reject 给 AI 可行替代方案，不再返 UTF-8 garbage
+- **`read_file` 现在接 `ToolContext`**：用于检查 model 的 `supportsVision` 能力，决定图片走 vision 还是 reject
+
+### 修复
+- **拖文件检测多轮修**：
+  - 修 Electron 32+ 移除 `File.path` → 改用 `webUtils.getPathForFile()`（preload bridge）
+  - drag handler 从 240×240 `.pet` 上移到全窗口 `.stage`
+  - `.stage` 加 `background: rgba(0,0,0,0.004)` 让 Chromium hit-test 命中（透明窗 trick）
+  - 加 `window.addEventListener('drop')` 原生 fallback 监听器
+  - 加 main 端 `console-message` 转发让 dev 在 terminal 直接看 [dnd] 日志
+  - 最终诊断：透明 NSPanel + macOS 完全不派发 HTML5 drag 事件 → 走 Tray + 文件按钮回退
+
+### 已知问题 / 限制
+- **拖到桌宠本体**仍不行（Electron transparent NSPanel + macOS 限制）— 必须走 📂 按钮或拖到 menu bar 图标
+- **PPTX 仍不解析** — 没好 parser
+- **图片 > 3.5MB raw 拒绝** — Anthropic image_block 5MB base64 上限
+- **PDF / DOCX 内嵌图片不提取** — 只提取文字
+- **新依赖** `pdf-parse` + `mammoth` 共 ~13 个 transitive deps，app 体积 +~5MB
+
+---
+
 ## [0.4.3] — 2026-05-20
 
 ### 修复
@@ -251,7 +284,8 @@
 - README 英文化 + monorepo root README + MIT LICENSE（含 clawd AGPL 隔离说明）
 - install.sh bash 3.2 `set -u` 兼容修
 
-[Unreleased]: https://github.com/Ice-teapop/desktop-pet/compare/v0.4.3...HEAD
+[Unreleased]: https://github.com/Ice-teapop/desktop-pet/compare/v0.4.4...HEAD
+[0.4.4]: https://github.com/Ice-teapop/desktop-pet/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/Ice-teapop/desktop-pet/compare/v0.4.1...v0.4.3
 [0.4.2]: https://github.com/Ice-teapop/desktop-pet/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/Ice-teapop/desktop-pet/compare/v0.4.0...v0.4.1
