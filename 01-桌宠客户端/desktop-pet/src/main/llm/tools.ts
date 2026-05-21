@@ -26,6 +26,7 @@ import mammoth from 'mammoth'
 import { PDFParse } from 'pdf-parse'
 import PDFDocument from 'pdfkit'
 import type { ActivityState } from '../../shared/chat-types'
+import type { ApprovalDecision } from '../../shared/approval-types'
 import { findModel, type SelectedModel } from '../../shared/provider-types'
 import {
   PET_ANIMATIONS,
@@ -533,13 +534,17 @@ export const FIND_FILES: ToolDef = {
 export const DELETE_FILE: ToolDef = {
   name: 'delete_file',
   description:
-    'Delete files and/or empty directories. ⚠️ Irreversible —— ALWAYS shows ' +
-    'a confirmation modal (no auto-trust). ' +
+    'Move files / directories to the OS Trash (macOS Finder / Windows Recycle Bin / ' +
+    "Linux freedesktop trash). Recoverable from the user's Trash UI until they empty it. " +
+    'Still shows a confirmation modal (safety guardrail), but the modal wording reflects ' +
+    'recoverability so the user is more willing to approve. ' +
+    'NON-EMPTY DIRS are supported now (the entire tree goes to Trash). ' +
     'BATCH: prefer `paths: string[]` for ≥2 files — one modal lists all, single ' +
     'click approves whole batch (vs N modals if you call this tool N times in a loop, ' +
     'which races and most calls auto-deny). Legacy `path: string` still accepted for 1 file. ' +
-    'NON-EMPTY DIRS: still rejected (ENOTEMPTY). Use run_command with explicit ' +
-    'user-approved `rm -r` command for recursive deletion.',
+    'If the OS Trash is unavailable (Linux headless / read-only volume / SMB mount), ' +
+    'a second modal asks the user whether to fall back to permanent delete; never ' +
+    'silently hard-deletes.',
   input_schema: {
     type: 'object',
     properties: {
@@ -565,7 +570,10 @@ export const MOVE_FILE: ToolDef = {
     'Move / rename a file or directory atomically. Use for organizing user files: ' +
     'sort Downloads by extension, batch rename, archive old files into dated folders, ' +
     'move screenshots into project subfolders, etc. ' +
-    'Always shows a confirmation modal (跟 delete_file 同安全级). ' +
+    'TRUST: when ALL src + dest paths are inside the default-trusted scope (HOME ' +
+    'visible top-level dirs: ~/Documents, ~/Downloads, ~/Desktop, ~/DeskPet, ~/Projects, ' +
+    'etc.), runs silently — no modal. Only pops a modal when any src or dest is outside ' +
+    'trusted scope. Same trust model as write_file. ' +
     'BATCH: prefer `moves: [{src, dest, overwrite?}, ...]` for ≥2 moves — one modal ' +
     'lists all src→dest pairs, single click approves whole batch (vs N modals if you ' +
     'call N times). Single-move `{src, dest, overwrite?}` still accepted. ' +
@@ -601,6 +609,94 @@ export const MOVE_FILE: ToolDef = {
       }
     },
     required: []
+  }
+}
+
+export const COPY_FILE: ToolDef = {
+  name: 'copy_file',
+  description:
+    'Copy a file or directory (src preserved). Mirror of move_file but src stays. ' +
+    'Use for: duplicating templates, snapshotting before edit, copying screenshots ' +
+    'into a project folder while keeping the original. ' +
+    'TRUST: same as move_file — silent when all src + dest are in trusted scope; ' +
+    'modal otherwise. ' +
+    'BATCH: prefer `copies: [{src, dest, overwrite?}, ...]` for ≥2 copies. ' +
+    'Single `{src, dest, overwrite?}` also accepted. ' +
+    'Implementation: fs.cp({ recursive: true, force: overwrite }). Directories copied ' +
+    'recursively. Preserves binary content. Use `overwrite: true` only when user OKs.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      src: { type: 'string', description: 'Single-copy: source path' },
+      dest: {
+        type: 'string',
+        description:
+          'Single-copy: destination path. Trailing / or existing dir → src basename preserved.'
+      },
+      overwrite: {
+        type: 'boolean',
+        description: 'Single-copy: true to allow overwriting existing dest. Default false.'
+      },
+      copies: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            src: { type: 'string' },
+            dest: { type: 'string' },
+            overwrite: { type: 'boolean' }
+          },
+          required: ['src', 'dest']
+        },
+        description: 'Batch mode: array of copies with optional per-item overwrite.'
+      }
+    },
+    required: []
+  }
+}
+
+export const ORGANIZE_FILES: ToolDef = {
+  name: 'organize_files',
+  description:
+    'Macro: organize files matching a glob from one directory into another in ONE ' +
+    'modal. Internally chains find_files → create_directory (dest, recursive) → ' +
+    'batch move_file / copy_file. Use this instead of calling those 3 tools ' +
+    'manually for tidying tasks: "sort Desktop screenshots into ~/Pictures/Screenshots/", ' +
+    '"move all .pdf from Downloads to ~/Documents/inbox/", "copy all .png in ~/work/' +
+    'to ~/backup/work/". One single modal lists every src→dest pair; one click ' +
+    'approves the whole batch. Same trust rules as move_file/copy_file — silent ' +
+    'when everything is in trusted scope. ' +
+    'pattern is a filename glob (* / ?), case-insensitive. ' +
+    'action: "move" (src removed) or "copy" (src kept).',
+  input_schema: {
+    type: 'object',
+    properties: {
+      from: {
+        type: 'string',
+        description: 'Source directory (absolute or ~/-relative). Searched recursively.'
+      },
+      to: {
+        type: 'string',
+        description:
+          'Destination directory (absolute or ~/-relative). Created with mkdir -p if needed.'
+      },
+      pattern: {
+        type: 'string',
+        description:
+          "Filename glob. Examples: '*.png', 'Screen Shot *.png', '*.pdf'. " +
+          "Defaults to '*' (everything). Case-insensitive."
+      },
+      action: {
+        type: 'string',
+        enum: ['move', 'copy'],
+        description: 'move (src removed) or copy (src preserved). Default move.'
+      },
+      overwrite: {
+        type: 'boolean',
+        description: 'Allow overwriting existing dest files. Default false.'
+      }
+    },
+    required: ['from', 'to']
   }
 }
 
@@ -880,6 +976,10 @@ export async function executeTool(
       return await execDeleteFile(input)
     case 'move_file':
       return await execMoveFile(input)
+    case 'copy_file':
+      return await execCopyFile(input)
+    case 'organize_files':
+      return await execOrganizeFiles(input)
     case 'run_command':
       return await execRunCommand(input)
     case 'open_system_settings':
@@ -2071,8 +2171,8 @@ async function execDeleteFile(input: unknown): Promise<ToolResult> {
   // 单次 modal: paths[] 列全部, paths.length>1 时 renderer 自动隐藏 trust-dir-*
   const isBatch = safePaths.length > 1
   const summary = isBatch
-    ? `⚠️ AI 想批量删除 ${safePaths.length} 个路径（不可恢复）`
-    : `⚠️ AI 想删除：${safePaths[0]}（不可恢复）`
+    ? `🗑 AI 想把 ${safePaths.length} 个路径移到废纸篓（可在 Finder 恢复）`
+    : `🗑 AI 想把这个移到废纸篓：${safePaths[0]}（可在 Finder 恢复）`
   const decision = await requestApproval({
     tool: 'delete_file',
     summary,
@@ -2088,43 +2188,75 @@ async function execDeleteFile(input: unknown): Promise<ToolResult> {
       result: 'denied',
       detail: `user denied; paths=${safePaths.join(',')}`
     })
-    return { ok: false, error: isBatch ? '用户拒绝整批删除' : '用户拒绝删除' }
+    return { ok: false, error: isBatch ? '用户拒绝整批移到废纸篓' : '用户拒绝移到废纸篓' }
   }
 
   // best-effort continue: 一条挂不影响后续 (审核官员 pre-review #4: 短路 abort
   // 会让用户已批准的剩余操作丢失, 用户疲劳重批)
-  const deleted: string[] = []
+  //
+  // v0.4.16 起删除走 shell.trashItem (macOS Finder Trash / Win Recycle / Linux gio trash).
+  // 非空目录现也支持 —— OS 把整树挪进 trash, 不再 ENOTEMPTY 阻塞.
+  // trashItem throw → 不静默 fall-through 到 fs.unlink (那会破坏"可恢复"承诺), 改弹
+  // fallback modal 让 user 选 "永久删除 / 取消" (cr review must-have).
+  const trashed: string[] = []
   const failed: { path: string; err: string }[] = []
+  const hardDeleted: string[] = [] // user 在 fallback modal 选了真删的
   for (const absPath of safePaths) {
     try {
-      const stat = await fs.stat(absPath)
-      if (stat.isDirectory()) {
-        await fs.rmdir(absPath) // 仅空目录; 非空 → ENOTEMPTY (LLM 应改用 run_command rm -r)
-      } else {
-        await fs.unlink(absPath)
-      }
-      deleted.push(absPath)
+      await shell.trashItem(absPath)
+      trashed.push(absPath)
       await logToolAction({
         tool: 'delete_file',
         argsSummary: `batch_id=${batchId} path=${absPath}`,
         result: 'ok',
-        detail: `approved: ${decision}`
+        detail: `trashed; approved: ${decision}`
       })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      // ENOTEMPTY 给人类语义提示, 帮 LLM 自然续答时建议 run_command rm -r
-      const code = (err as NodeJS.ErrnoException).code
-      const friendly =
-        code === 'ENOTEMPTY'
-          ? `目录非空 (use run_command with \`rm -r\` for recursive): ${msg}`
-          : msg
-      failed.push({ path: absPath, err: friendly })
-      await logToolAction({
+      // trash 不可用 (Linux headless / 只读卷 / SMB / 权限) → fallback modal 让 user 选
+      const fallbackDecision = await requestApproval({
         tool: 'delete_file',
-        argsSummary: `batch_id=${batchId} path=${absPath}`,
-        result: 'error',
-        detail: friendly
+        summary:
+          `⚠️ 废纸篓不可用 —— ${absPath}\n` +
+          `原因: ${msg}\n` +
+          `是否改为永久删除？(不可恢复)`,
+        path: absPath
       })
+      if (fallbackDecision === 'deny') {
+        failed.push({ path: absPath, err: `trash unavailable + user denied hard-delete: ${msg}` })
+        await logToolAction({
+          tool: 'delete_file',
+          argsSummary: `batch_id=${batchId} path=${absPath}`,
+          result: 'denied',
+          detail: `trash failed (${msg}); user denied fallback hard-delete`
+        })
+        continue
+      }
+      // user allowed hard-delete fallback
+      try {
+        const stat = await fs.stat(absPath)
+        if (stat.isDirectory()) {
+          await fs.rm(absPath, { recursive: true, force: true })
+        } else {
+          await fs.unlink(absPath)
+        }
+        hardDeleted.push(absPath)
+        await logToolAction({
+          tool: 'delete_file',
+          argsSummary: `batch_id=${batchId} path=${absPath}`,
+          result: 'ok',
+          detail: `hard-deleted (trash fallback); trash err: ${msg}; user approved fallback`
+        })
+      } catch (err2) {
+        const msg2 = err2 instanceof Error ? err2.message : String(err2)
+        failed.push({ path: absPath, err: `trash failed (${msg}); hard-delete also failed: ${msg2}` })
+        await logToolAction({
+          tool: 'delete_file',
+          argsSummary: `batch_id=${batchId} path=${absPath}`,
+          result: 'error',
+          detail: `trash failed (${msg}); hard-delete failed (${msg2})`
+        })
+      }
     }
   }
   // summary log (审核官员 pre-review #5: 1 行 summary + N 行 per-path)
@@ -2132,23 +2264,34 @@ async function execDeleteFile(input: unknown): Promise<ToolResult> {
     tool: 'delete_file',
     argsSummary: `batch_id=${batchId} summary count=${safePaths.length}`,
     result: failed.length === 0 ? 'ok' : 'error',
-    detail: `deleted=${deleted.length} failed=${failed.length} approval=${decision}`
+    detail:
+      `trashed=${trashed.length} hard_deleted=${hardDeleted.length} ` +
+      `failed=${failed.length} approval=${decision}`
   })
 
   // 结构化结果: AI 看 content 决定是否对失败项 follow-up
+  const okCount = trashed.length + hardDeleted.length
+  const buildOkLines = (): string => {
+    const lines: string[] = []
+    if (trashed.length > 0) lines.push(`Trashed (recoverable):\n${trashed.join('\n')}`)
+    if (hardDeleted.length > 0) lines.push(`Hard-deleted (trash unavailable):\n${hardDeleted.join('\n')}`)
+    return lines.join('\n')
+  }
   if (failed.length === 0) {
     return {
       ok: true,
       content: isBatch
-        ? `Deleted ${deleted.length} paths:\n${deleted.join('\n')}`
-        : `Deleted: ${deleted[0]}`
+        ? `Removed ${okCount} paths.\n${buildOkLines()}`
+        : trashed.length > 0
+          ? `Trashed: ${trashed[0]} (recoverable in Finder Trash)`
+          : `Hard-deleted: ${hardDeleted[0]} (trash unavailable)`
     }
   }
   return {
     ok: true,
     content:
-      `Deleted ${deleted.length}/${safePaths.length}.\n` +
-      (deleted.length > 0 ? `OK:\n${deleted.join('\n')}\n` : '') +
+      `Removed ${okCount}/${safePaths.length}.\n` +
+      (okCount > 0 ? `${buildOkLines()}\n` : '') +
       `Failed:\n${failed.map((f) => `${f.path}: ${f.err}`).join('\n')}`
   }
 }
@@ -2272,26 +2415,42 @@ async function execMoveFile(input: unknown): Promise<ToolResult> {
   }
   const isBatch = resolved.length > 1
 
-  // 始终弹 modal (move 不享受信任)
-  const summary = isBatch
-    ? `📦 AI 想批量移动 ${resolved.length} 个 src→dest`
-    : `📦 AI 想移动:\n${resolved[0].srcAbs}\n  ↓\n${resolved[0].finalDest}${resolved[0].overwrite ? '\n(将覆盖)' : ''}`
-  const decision = await requestApproval({
-    tool: 'move_file',
-    summary,
-    ...(isBatch
-      ? { paths: resolved.map((r) => `${r.srcAbs} → ${r.finalDest}`) }
-      : { path: resolved[0].srcAbs })
-  })
+  // v0.4.16: move 享受 trust scope —— 所有 src + dest 都在 default/session/persistent
+  // trusted scope 内则静默执行 (跟 write_file 一致). 任一不在则弹 modal 全批一起批准.
+  // 理由: 之前 "move 不享受信任" 是过度保守 —— write 都信任了, move 是 write+delete
+  // 复合, 等价信任级别. user 报告"多轮才能完成"的主要根因就是 move 强弹 modal.
   const batchId = `mv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
-  if (decision === 'deny') {
+  const allTrusted = resolved.every(
+    (r) => checkTrusted(r.srcAbs) && checkTrusted(r.finalDest)
+  )
+  let decision: ApprovalDecision = 'allow-once'
+  if (allTrusted) {
     await logToolAction({
       tool: 'move_file',
       argsSummary: `batch_id=${batchId} count=${resolved.length}`,
-      result: 'denied',
-      detail: 'user denied'
+      result: 'auto-trusted',
+      detail: `all src+dest in trusted scope`
     })
-    return { ok: false, error: isBatch ? '用户拒绝整批移动' : '用户拒绝移动' }
+  } else {
+    const summary = isBatch
+      ? `📦 AI 想批量移动 ${resolved.length} 个 src→dest`
+      : `📦 AI 想移动:\n${resolved[0].srcAbs}\n  ↓\n${resolved[0].finalDest}${resolved[0].overwrite ? '\n(将覆盖)' : ''}`
+    decision = await requestApproval({
+      tool: 'move_file',
+      summary,
+      ...(isBatch
+        ? { paths: resolved.map((r) => `${r.srcAbs} → ${r.finalDest}`) }
+        : { path: resolved[0].srcAbs })
+    })
+    if (decision === 'deny') {
+      await logToolAction({
+        tool: 'move_file',
+        argsSummary: `batch_id=${batchId} count=${resolved.length}`,
+        result: 'denied',
+        detail: 'user denied'
+      })
+      return { ok: false, error: isBatch ? '用户拒绝整批移动' : '用户拒绝移动' }
+    }
   }
 
   // best-effort
@@ -2334,6 +2493,262 @@ async function execMoveFile(input: unknown): Promise<ToolResult> {
       (moved.length > 0 ? `OK:\n${moved.join('\n')}\n` : '') +
       `Failed:\n${failed.map((f) => `${f.pair}: ${f.err}`).join('\n')}`
   }
+}
+
+// —— copy_file —— 复制文件/目录 (move 的镜像 + src 保留) ————————————————————
+
+const COPY_BATCH_MAX = 50
+
+async function doCopy(
+  srcAbs: string,
+  finalDest: string,
+  overwrite: boolean
+): Promise<{ ok: true; msg: string } | { ok: false; err: string }> {
+  try {
+    const destParent = finalDest.substring(0, finalDest.lastIndexOf('/'))
+    if (destParent) await fs.mkdir(destParent, { recursive: true })
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return { ok: false, err: `创建 dest 父目录失败: ${msg}` }
+  }
+  try {
+    await fs.cp(srcAbs, finalDest, { recursive: true, force: overwrite })
+    return { ok: true, msg: `Copied: ${srcAbs} → ${finalDest}` }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return { ok: false, err: `copy failed: ${msg}` }
+  }
+}
+
+async function execCopyFile(input: unknown): Promise<ToolResult> {
+  if (typeof input !== 'object' || input === null) {
+    return { ok: false, error: 'input must be { src, dest, overwrite? } or { copies: [...] }' }
+  }
+  const obj = input as {
+    src?: unknown
+    dest?: unknown
+    overwrite?: unknown
+    copies?: unknown
+  }
+  type CopyItem = { src: string; dest: string; overwrite: boolean }
+  const items: CopyItem[] = []
+  if (typeof obj.src === 'string' && typeof obj.dest === 'string') {
+    const ow = obj.overwrite === true || obj.overwrite === 'true'
+    items.push({ src: obj.src, dest: obj.dest, overwrite: ow })
+  }
+  if (Array.isArray(obj.copies)) {
+    for (let i = 0; i < obj.copies.length; i++) {
+      const c = obj.copies[i]
+      if (typeof c !== 'object' || c === null) {
+        return { ok: false, error: `copies[${i}] must be an object` }
+      }
+      const co = c as { src?: unknown; dest?: unknown; overwrite?: unknown }
+      if (typeof co.src !== 'string') return { ok: false, error: `copies[${i}].src must be string` }
+      if (typeof co.dest !== 'string') return { ok: false, error: `copies[${i}].dest must be string` }
+      const ow = co.overwrite === true || co.overwrite === 'true'
+      items.push({ src: co.src, dest: co.dest, overwrite: ow })
+    }
+  }
+  if (items.length === 0) {
+    return { ok: false, error: 'must provide {src, dest} or non-empty copies[]' }
+  }
+  if (items.length > COPY_BATCH_MAX) {
+    return { ok: false, error: `batch too large (${items.length} > ${COPY_BATCH_MAX}). Split.` }
+  }
+  // 复用 resolveMovePair 做 path-safety + dest 解析 + overwrite 检查 (语义对 copy 也对)
+  const resolved: { srcAbs: string; finalDest: string; overwrite: boolean }[] = []
+  for (let i = 0; i < items.length; i++) {
+    const r = await resolveMovePair(items[i].src, items[i].dest, items[i].overwrite)
+    if (!r.ok) return { ok: false, error: `copies[${i}] (整批拒): ${r.error}` }
+    resolved.push({ srcAbs: r.srcAbs, finalDest: r.finalDest, overwrite: items[i].overwrite })
+  }
+  const isBatch = resolved.length > 1
+  const batchId = `cp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+  // trust scope 内静默 (同 move_file)
+  const allTrusted = resolved.every(
+    (r) => checkTrusted(r.srcAbs) && checkTrusted(r.finalDest)
+  )
+  let decision: ApprovalDecision = 'allow-once'
+  if (allTrusted) {
+    await logToolAction({
+      tool: 'copy_file',
+      argsSummary: `batch_id=${batchId} count=${resolved.length}`,
+      result: 'auto-trusted',
+      detail: 'all src+dest in trusted scope'
+    })
+  } else {
+    const summary = isBatch
+      ? `📋 AI 想批量复制 ${resolved.length} 个 src→dest`
+      : `📋 AI 想复制:\n${resolved[0].srcAbs}\n  ↓\n${resolved[0].finalDest}${resolved[0].overwrite ? '\n(将覆盖)' : ''}`
+    decision = await requestApproval({
+      tool: 'copy_file',
+      summary,
+      ...(isBatch
+        ? { paths: resolved.map((r) => `${r.srcAbs} → ${r.finalDest}`) }
+        : { path: resolved[0].srcAbs })
+    })
+    if (decision === 'deny') {
+      await logToolAction({
+        tool: 'copy_file',
+        argsSummary: `batch_id=${batchId} count=${resolved.length}`,
+        result: 'denied',
+        detail: 'user denied'
+      })
+      return { ok: false, error: isBatch ? '用户拒绝整批复制' : '用户拒绝复制' }
+    }
+  }
+  const copied: string[] = []
+  const failed: { pair: string; err: string }[] = []
+  for (const r of resolved) {
+    const res = await doCopy(r.srcAbs, r.finalDest, r.overwrite)
+    const pair = `${r.srcAbs} → ${r.finalDest}`
+    if (res.ok) {
+      copied.push(res.msg)
+      await logToolAction({
+        tool: 'copy_file',
+        argsSummary: `batch_id=${batchId} src=${r.srcAbs} dest=${r.finalDest}`,
+        result: 'ok',
+        detail: `approved: ${decision}${r.overwrite ? ' overwrite' : ''}`
+      })
+    } else {
+      failed.push({ pair, err: res.err })
+      await logToolAction({
+        tool: 'copy_file',
+        argsSummary: `batch_id=${batchId} src=${r.srcAbs} dest=${r.finalDest}`,
+        result: 'error',
+        detail: res.err
+      })
+    }
+  }
+  await logToolAction({
+    tool: 'copy_file',
+    argsSummary: `batch_id=${batchId} summary count=${resolved.length}`,
+    result: failed.length === 0 ? 'ok' : 'error',
+    detail: `copied=${copied.length} failed=${failed.length}`
+  })
+  if (failed.length === 0) {
+    return { ok: true, content: isBatch ? `Copied ${copied.length}:\n${copied.join('\n')}` : copied[0] }
+  }
+  return {
+    ok: true,
+    content:
+      `Copied ${copied.length}/${resolved.length}.\n` +
+      (copied.length > 0 ? `OK:\n${copied.join('\n')}\n` : '') +
+      `Failed:\n${failed.map((f) => `${f.pair}: ${f.err}`).join('\n')}`
+  }
+}
+
+// —— organize_files —— macro: find + mkdir + batch move/copy 一气呵成 ——————————
+
+const ORGANIZE_MAX_MATCHES = 50
+
+async function execOrganizeFiles(input: unknown): Promise<ToolResult> {
+  if (typeof input !== 'object' || input === null) {
+    return { ok: false, error: 'input must be { from, to, pattern?, action?, overwrite? }' }
+  }
+  const obj = input as {
+    from?: unknown
+    to?: unknown
+    pattern?: unknown
+    action?: unknown
+    overwrite?: unknown
+  }
+  if (typeof obj.from !== 'string' || !obj.from) {
+    return { ok: false, error: '`from` (string) required' }
+  }
+  if (typeof obj.to !== 'string' || !obj.to) {
+    return { ok: false, error: '`to` (string) required' }
+  }
+  const pattern = typeof obj.pattern === 'string' && obj.pattern ? obj.pattern : '*'
+  const action = obj.action === 'copy' ? 'copy' : 'move' // 默认 move
+  const overwrite = obj.overwrite === true
+
+  // Step 1: 解析 from / to + path-safety
+  const fromSafety = await isPathSafe(obj.from)
+  if (!fromSafety.ok) return { ok: false, error: `from 不安全: ${fromSafety.reason}` }
+  const toSafety = await isPathSafe(obj.to)
+  if (!toSafety.ok) return { ok: false, error: `to 不安全: ${toSafety.reason}` }
+  // from 必须存在且是目录
+  try {
+    const fromStat = await fs.stat(fromSafety.absPath)
+    if (!fromStat.isDirectory()) {
+      return { ok: false, error: `from 不是目录: ${fromSafety.absPath}` }
+    }
+  } catch {
+    return { ok: false, error: `from 不存在: ${fromSafety.absPath}` }
+  }
+
+  // Step 2: 用 globToRegex + walk (复用 find_files 的逻辑骨架) 找匹配文件
+  // 不走 find_files exec 是因为我们要拿 absolute path 而不是 string list
+  const re = globToRegex(pattern)
+  const matches: string[] = []
+  const FIND_TIMEOUT_MS = 5000
+  const startTime = Date.now()
+  let entriesScanned = 0
+  let aborted = false
+  async function walk(dir: string, depthLeft: number): Promise<void> {
+    if (aborted || depthLeft < 0 || matches.length >= ORGANIZE_MAX_MATCHES) return
+    if (Date.now() - startTime > FIND_TIMEOUT_MS) {
+      aborted = true
+      return
+    }
+    let entries
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const e of entries) {
+      if (aborted || matches.length >= ORGANIZE_MAX_MATCHES) return
+      entriesScanned++
+      if (e.name.startsWith('.') && e.name !== '.') continue
+      if (e.isDirectory() && FIND_FILES_SKIP_DIRS.has(e.name)) continue
+      const full = dir + '/' + e.name
+      if (e.isFile() && re.test(e.name)) {
+        const safety = await isPathSafe(full)
+        if (safety.ok) matches.push(safety.absPath)
+      }
+      if (e.isDirectory()) await walk(full, depthLeft - 1)
+    }
+  }
+  await walk(fromSafety.absPath, 6)
+
+  if (matches.length === 0) {
+    return {
+      ok: true,
+      content: `No files matching "${pattern}" under ${fromSafety.absPath}. Nothing to organize.`
+    }
+  }
+  if (matches.length >= ORGANIZE_MAX_MATCHES) {
+    return {
+      ok: false,
+      error:
+        `Too many matches (≥${ORGANIZE_MAX_MATCHES}). Narrow pattern or split into batches ` +
+        `via direct move_file/copy_file.`
+    }
+  }
+
+  // Step 3: build pair list (dest = to + basename)
+  const toBase = toSafety.absPath.replace(/\/+$/, '')
+  const pairs = matches.map((src) => {
+    const basename = src.split('/').pop() ?? ''
+    return { src, dest: `${toBase}/${basename}`, overwrite }
+  })
+
+  // Step 4: dispatch 给 copy or move (它们自带 trust 检查 + 单 modal + audit)
+  const dispatchInput =
+    action === 'copy'
+      ? { copies: pairs.map((p) => ({ src: p.src, dest: p.dest, overwrite })) }
+      : { moves: pairs.map((p) => ({ src: p.src, dest: p.dest, overwrite })) }
+
+  await logToolAction({
+    tool: 'organize_files',
+    argsSummary: `from=${fromSafety.absPath} to=${toBase} pattern=${pattern} action=${action} count=${pairs.length}`,
+    result: 'ok',
+    detail: `dispatched to ${action === 'copy' ? 'copy_file' : 'move_file'}; matches=${matches.length} scanned=${entriesScanned}`
+  })
+
+  return action === 'copy' ? await execCopyFile(dispatchInput) : await execMoveFile(dispatchInput)
 }
 
 async function execListDirectory(input: unknown): Promise<ToolResult> {

@@ -61,6 +61,8 @@ export function getToolDisplay(rawName: string): ToolDisplay {
   if (name === 'write_file') return { label: t('tool_label.write_file'), icon: '✏️' }
   if (name === 'delete_file') return { label: t('tool_label.delete_file'), icon: '🗑' }
   if (name === 'move_file') return { label: t('tool_label.move_file'), icon: '📦' }
+  if (name === 'copy_file') return { label: t('tool_label.copy_file'), icon: '📋' }
+  if (name === 'organize_files') return { label: t('tool_label.organize_files'), icon: '🗂️' }
   if (name === 'list_directory') return { label: t('tool_label.list_directory'), icon: '📁' }
   if (name === 'find_files') return { label: t('tool_label.find_files'), icon: '🔎' }
   if (name === 'create_directory') return { label: t('tool_label.create_directory'), icon: '📁' }

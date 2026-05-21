@@ -33,6 +33,8 @@ import {
   FIND_FILES,
   DELETE_FILE,
   MOVE_FILE,
+  COPY_FILE,
+  ORGANIZE_FILES,
   SAVE_USER_PROFILE,
   SET_PET_ANIMATION,
   REMEMBER,
@@ -350,6 +352,59 @@ export function buildToolSetForContext(ctx: ToolContext): ToolSet {
             (Array.isArray(v.moves) && v.moves.length > 0),
           { message: 'must provide {src, dest} or non-empty moves[]' }
         ),
+      ctx
+    ),
+    copy_file: wrapTool(
+      'copy_file',
+      COPY_FILE.description,
+      z
+        .object({
+          src: z.string().optional().describe('Single-copy: source path'),
+          dest: z.string().optional().describe('Single-copy: destination path'),
+          overwrite: z
+            .boolean()
+            .optional()
+            .describe('Single-copy: true to overwrite existing dest. Default false.'),
+          copies: z
+            .array(
+              z.object({
+                src: z.string().describe('Source path (absolute or ~/-relative)'),
+                dest: z
+                  .string()
+                  .describe('Destination. Trailing / or existing dir → src basename preserved.'),
+                overwrite: z.boolean().optional().describe('Per-item overwrite flag (default false)')
+              })
+            )
+            .optional()
+            .describe('Batch mode: array of copies. One modal lists all src→dest pairs.')
+        })
+        .refine(
+          (v) =>
+            (typeof v.src === 'string' && typeof v.dest === 'string') ||
+            (Array.isArray(v.copies) && v.copies.length > 0),
+          { message: 'must provide {src, dest} or non-empty copies[]' }
+        ),
+      ctx
+    ),
+    organize_files: wrapTool(
+      'organize_files',
+      ORGANIZE_FILES.description,
+      z.object({
+        from: z.string().describe('Source directory (absolute or ~/-relative). Searched recursively.'),
+        to: z.string().describe('Destination directory. Created with mkdir -p if missing.'),
+        pattern: z
+          .string()
+          .optional()
+          .describe("Filename glob (e.g. '*.png'). Default '*' (all files). Case-insensitive."),
+        action: z
+          .enum(['move', 'copy'])
+          .optional()
+          .describe("'move' (src removed) or 'copy' (src kept). Default 'move'."),
+        overwrite: z
+          .boolean()
+          .optional()
+          .describe('Allow overwriting existing dest files. Default false.')
+      }),
       ctx
     ),
     run_command: wrapTool(
