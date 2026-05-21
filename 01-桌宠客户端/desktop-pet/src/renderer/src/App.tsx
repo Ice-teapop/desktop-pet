@@ -29,7 +29,7 @@ import type { SelectedModel } from '../../shared/provider-types'
 import type { UserProfile } from '../../shared/user-profile-types'
 import { getToolDisplay } from '../../shared/tool-display'
 import { t } from '../../shared/i18n'
-// v0.4.9: 全主题切换 clawd-dev → deskpet-cc (像素风 CC 螃蟹)
+// v0.4.9 起改用 deskpet-cc 像素风 CC 螃蟹主题 (21 sprite, 完全原创, MIT)
 // idle 池：CC 螃蟹只有 idle-follow / search / typing 等几个 idle 变体, 复用占位
 import idleGif from '@themes/deskpet-cc/crab-idle-follow.svg'
 import idleReadingGif from '@themes/deskpet-cc/crab-idle-follow.svg'

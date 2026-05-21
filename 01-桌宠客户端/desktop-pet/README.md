@@ -195,17 +195,17 @@ GH Actions 在 GitHub web UI 可看进度。
 
 ## 鸣谢
 
-特别感谢 **[@rullerzhou](https://github.com/rullerzhou-afk)** ——
+感谢 **[@rullerzhou-afk](https://github.com/rullerzhou-afk)** ——
 
-- 无偿提供了 [pet-forge](https://github.com/rullerzhou-afk/pet-forge)（MIT）这套 SVG 桌宠制作 skill + 完整工作流
-- 在 Claude Code 小螃蟹形象设计 / 像素动画规范 / 状态衔接节奏上给予关键指导
-- 全程持续的鼓励与耐心带教
+- 开源了 [pet-forge](https://github.com/rullerzhou-afk/pet-forge)（MIT）这套 SVG 桌宠制作工作流，本项目用它从零搭建 [deskpet-cc 主题](themes/deskpet-cc/) 的全部 21 个 sprite
+- 她的 [Clawd 项目](https://github.com/rullerzhou-afk/clawd-on-desk) 为本项目提供了**骨架层面的学习参考**（动画 rigging 思路 / 状态机层次结构）
 
-本项目 [deskpet-cc 主题](themes/deskpet-cc/) 的 21 个 sprite 全部参考 pet-forge 的 SVG 路线规范创作；睡眠链 / 打字 / 巫师事故 / 抛球 / 招手 / 锤击 等动画 keyframes 节奏直接借鉴老 Clawd 设计语言。
+### ⚠️ 事实边界声明
 
-没有她的开源精神和细致带教，DeskPet 桌宠形象不可能在这么短时间内完成从零到 21 个 sprite 的全套替换。**一切归功于她。**
-
-完整鸣谢见 [v0.4.12 release notes](https://github.com/Ice-teapop/desktop-pet/releases/tag/v0.4.12)。
+- **Clawd 形象本身未获原作者授权使用** — 本项目早期临时借用过 Clawd 资产，被原作者发现后她给了一个缓冲期让我重做，于是有了完全原创的 deskpet-cc
+- deskpet-cc 21 个 sprite **完全独立重画**，致敬 Anthropic Claude Code 公开 mascot 形象，**不含任何 Clawd 资产**
+- v0.4.17 起 `themes/clawd-dev/` 文件夹已从 repo 完全删除
+- Clawd 是 [@rullerzhou-afk](https://github.com/rullerzhou-afk) 的 IP，想看 / 想用请去她的 [clawd-on-desk](https://github.com/rullerzhou-afk/clawd-on-desk) 项目
 
 ---
 
