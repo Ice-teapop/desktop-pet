@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  crab-base-rounded.svg  ·  DeskPet base-idle (圆角矢量版)
+  · 由 crab-base-rounded-tuner.html 导出（鹿鹿调参版本）
+  · 尺寸/viewBox 与其他 25 个像素状态文件对齐：600×600 显示，viewBox -7.5 -7.5 45 45
+  · 颜色采用项目固定 hex 规范，全部平涂，无渐变：
+      body / claws / legs 全部 #D97856 (主)
+      eye   #111111  pupil #FFFFFF  shadow rgba(0,0,0,0.28)
+  · 内部坐标仍是 1024 grid（方便与调试器联动），外层 #pet-scale-wrap 用 scale(30/1024) 缩到 30 单位
+  · 图层 Z 序：shadow → leg-1~4 → claw-left/right → body
+              → body-highlight (空) → body-shadow-band (空)
+              → eye-left → eye-right → mouth (空)
+-->
+<svg width="600" height="600" viewBox="-7.5 -7.5 45 45"
+     fill="none" xmlns="http://www.w3.org/2000/svg"
+     role="img" aria-label="DeskPet crab base-idle (rounded)">
+
+  <title>crab-base-idle (rounded)</title>
+
+  <g id="pet-scale-wrap" transform="scale(0.029296875)">
+
+    <g id="shadow">
+      <rect x="247" y="970" width="530" height="28" rx="14" fill="#000000" opacity="0.28"/>
+    </g>
+
+    <g id="leg-1"><rect x="238" y="779" width="90" height="187" rx="45" fill="#D97856"/></g>
+    <g id="leg-2"><rect x="370" y="779" width="90" height="187" rx="45" fill="#D97856"/></g>
+    <g id="leg-3"><rect x="564" y="779" width="90" height="187" rx="45" fill="#D97856"/></g>
+    <g id="leg-4"><rect x="696" y="779" width="90" height="187" rx="45" fill="#D97856"/></g>
+
+    <g id="claw-left"><rect  x="60"  y="510" width="205" height="173" rx="80" fill="#D97856"/></g>
+    <g id="claw-right"><rect x="759" y="510" width="205" height="173" rx="80" fill="#D97856"/></g>
+
+    <g id="body">
+      <rect x="192" y="302" width="640" height="528" rx="115" fill="#D97856"/>
+    </g>
+
+    <g id="body-highlight"></g>
+    <g id="body-shadow-band"></g>
+
+    <g id="eye-left">
+      <rect x="306" y="460" width="90" height="150" rx="34" fill="#111111"/>
+      <circle cx="333" cy="487" r="15.5" fill="#FFFFFF"/>
+    </g>
+
+    <g id="eye-right">
+      <rect x="628" y="460" width="90" height="150" rx="34" fill="#111111"/>
+      <circle cx="655" cy="487" r="15.5" fill="#FFFFFF"/>
+    </g>
+
+    <g id="mouth"></g>
+
+  </g>
+</svg>

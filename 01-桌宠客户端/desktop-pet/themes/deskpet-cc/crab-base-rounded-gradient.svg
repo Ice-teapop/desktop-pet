@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  crab-base-rounded-gradient.svg  ·  DeskPet base-idle (圆角矢量版 · 渐变色)
+  · 与 crab-base-rounded.svg 同一造型/同一坐标，唯一区别：body 使用径向渐变做 3D 圆润感
+  · 渐变色仍取自项目规范色族：#F3A98B (高光) → #D97856 (主) → #B95E40 (暗边)
+  · claws / legs 仍为平涂 #D97856，与平涂版一致
+  · 用途：作为"立体风预览图"备选，是否启用由设计决定
+  · 图层 Z 序：shadow → leg-1~4 → claw-left/right → body
+              → body-highlight (空) → body-shadow-band (空)
+              → eye-left → eye-right → mouth (空)
+-->
+<svg width="600" height="600" viewBox="-7.5 -7.5 45 45"
+     fill="none" xmlns="http://www.w3.org/2000/svg"
+     role="img" aria-label="DeskPet crab base-idle (rounded, gradient)">
+
+  <title>crab-base-idle (rounded, gradient)</title>
+
+  <defs>
+    <radialGradient id="bodyGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse"
+      gradientTransform="translate(512 448) rotate(90) scale(430 520)">
+      <stop offset="0"    stop-color="#F3A98B"/>
+      <stop offset="0.65" stop-color="#D97856"/>
+      <stop offset="1"    stop-color="#B95E40"/>
+    </radialGradient>
+  </defs>
+
+  <g id="pet-scale-wrap" transform="scale(0.029296875)">
+
+    <g id="shadow">
+      <rect x="247" y="970" width="530" height="28" rx="14" fill="#000000" opacity="0.28"/>
+    </g>
+
+    <g id="leg-1"><rect x="238" y="779" width="90" height="187" rx="45" fill="#D97856"/></g>
+    <g id="leg-2"><rect x="370" y="779" width="90" height="187" rx="45" fill="#D97856"/></g>
+    <g id="leg-3"><rect x="564" y="779" width="90" height="187" rx="45" fill="#D97856"/></g>
+    <g id="leg-4"><rect x="696" y="779" width="90" height="187" rx="45" fill="#D97856"/></g>
+
+    <g id="claw-left"><rect  x="60"  y="510" width="205" height="173" rx="80" fill="#D97856"/></g>
+    <g id="claw-right"><rect x="759" y="510" width="205" height="173" rx="80" fill="#D97856"/></g>
+
+    <g id="body">
+      <rect x="192" y="302" width="640" height="528" rx="115" fill="url(#bodyGlow)"/>
+    </g>
+
+    <g id="body-highlight"></g>
+    <g id="body-shadow-band"></g>
+
+    <g id="eye-left">
+      <rect x="306" y="460" width="90" height="150" rx="34" fill="#111111"/>
+      <circle cx="333" cy="487" r="15.5" fill="#FFFFFF"/>
+    </g>
+
+    <g id="eye-right">
+      <rect x="628" y="460" width="90" height="150" rx="34" fill="#111111"/>
+      <circle cx="655" cy="487" r="15.5" fill="#FFFFFF"/>
+    </g>
+
+    <g id="mouth"></g>
+
+  </g>
+</svg>
