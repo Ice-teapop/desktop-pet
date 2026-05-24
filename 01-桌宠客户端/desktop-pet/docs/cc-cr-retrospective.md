@@ -247,3 +247,104 @@ prompt 调整解决（见上文「改进建议」）。
 代价：cr 偶尔 over-engineering 让 cc 加进不必要代码（如 `key={gifUrl}` 反例）。但相比
 cr 找出的真 bug（chatHistory 污染、stuck cursor、env 死循环、productName 路径割裂），
 代价值得。
+
+## 增补：DeskPet-Furina v0.5.0 typing 多分身 4 轮 fix saga（追加 2026-05-22）
+
+### 事件经过
+
+DeskPet-Furina fork (从 DeskPet 主线 v0.4.17 拷贝, 把 CC 螃蟹换成 Furina 人形)
+集成完成后, user 报告"桌宠在 typing 状态下会出现大量分身"。共做了 **4 轮 fix
+才挖到真根因**, 教训丰富。
+
+### 第 1 轮: 条件 mount IdleFollowSvg/WizardSvgComponent
+
+**假设**: dual-img + 2 个 inline svg (IdleFollow + Wizard) 共 4 层 sprite 常驻 mount,
+opacity 互补; fade transition 期 (FADE_HALF_MS=280ms) 两层 opacity 0.5 重叠 →
+用户看到双 Furina。
+
+**fix**: IdleFollowSvg / WizardSvgComponent 改条件 mount, 仅 `state === 'idle' &&
+activity === 'idle' && !showWizardOverlay` 时才 render。
+
+**结果**: **失败**。typing 多分身依旧。
+
+**为什么不对**: 假设有错。 typing state 下 IdleFollow / Wizard 都已 unmount (`state
+!== 'idle'`), 所以这 2 个 inline svg 层根本不参与 typing render。真根因在别处。
+
+### 第 2 轮: 砍 dual-img cross-fade 改单 img
+
+**假设**: dual-img cross-fade 双层 `<img>` 是 ghost 制造机, 单 img 物理上不可能多分身。
+
+**fix**: 删 `urls` state / `frontIdx` / `pendingBackRef` / `handleImgLoad` /
+cross-fade `useEffect` / `LLM_FLOW_GIFS` set / `FADE_HALF_MS` / `FADE_EASING`。
+JSX 改单 `<img src={gifUrl}>`. -90 行代码, 大幅简化。
+
+**结果**: **失败**。user 仍报 typing 多分身。
+
+**为什么不对**: dual-img 砍后 DOM 里物理上只有 1 个 sprite img, 但视觉上仍多 Furina
+→ ghost 来源不在 DOM 层面, 在 **CSS 渲染层 / SVG 内部 / 浏览器合成层**。
+
+### 第 3 轮: 派 cr-agent 系统排查 (这次抓到了真根因)
+
+派一个 careful-reviewer 模式的 agent 做 10 项系统排查 (CSS 合成层 / SVG 内部 /
+`<img>` SMIL 行为 / React StrictMode / Electron transparent paint 残留 / ...),
+并要求**实际打开 SVG 文件读结构**。
+
+**关键发现 (file:line 实证)**:
+
+1. **24/25 个 Furina SVG 文件 width="600"  但 viewBox="0 0 300 300"** ——
+   intrinsic 尺寸是 viewBox 的 **2 倍**。唯一不出 ghost 的 idle.svg 就是唯一
+   `width="300"` 的 → **100% 相关**。
+   - chromium 对 `<img src=svg>` 路径下 intrinsic size 跟 viewBox mismatch 会
+     触发 raster 路径分叉, 先 raster 一次 "baseline frame" 再叠 SMIL animation
+     frame → 视觉上 sprite sheet 露多帧 → **横向 15 个 Furina 并排**。
+2. **`main.css:177 .pet svg, .pet img { overflow: visible }`** —— 老 crab 时代
+   的设定 (给 eye/body group 飞出 viewBox 留空间)。inline SVG 上 `overflow:
+   visible` 等于关闭 SVG root 默认的 viewBox 裁剪 → Furina sprite sheet (4500
+   wide) 横向漏 15 帧。
+3. **`.pet img { will-change: opacity; transform: translateZ(0) ... }`** —— 老
+   dual-img cross-fade 时代的 GPU 合成层优化。砍 dual-img 后变成"GPU layer 常驻
+   不回收", transparent BrowserWindow + macOS Metal backend 已知有 stale tile
+   bug。`.pet > svg` 同病。
+
+### 第 4 轮: 三层联合修复
+
+```bash
+sed -i '' 's/width="600" height="600"/width="300" height="300"/g' \
+  themes/deskpet-furina/svg/*.svg
+```
+
+main.css:
+- `overflow: visible` → `hidden`
+- 删 `will-change: opacity` (`.pet img` + `.pet > svg`)
+- 删 `transform: translateZ(0)` (合并到 scale 里, 不再单独 promote layer)
+
+**结果**: **真正修好**。typing 状态分身消失。
+
+### 教训
+
+**给 cc**:
+1. **跨 medium 假设要警惕**: 第 1/2 轮都假设 ghost 在 DOM 层, 没想到在 CSS 渲染 /
+   SVG 内部 / 浏览器合成层。fix 失败后, 应该跳出原层级思考, 别在同一层级换花样。
+2. **fix 失败 2 轮必须转 diagnose**: 第 3 轮才派系统排查 agent, 浪费了 2 轮试错。
+3. **SVG width 跟 viewBox 不匹配** 进 cc 的 default checklist —— 这是常见
+   chromium quirk 触发条件, 应该一眼看出。
+4. **观察"对照组"**: user 早就给出关键线索 "idle 正常, typing 多分身"。**唯一不出
+   bug 的 sprite (idle.svg) 跟其它有什么不一样?** 这个对照实验如果第 1 轮就做,
+   就能直接抓到 width="300" vs "600" 这个唯一差异。
+
+**给 cr-agent**:
+1. **要求实证而不是推理**: 派出 agent 后要求"实际打开 SVG 文件读结构数 image
+   元素", 而不是凭空推理。agent 这次老老实实读了 25 个 SVG 文件, 发现 width
+   mismatch。
+2. **10 项系统排查 framework**: agent 列了 10 个可能源头 (CSS / SVG / DOM / 浏览器
+   合成 / Strict mode / Electron paint / etc), 一项项排除, 不偷懒。这种系统化
+   思路应该成为 cr 的 default 模式。
+
+**给工作流**:
+1. **多轮 fix 失败的代价**: 每轮 user 要重启 dev / 验证 / 反馈 ≈ 15 min user 时间。
+   4 轮 = 1 小时 user 时间浪费。如果第 1 轮就派 cr-agent 系统排查, 用 5 分钟 agent
+   时间换。
+2. **跨 medium 思维**: bug 不一定在你最熟悉的层。DOM 工程师不太想 CSS 合成层 /
+   SVG 内部结构 / 浏览器 quirk。培养"换镜头"思维很重要。
+3. **chromium `<img src=svg>` SMIL + viewBox mismatch** 是 known quirk, 应该
+   进 lessons-learned 索引方便后续秒查。

@@ -45,12 +45,10 @@ import {
 } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import {
-  PET_STATES,
-  RENDERER_FADE_HALF_MS,
-  type PetState,
-  type PetAnimation
-} from '../shared/pet-state'
+import type { PetAnimation } from '../shared/pet-state'
+// v0.5.0: 老 PetStateMachine class 抽走到 ./state-machine.ts (theme.json driven).
+// RENDERER_FADE_HALF_MS / PetState 老 import 已删 (Stage A 不再 schedule fade buffer).
+import { PetStateMachine } from './state-machine'
 import {
   DEFAULT_PET_MODE,
   DRAG_MIN_VISIBLE_PX,
@@ -183,151 +181,12 @@ const MARGIN_FROM_EDGE = 24
 const VISIBILITY_WATCHDOG_MS = 1000
 const WINDOW_RESIZE_ANIM_MS = 320
 
-const SUCCESS_HOLD_MS = PET_STATES.success.minMs + 100
-const ERROR_HOLD_MS = PET_STATES.error.minMs + 100
+// v0.5.0: 老 SUCCESS_HOLD_MS / ERROR_HOLD_MS / SLEEP_CHAIN_STATES 已删
+// (B 类自带 returnTo, C 桥 + sleep chain 全在 PetStateMachine 内部处理)
 const MAX_HISTORY_PAIRS = 10
 
-/** M9-3: sleep chain 内部 state（chain timer fire 时切到下一个，不要 clearSleepChain） */
-const SLEEP_CHAIN_STATES: ReadonlySet<PetState> = new Set([
-  'yawning',
-  'dozing',
-  'collapsing',
-  'sleep'
-])
-
-class PetStateMachine {
-  private current: PetState = 'idle'
-  private enteredAt = Date.now()
-  private timer: NodeJS.Timeout | null = null
-  // M9-3: 多 timer 数组（4 个 setTimeout 串：→yawning →dozing →collapsing →sleep）
-  // wake / 任何 user activity 整数组 clearTimeout 防"睡了又被旧 timer 拉回去"
-  private sleepChainTimers: NodeJS.Timeout[] = []
-
-  constructor(private notify: (state: PetState) => void) {
-    // M8 fix (Officer A cold-start ⚠️): seed current='idle' 不走 transition()，
-    // 不会自动 arm chain。冷启动后若 user 不发 chat 也不动 pet，永远停在 idle
-    // 不进 sleep —— 违反 "60s idle → sleep" 语义。constructor 显式 arm 一次。
-    this.armSleepChain()
-  }
-
-  getState(): PetState {
-    return this.current
-  }
-
-  transition(target: PetState): boolean {
-    if (target === this.current) return false
-    const tPrio = PET_STATES[target].priority
-    const cPrio = PET_STATES[this.current].priority
-    const elapsed = Date.now() - this.enteredAt
-    const cMin = PET_STATES[this.current].minMs
-    if (tPrio > cPrio || elapsed >= cMin) {
-      this.current = target
-      this.enteredAt = Date.now()
-      this.notify(target)
-      // M8 / M9-3: state machine 自维护 sleep chain timer
-      // - 进 idle → arm 60s chain（chain 内部 timer 串 yawning→dozing→collapsing→sleep）
-      // - 切到 sleep chain 内部 state（chain timer fire 时）→ 保留剩余 timer 不动
-      // - 切到任何非-chain state → clear chain（防 stale timer 把 pet 拉回 dozing 等）
-      if (target === 'idle') {
-        this.armSleepChain()
-      } else if (!SLEEP_CHAIN_STATES.has(target)) {
-        this.clearSleepChain()
-      }
-      // else: target ∈ SLEEP_CHAIN_STATES 是 chain timer 自己 fire 的 transition，
-      // 保留后续 timer（如 dozing 进 chain 时 collapsing/sleep timer 还在排队）
-      return true
-    }
-    return false
-  }
-
-  /**
-   * M9-3: 多阶段 sleep chain（Officer A+B 共识 nested 修 race）
-   *
-   * 旧 absolute 4 setTimeout（t+60s/+61.5s/+63s/+64.5s）有 race：yawning
-   * timer fire 慢 50ms (jitter) → dozing timer 在 absolute 61500ms fire 时
-   * yawning enteredAt=60050ms → elapsed=1450 < 1500 → blocked → dozing 帧
-   * 被吞 → user 看 yawn → collapse → sleep 缺一阶段。
-   *
-   * 新 nested 方案：每个 phase 成功 transition 后才 schedule 下一个 phase。
-   * setTimeout(delay) 从 callback 内 schedule，delay 是相对 callback 执行
-   * 时刻；callback 执行时刻就是该 phase enteredAt。所以下次 fire 时
-   * elapsed = 实际 delay (>= setTimeout delay >= minMs) → 永远满足 minMs gate.
-   *
-   * SVG 动画 dur 跟阶段 minMs 1:1 对齐（pet-state.ts 注释）：
-   *   60000ms idle  → yawning（3.8s SVG, minMs 3800）
-   *   3800ms yawning → dozing（4s SVG infinite, 砍一个周期）
-   *   4000ms dozing  → collapsing（1s SVG）
-   *   1000ms collapsing → sleep（永久 sleeping GIF）
-   */
-  private armSleepChain(): void {
-    this.clearSleepChain()
-    const chain: ReadonlyArray<readonly [number, PetState]> = [
-      [IDLE_SLEEP_MS, 'yawning'],
-      [PET_STATES.yawning.minMs, 'dozing'],
-      [PET_STATES.dozing.minMs, 'collapsing'],
-      [PET_STATES.collapsing.minMs, 'sleep']
-    ]
-    const step = (i: number): void => {
-      if (i >= chain.length) return
-      const [delay, target] = chain[i]
-      this.sleepChainTimers.push(
-        setTimeout(() => {
-          // 仅当 transition 成功才 schedule 下一阶段 —— 防 race / 防 user wake
-          // 后 chain 还继续推进。clearSleepChain 走 wake / non-chain transition
-          // 路径已经把这个 setTimeout 干掉，下面 step(i+1) 不会跑到。
-          if (this.transition(target)) step(i + 1)
-        }, delay)
-      )
-    }
-    step(0)
-  }
-
-  private clearSleepChain(): void {
-    for (const t of this.sleepChainTimers) clearTimeout(t)
-    this.sleepChainTimers = []
-  }
-
-  /**
-   * 任何用户活动 wake —— 从 sleep chain 任意阶段 (yawning/dozing/collapsing/sleep)
-   * 转到 'waking' state 播 1500ms wake SVG 后回 idle。waking priority 2 高于 chain
-   * priority 1 → 一定能 transition 成功，不会被 minMs 阻塞。
-   *
-   * Officer B 校准：clawd-wake.svg dur=1.5s，scheduleReturnToIdle 给足 1500ms
-   * 让 wake 动画播完整（旧值 800ms 砍掉 svg 后半段）。
-   */
-  wakeFromSleep(): void {
-    if (SLEEP_CHAIN_STATES.has(this.current)) {
-      // transition('waking') 内部 hook：waking ∉ SLEEP_CHAIN_STATES 走 else 分支
-      // 调 clearSleepChain（清掉可能 pending 的后续 chain timer）
-      if (this.transition('waking')) {
-        this.scheduleReturnToIdle(1500)
-      }
-    }
-  }
-
-  demoCycle(): void {
-    if (this.timer) clearTimeout(this.timer)
-    this.transition('thinking')
-    this.timer = setTimeout(() => {
-      this.transition('success')
-      this.timer = setTimeout(() => {
-        this.transition('idle')
-        this.timer = null
-      }, SUCCESS_HOLD_MS)
-    }, 2000)
-  }
-
-  scheduleReturnToIdle(holdMs: number): void {
-    if (this.timer) clearTimeout(this.timer)
-    this.timer = setTimeout(() => {
-      this.transition('idle')
-      this.timer = null
-    }, holdMs)
-  }
-}
-
-/** M8: idle 多久后自动 sleep。60s 跟 clawd-on-desk 一致 */
-const IDLE_SLEEP_MS = 60_000
+// v0.5.0: 老 PetStateMachine class (186-327) + IDLE_SLEEP_MS 已抽走到
+// src/main/state-machine.ts (theme.json driven, A/B/C 三类语义化 + C lock).
 
 /**
  * M9-4 eye tracking: main 端轮询全局 cursor，推 dx/dy 给 renderer 让 inline SVG
@@ -995,9 +854,8 @@ function applySelectedModel(rawSel: SelectedModel): void {
       if (chatHistory[chatHistory.length - 1]?.role === 'user') {
         chatHistory.pop()
       }
-      if (!stateMachine.transition('idle')) {
-        stateMachine.scheduleReturnToIdle(PET_STATES.thinking.minMs)
-      }
+      // v0.5.0: B 类 thinking 自带 returnTo='idle', setState 失败 (锁/优先级) 自然 ignore
+      stateMachine.setState('idle')
     }
     currentStreamHandle?.abort()
     currentStreamHandle = null
@@ -1231,6 +1089,9 @@ function createPetWindow(): void {
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
+      // 显式声明 Electron 安全默认（S2 grep-able）：nodeIntegration 关 + contextIsolation 开
+      nodeIntegration: false,
+      contextIsolation: true,
       // prod 关 devtools：F12 / ⌥⌘I 拿不到 IPC 监控面板，避免 submitKey 明文 key 被嗅探
       devTools: is.dev
     }
@@ -1330,9 +1191,8 @@ async function resetKey(): Promise<void> {
     // PR-2: 加 reason payload, key-reset 沿用现有 KEY_RESET_PROMPT 不另弹气泡
     petWindow!.webContents.send('chat:history-cleared', { reason: 'key-reset' })
   }
-  if (!stateMachine.transition('idle')) {
-    stateMachine.scheduleReturnToIdle(PET_STATES.thinking.minMs)
-  }
+  // v0.5.0: setState 失败 (锁/优先级) 自然 ignore, 不需 fallback
+  stateMachine.setState('idle')
   // cr B1: classifier cache 跨 key 身份不该残留 —— 上一个 key 用 LLM 分类出来的结果可能
   // 是错的（Anthropic 偶发抽风），如果不清，重设 key 后那个错误分类会永久命中缓存
   clearClassifyCache()
@@ -1558,15 +1418,13 @@ async function runUpdateCheck(source: 'auto' | 'manual'): Promise<void> {
 function registerIpc(): void {
   // —— M9-2 click reactions —— react to user double/quad click on pet body
   ipcMain.on('pet:poke', () => {
-    if (stateMachine.transition('poked')) {
-      stateMachine.scheduleReturnToIdle(PET_STATES.poked.minMs)
-    }
+    // react-poke 是 B 类, 自带 returnTo='idle'
+    stateMachine.setState('react-poke')
   })
 
   ipcMain.on('pet:startled', () => {
-    if (stateMachine.transition('looking_around')) {
-      stateMachine.scheduleReturnToIdle(PET_STATES.looking_around.minMs)
-    }
+    // idle-look 是 B 类 idleEgg, 自带 returnTo
+    stateMachine.setState('idle-look')
   })
 
   // M9-3 fix: 单击 / pointerdown 时立即 wake from sleep chain（cursorWatcher 已删
@@ -1874,9 +1732,8 @@ function registerIpc(): void {
       if (isWinAlive()) {
         petWindow!.webContents.send('chat:history-cleared', { reason: 'key-reset' })
       }
-      if (!stateMachine.transition('idle')) {
-        stateMachine.scheduleReturnToIdle(PET_STATES.thinking.minMs)
-      }
+      // v0.5.0: B 类 thinking 自带 returnTo='idle', setState 失败 (锁/优先级) 自然 ignore
+      stateMachine.setState('idle')
     }
     await queueCredentialOp(async () => {
       try {
@@ -2265,13 +2122,11 @@ function registerIpc(): void {
       // state，scheduleReturnToIdle 让动画播完一个 GIF cycle 自动回 idle。
       // minMs + fade buffer：renderer 切 GIF 走 cross-fade 占用 minMs 起始的
       // 280ms（FADE_HALF_MS），不补上的话动画实际可见周期短一帧。
-      // 返回 boolean 让 executor 知道是否被 minMs 保护吞 → tool_result is_error。
+      // A 类持续循环不自动回 idle; B 类自带 returnTo. setPetAnimation 这里直接传
+      // canonical (juggling/sweeping/conducting/carrying/happy/thinking), 老的
+      // scheduleReturnToIdle 已 no-op. AI 调下个 tool 时 main 端会切走.
       setPetAnimation: (name: PetAnimation): boolean => {
-        const transitioned = stateMachine.transition(name)
-        if (transitioned) {
-          stateMachine.scheduleReturnToIdle(PET_STATES[name].minMs + RENDERER_FADE_HALF_MS)
-        }
-        return transitioned
+        return stateMachine.setState(name)
       },
       // M8 让 AI 知道自己当前在干什么（"pet 要知道自己现在是什么状态"）
       currentPetState: stateMachine.getState()
@@ -2279,7 +2134,7 @@ function registerIpc(): void {
 
     chatHistory.push({ role: 'user', content: cleaned })
     trimChatHistory()
-    stateMachine.transition('thinking')
+    stateMachine.setState('thinking')
 
     const myToken = ++chatTurnToken
     let aiText = ''
@@ -2355,8 +2210,8 @@ function registerIpc(): void {
             void refreshPetMemory()
             void refreshUserProfile()
             win.webContents.send('chat:done', usage)
-            stateMachine.transition('success')
-            stateMachine.scheduleReturnToIdle(SUCCESS_HOLD_MS)
+            // happy (B 类, durMs 2400 自带 returnTo='idle')
+            stateMachine.setState('happy')
           },
           onError(err) {
             console.log(
@@ -2389,8 +2244,14 @@ function registerIpc(): void {
               chatHistory.pop()
             }
             win.webContents.send('chat:error', err)
-            stateMachine.transition('error')
-            stateMachine.scheduleReturnToIdle(ERROR_HOLD_MS)
+            // v0.5.0: error 是 A 类 (theme.json error: pingpong indefinite),
+            // 没自带 returnTo. Stage A 暂手动 setState('idle'), 让 error 显示 6s 后
+            // 由下次 user 输入触发 setState('thinking') 推走. 后续若加 B 类 error
+            // 自带 returnTo 这行删掉.
+            stateMachine.setState('error')
+            setTimeout(() => {
+              if (stateMachine.getState() === 'error') stateMachine.setState('idle')
+            }, 6000)
             // 401 invalid-api-key → 自动清掉坏 key, 引导用户重设. provider-aware.
             if (err.kind === 'invalid-api-key') {
               if (provider === 'anthropic') {
@@ -2430,9 +2291,8 @@ function registerIpc(): void {
       if (isWinAlive()) {
         petWindow!.webContents.send('chat:done', { inputTokens: 0, outputTokens: 0 })
       }
-      if (!stateMachine.transition('idle')) {
-        stateMachine.scheduleReturnToIdle(PET_STATES.thinking.minMs)
-      }
+      // v0.5.0: B 类 thinking 自带 returnTo='idle', setState 失败 (锁/优先级) 自然 ignore
+      stateMachine.setState('idle')
     }
     setChatOpen(Boolean(open))
   })

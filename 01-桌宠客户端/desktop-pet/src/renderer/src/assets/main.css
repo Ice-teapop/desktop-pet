@@ -54,6 +54,32 @@
     0 calc(100% - var(--notch)),
     0 var(--notch)
   );
+
+  /* —— Royal Salon Chat 主题 v1 token (chat 面板专用) ——
+   * 来源: themes/deskpet-furina/furina-royal-chat-v1.html。stage/pet 仍走 coral 系. */
+  --royal: #1b3aa7;
+  --royal-deep: #0b1d67;
+  --royal-dark: #06103a;
+  --ice: #45aefb;
+  --ice-soft: #bfe0ff;
+  --ice-faint: #eaf5ff;
+  --gold: #e7bf65;
+  --gold-deep: #aa7e20;
+  --gold-faint: #fff0bf;
+  --danger: #bd4756;
+  --bubble-line: rgba(69, 174, 251, 0.5);
+  --bubble-fill: rgba(234, 245, 255, 0.58);
+  --royal-paper: #fffaf0;
+  --clip-royal: polygon(
+    8px 0,
+    calc(100% - 8px) 0,
+    100% 8px,
+    100% calc(100% - 8px),
+    calc(100% - 8px) 100%,
+    8px 100%,
+    0 calc(100% - 8px),
+    0 8px
+  );
 }
 
 * {
@@ -100,6 +126,9 @@ body,
   display: flex;
   align-items: center;
   justify-content: center;
+  /* v0.5.0 #6 outer tilt: 整身倾斜跟随光标 (rAF 在 App.tsx 改 transform 值).
+   * transform-origin 锚脚底, 避免"摇头"感. */
+  transform-origin: 50% 100%;
   /* 关键 hit-test 三件套（修 transparent BrowserWindow click 失败）：
    *  1. background α=1/255 ≈ 0.004：transparent BrowserWindow 的 Chromium viz hit-test
    *     需要元素真有 paint region。α=0.01 过小可能被某些 macOS 版本 round 成 0 仍判透明
@@ -126,6 +155,34 @@ body,
  * 关键：必须 override 上面 .pet 的 right/bottom/width/height/padding，否则 240×240
  * 容器锚在 bottom-right of a 100×100 viewport → origin 跑到 (-154,-154)，
  * mini gif 几乎全裁出窗外。 */
+/* v0.5.0 #5 阴影系统 (Furina sprite 无内置阴影)
+ * .pet-shadow 是 .pet 的兄弟节点 (不是子元素 / 不是 ::before), 这样 .pet 的
+ * outer tilt rotate() 不会带飞阴影. 静止椭圆模拟地面投影. */
+.pet-shadow {
+  position: absolute;
+  right: 14px;  /* 跟 .pet 右下角对齐 */
+  bottom: 14px;
+  width: 240px;
+  height: 240px;
+  padding: 20px;
+  pointer-events: none;
+  z-index: 9;  /* 比 .pet (z-index 10) 低一级, 在身体下方 */
+}
+.pet-shadow::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 32px;  /* sprite 缩到 0.65 后脚底大致在这位置 */
+  width: 70px;
+  height: 12px;
+  transform: translateX(-50%);
+  background: radial-gradient(ellipse 50% 50% at 50% 50%, rgba(0, 0, 0, 0.32) 0%, rgba(0, 0, 0, 0.14) 60%, transparent 100%);
+  filter: blur(1.5px);
+}
+.pet-shadow.pet-shadow-mini::after {
+  display: none;  /* mini 模式无阴影 (80×80 没空间) */
+}
+
 .pet.pet-mini {
   right: 0;
   bottom: 0;
@@ -138,33 +195,52 @@ body,
 .pet img {
   width: 100%;
   height: 100%;
-  image-rendering: pixelated;
-  image-rendering: crisp-edges;
-  overflow: visible;
+  /* v0.5.0 #1: 删 image-rendering: pixelated/crisp-edges (老 crab 像素艺术专用,
+   * Furina 是 chibi 非像素艺术, pixelated 强制最近邻采样 → 锯齿 + 视觉卡顿)
+   * v0.5.0 #2: scale 缩到 0.65 (240×240 容器内 sprite 156×156 视觉), 锚脚底
+   * v0.5.0 多分身 P0: overflow: visible 改 hidden — 老 crab 时代 overflow visible
+   * 是给 SVG 内 eye/body group 飞出 viewBox 留余地, Furina sprite sheet 4500×300
+   * 一旦 inline svg 出 visible → 横向漏 15 帧 Furina 全展开 → 用户看到"大量分身". */
+  transform: scale(0.65);
+  transform-origin: 50% 100%;
+  overflow: hidden;
   pointer-events: none;
-  /* opacity transition 由 App.tsx inline style 控制（FADE_HALF_MS 单一来源） */
 }
 
-/* 双层 cross-fade：两个 <img> absolute 叠加同位置。
-   will-change + translateZ 强制独立 GPU 合成层常驻 —— 避免 opacity 变化时
-   chromium 在合成路径间切换（pixelated + opacity 互动可能引起的 layer 进出抖动）。 */
+/* mini 模式 80×80 容器, sprite 不再缩 (本来就小) */
+.pet.pet-mini svg,
+.pet.pet-mini img {
+  transform: none;
+}
+
+/* v0.5.0 多分身 P0: 删 will-change + translateZ —— 老 dual-img cross-fade 时代
+ * 强 GPU 合成层避免 opacity 切换闪烁. 现在单 img + 无 cross-fade, 反而 will-change
+ * 让 GPU layer 常驻不回收, transparent BrowserWindow 下 stale tile 会"残影"产生
+ * 多分身视觉. translateZ 同理. transform 只保留 scale, 锚定脚底. */
 .pet img {
   position: absolute;
   inset: 0;
-  will-change: opacity;
-  transform: translateZ(0);
+  transform: scale(0.65);
+  transform-origin: 50% 100%;
 }
 
-/* M9-4 eye-following inline SVG layer：跟两个 <img> 同样 absolute 叠加，做 idle
-   eye tracking 时 opacity 1（其他 state 时 0）。will-change 加 transform 因为
-   内部 group 通过 JS 直接 mutate style.transform。 */
+.pet.pet-mini img {
+  transform: none;
+}
+
+/* v0.5.0 idle 卡顿修: IdleFollow inline svg 走 SMIL animateTransform 滚 sprite sheet.
+ * 不上 GPU 层时 SMIL 跑软件路径, 12fps 源 + outer .pet rotate 复合更显卡顿.
+ * will-change: transform 让 chromium 把整个 svg 升到独立 compositing layer →
+ * SMIL transform 在 GPU 跑, 不受 main thread 干扰 + outer tilt 合成更顺.
+ * (多分身根因是 <img> 上的 will-change + overflow visible 共同作用, svg 单独
+ * promote 不复发: inline svg 有 viewBox 默认 hidden, overflow 设也无效.) */
 .pet > svg {
   position: absolute;
   inset: 0;
-  will-change: opacity;
+  will-change: transform;
 }
 
-/* —— 对话 UI 容器（左侧） —— */
+/* —— 对话 UI 容器（左侧，Royal Salon v1）—— 全透明无框 */
 .conversation {
   position: absolute;
   left: 12px;
@@ -173,7 +249,12 @@ body,
   height: calc(100% - 28px);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
+  padding: 0;
+  overflow: hidden;
+  background: transparent;
+  border: none;
+  box-shadow: none;
   animation: conv-fade-in 220ms ease-out forwards;
 }
 
@@ -203,15 +284,64 @@ body,
   }
 }
 
-/* —— 消息列表（占满 conversation 剩余空间，scrollbar 隐藏） —— */
+/* —— 背景浮泡装饰 (royal salon ice-bubble field) —— */
+.bubble-field {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.bubble-field span {
+  position: absolute;
+  display: block;
+  width: var(--size);
+  height: var(--size);
+  left: var(--x);
+  top: var(--y);
+  border: 2px solid var(--bubble-line);
+  border-radius: 50%;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.78) 0 24%, transparent 25% 100%),
+    var(--bubble-fill);
+  opacity: var(--alpha);
+  animation: bubble-drift var(--speed) steps(8) infinite;
+  animation-delay: var(--delay);
+}
+.bubble-field span::after {
+  content: '';
+  position: absolute;
+  top: 24%;
+  left: 24%;
+  width: 22%;
+  height: 22%;
+  border: 1px solid rgba(255, 255, 255, 0.82);
+  border-radius: 50%;
+}
+@keyframes bubble-drift {
+  0%, 100% {
+    transform: translate(0, 0) scale(1);
+  }
+  40% {
+    transform: translate(4px, -8px) scale(1.03);
+  }
+  70% {
+    transform: translate(-3px, -14px) scale(0.97);
+  }
+}
+
+/* —— 消息列表 (透明 bg, 气泡自己带视觉) —— */
 .messages {
+  position: relative;
+  z-index: 1;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 2px;
+  gap: 10px;
+  padding: 8px 6px;
+  background: transparent;
   user-select: text;
   -webkit-user-select: text;
 }
@@ -221,22 +351,22 @@ body,
   height: 0;
 }
 
-/* —— 提示气泡（messages 为空时居中显示） —— */
+/* —— 提示气泡 (messages 空时居中) —— */
 .hint {
   align-self: center;
   margin: auto 0;
   max-width: 100%;
   padding: 9px 11px;
-  background: var(--paper);
-  color: var(--ink);
-  border: var(--bw) solid var(--coral);
+  background: var(--ice-faint);
+  color: var(--royal-dark);
+  border: none;
+  border-radius: 10px;
   font-family: var(--fnt-cn);
   font-size: 12px;
   line-height: 1.55;
   letter-spacing: 0.3px;
   text-align: center;
-  clip-path: var(--clip-pixel-card);
-  filter: var(--drop-shadow);
+  box-shadow: none;
   animation: hint-bob 3.2s steps(2) infinite 1s;
 }
 
@@ -250,23 +380,27 @@ body,
   }
 }
 
-/* —— 键盘按键高亮 —— */
+/* —— 键盘按键高亮 (royal gold tag, 无 border) —— */
 .kbd {
   display: inline-block;
   font-family: var(--fnt-en);
   font-size: 8px;
   padding: 1px 4px;
-  background: var(--coral);
-  color: #fff;
+  background: var(--gold);
+  color: var(--royal-dark);
   margin: 0 1px;
   vertical-align: 1px;
   letter-spacing: 1px;
+  border-radius: 3px;
 }
 
-/* —— 消息行（user 右对齐，ai 左对齐） —— */
+/* —— 消息行 (user 右对齐，ai 左对齐) —— */
 .msg {
+  position: relative;
+  z-index: 1;
   display: flex;
   width: 100%;
+  padding-bottom: 8px;
 }
 
 .msg-user {
@@ -278,79 +412,89 @@ body,
 }
 
 .msg-bubble {
-  max-width: 86%;
-  padding: 6px 10px;
+  max-width: 82%;
+  padding: 9px 11px;
   font-family: var(--fnt-cn);
   font-size: 12px;
-  line-height: 1.45;
+  line-height: 1.55;
   letter-spacing: 0.2px;
-  border: var(--bw) solid var(--coral);
+  border: none;
+  border-radius: 10px;
   background: var(--paper);
-  color: var(--ink);
+  color: var(--royal-dark);
   word-break: break-word;
-  clip-path: var(--clip-pixel-card);
-  filter: var(--drop-shadow-sm);
-  animation: msg-in 0.25s steps(4) both;
+  box-shadow: none;
+  animation: msg-in 0.22s steps(3) both;
 }
 
-.msg-user .msg-bubble {
-  background: var(--coral);
-  color: #fff;
-  border-color: var(--coral-deep);
-}
-
+/* pet/ai 气泡 — 冰蓝调 */
 .msg-ai .msg-bubble {
-  background: var(--coral-soft);
+  background: var(--ice-faint);
 }
 
-/* v0.4.0 [A] msg-tool — AI 调 tool 时 inline 状态卡 (一行 icon+name+状态点)
- * 复用 clip-path + filter:drop-shadow 跟现有 msg-bubble 同视觉体系 (不用 box-shadow,
- * 因为 clip-path 切角会裁阴影). BEM (msg__name) 改扁平 (msg-tool-name).
- */
+/* user 气泡 — 金色软底 */
+.msg-user .msg-bubble {
+  color: var(--royal-dark);
+  background: var(--gold-faint);
+}
+
+/* —— msg-tool: AI 调 tool 状态卡 (无框, 仅 bg + rounded) —— */
 .msg-tool {
+  position: relative;
+  z-index: 1;
   align-self: flex-start;
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 10px;
-  background: var(--paper);
-  border: var(--bw) solid var(--paper-3);
-  font-size: 12px;
+  width: min(86%, 218px);
+  padding: 7px 10px;
+  background: var(--ice-faint);
   color: var(--ink-soft);
+  border: none;
+  border-radius: 10px;
+  font-size: 12px;
   letter-spacing: 0.3px;
-  clip-path: var(--clip-pixel-card);
-  filter: var(--drop-shadow-sm);
+  box-shadow: none;
 }
 .msg-tool-icon {
-  width: 14px;
-  height: 14px;
+  width: 18px;
+  height: 18px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: var(--coral-faint);
-  color: var(--coral-deep);
+  background: var(--gold);
+  color: var(--royal-dark);
   font-size: 10px;
-  clip-path: var(--clip-pixel-card);
+  font-weight: 900;
+  border-radius: 4px;
+  flex: 0 0 auto;
 }
 .msg-tool-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-family: var(--fnt-en);
   font-size: 9px;
   letter-spacing: 1px;
   color: var(--ink);
+  font-weight: 800;
 }
 .msg-tool-sep {
-  color: var(--paper-3);
+  color: var(--ice-soft);
 }
 .msg-tool-status {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  margin-left: auto;
+  font-weight: 900;
 }
 .msg-tool-status[data-state='done'] {
   color: var(--ok);
 }
 .msg-tool-status[data-state='error'] {
-  color: var(--warn);
+  color: var(--danger);
 }
 .msg-tool-check {
   display: inline-block;
@@ -362,7 +506,7 @@ body,
   line-height: 12px;
   font-size: 9px;
   font-family: var(--fnt-en);
-  clip-path: var(--clip-pixel-card);
+  border-radius: 3px;
 }
 .msg-tool-loading {
   display: inline-flex;
@@ -372,7 +516,7 @@ body,
 .msg-tool-loading-dot {
   width: 3px;
   height: 3px;
-  background: var(--coral);
+  background: var(--royal);
   animation: msg-tool-dot-jump 0.6s steps(2) infinite;
 }
 .msg-tool-loading-dot:nth-child(2) {
@@ -393,42 +537,42 @@ body,
   }
 }
 
-/* v0.4.0 [E] msg-system — 居中 dashed 灰 muted 气泡, 系统侧提示 (季节装扮 hint 等) */
+/* —— msg-system: 居中无框淡色提示 —— */
 .msg-system {
+  position: relative;
+  z-index: 1;
   align-self: center;
   font-size: 12px;
   color: var(--ink-soft);
-  background: var(--paper-2);
-  padding: 5px 11px;
+  background: transparent;
+  padding: 4px 10px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
   letter-spacing: 0.3px;
-  border: 1px dashed var(--paper-3);
-  clip-path: var(--clip-pixel-card);
+  border: none;
 }
 .msg-system-dot {
   width: 4px;
   height: 4px;
-  background: var(--muted);
+  background: var(--royal);
+  border-radius: 50%;
 }
 
-/* —— 错误气泡：暖红色调，跟珊瑚色系统协调但明显是警告 —— */
+/* —— 错误气泡 (无框, danger 淡红 bg) —— */
 .msg-ai .msg-bubble[data-status='error'] {
-  background: #fce4e0;
-  border-color: #a94c3a;
-  color: #6b2418;
-  filter: drop-shadow(2px 2px 0 #8a3a28);
+  background: #fde0e2;
+  color: #5a1219;
 }
 
-/* —— 流式光标：模仿打字机末尾的闪烁竖线 —— */
+/* —— 流式光标：royal-deep 像素闪 —— */
 .cursor-blink {
   display: inline-block;
   width: 6px;
   height: 1.1em;
   margin-left: 2px;
   vertical-align: -2px;
-  background: var(--coral-deep);
+  background: var(--royal);
   animation: cursor-blink 1s steps(1) infinite;
 }
 
@@ -449,22 +593,25 @@ body,
   }
 }
 
-/* —— 打字指示器（等 AI 回复时显示） —— */
+/* —— 打字指示器：无框 ice 软底 —— */
 .typing {
+  position: relative;
+  z-index: 1;
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  background: var(--coral-soft);
-  border: var(--bw) solid var(--coral);
+  background: var(--ice-faint);
+  border: none;
+  border-radius: 10px;
   padding: 8px 10px;
-  clip-path: var(--clip-pixel-card);
-  filter: var(--drop-shadow-sm);
+  box-shadow: none;
 }
 
 .typing-dot {
   width: 6px;
   height: 6px;
-  background: var(--coral);
+  background: var(--royal);
+  border-radius: 50%;
   animation: typing-jump 0.6s steps(2) infinite;
 }
 
@@ -486,65 +633,73 @@ body,
   }
 }
 
-/* —— 输入框 —— */
+/* —— 输入框 (composer, 无框 ice 软底, focus 略加亮) —— */
 .chat-input {
+  position: relative;
+  z-index: 1;
   flex-shrink: 0;
   width: 100%;
   font-family: var(--fnt-cn);
   font-size: 12.5px;
   color: var(--ink);
-  background: var(--paper);
-  border: var(--bw) solid var(--coral);
-  padding: 8px 12px;
+  background: var(--ice-faint);
+  border: none;
+  border-radius: 10px;
+  padding: 9px 12px;
   outline: none;
   letter-spacing: 0.3px;
-  clip-path: var(--clip-pixel-card);
-  filter: var(--drop-shadow);
   user-select: text;
   -webkit-user-select: text;
+  transition: background 120ms ease;
 }
 
 .chat-input::placeholder {
-  color: var(--muted);
+  color: var(--ink-soft);
 }
 
 .chat-input:focus {
-  border-color: var(--coral-deep);
+  background: #fff;
 }
 
 /* ============================================================
  * M4-A-2 视觉感知 UI
  * ============================================================ */
 
-/* —— vision-bar：input 上方的小工具栏（toggle 按钮）—— */
+/* —— vision-bar (composer 顶栏: model pill + 工具) —— */
 .vision-bar {
+  position: relative;
+  z-index: 1;
   flex-shrink: 0;
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  gap: 4px;
   padding: 0 2px;
 }
 
-.vision-toggle {
+.vision-toggle,
+.vision-pill {
   font-family: var(--fnt-cn);
   font-size: 10.5px;
   letter-spacing: 0.3px;
-  padding: 3px 8px;
-  background: var(--paper);
-  color: var(--ink);
-  border: 2px solid var(--coral);
+  padding: 4px 9px;
+  background: var(--ice-faint);
+  color: var(--royal-dark);
+  border: none;
+  border-radius: 8px;
   cursor: pointer;
-  clip-path: var(--clip-pixel-card);
-  filter: drop-shadow(2px 2px 0 var(--coral-deep));
-  transition: transform 80ms steps(2);
+  box-shadow: none;
+  transition: background 120ms ease;
 }
 
-.vision-toggle:hover:not(:disabled) {
-  transform: translate(-1px, -1px);
+.vision-toggle:hover:not(:disabled),
+.vision-pill:hover {
+  background: var(--ice-soft);
 }
 
-.vision-toggle:active:not(:disabled) {
-  transform: translate(1px, 1px);
-  filter: drop-shadow(1px 1px 0 var(--coral-deep));
+.vision-toggle:active:not(:disabled),
+.vision-pill:active {
+  background: var(--ice-soft);
 }
 
 .vision-toggle:disabled {
@@ -552,32 +707,32 @@ body,
   cursor: not-allowed;
 }
 
-.vision-toggle[data-state='enabled'] {
-  background: var(--coral);
-  color: #fff;
-  border-color: var(--coral-deep);
+.vision-toggle[data-state='enabled'],
+.vision-pill--on {
+  color: var(--gold-faint);
+  background: var(--royal);
 }
 
-/* —— vision-chip：3-stage progress 短暂气泡 —— */
+/* —— vision-chip: 短暂提示 (无框) —— */
 .vision-chip {
+  position: relative;
+  z-index: 1;
   flex-shrink: 0;
   align-self: center;
   font-family: var(--fnt-cn);
   font-size: 10.5px;
   padding: 4px 9px;
-  background: var(--coral-soft);
-  color: var(--ink);
-  border: 2px solid var(--coral);
-  clip-path: var(--clip-pixel-card);
-  filter: drop-shadow(2px 2px 0 var(--coral-deep));
+  background: var(--ice-faint);
+  color: var(--royal-dark);
+  border: none;
+  border-radius: 8px;
+  box-shadow: none;
   animation: vision-chip-in 220ms ease-out;
 }
 
 .vision-chip[data-stage='failed'] {
-  background: #fce4e0;
-  border-color: #a94c3a;
-  color: #6b2418;
-  filter: drop-shadow(2px 2px 0 #8a3a28);
+  background: #fde0e2;
+  color: #5a1219;
 }
 
 @keyframes vision-chip-in {
@@ -881,12 +1036,12 @@ body,
   letter-spacing: 0.2px;
 }
 .model-dropdown-item:hover {
-  background: var(--coral-faint);
-  color: var(--coral-deep);
+  background: var(--ice-faint);
+  color: var(--royal-dark);
 }
 .model-dropdown-item--active {
-  background: var(--coral-faint);
-  color: var(--coral-deep);
+  background: var(--ice-soft);
+  color: var(--royal-dark);
   font-weight: 600;
 }
 .model-dropdown-check {
@@ -901,28 +1056,28 @@ body,
   text-align: center;
 }
 
-/* === S3.1 [B] vision-pill — vision-bar 3 颗 pill === */
+/* === S3.1 [B] vision-pill — vision-bar pill (Royal: ice 软底 + 无框) === */
 .vision-pill {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   padding: 4px 9px;
-  background: var(--paper-2);
-  border: 1px solid var(--paper-3);
-  color: var(--ink-soft);
+  background: var(--ice-faint);
+  border: none;
+  border-radius: 8px;
+  color: var(--royal-dark);
   font-size: 11px;
   letter-spacing: 0.3px;
   cursor: pointer;
   user-select: none;
-  transition: transform 60ms steps(2);
+  transition: background 120ms ease;
 }
-.vision-pill:hover { transform: translateY(-1px); }
-.vision-pill:active { transform: translateY(0); }
+.vision-pill:hover { background: var(--ice-soft); }
+.vision-pill:active { background: var(--ice-soft); }
 .vision-pill-ico { font-size: 11px; line-height: 1; }
 .vision-pill--on {
-  background: var(--coral-faint);
-  border-color: var(--coral);
-  color: var(--coral-deep);
+  background: var(--royal);
+  color: var(--gold-faint);
 }
 .vision-pill--on::after {
   content: '✓';

@@ -1,8 +1,8 @@
 {
-  "name": "desktop-pet",
-  "productName": "DeskPet",
+  "name": "desktop-pet-furina",
+  "productName": "DeskPet-Furina",
   "version": "0.4.17",
-  "description": "DeskPet — 智能桌宠助手客户端（Electron + React + TS）",
+  "description": "DeskPet-Furina — 桌宠 Furina 形象版（Electron + React + TS，基于 DeskPet 主线 fork）",
   "main": "./out/main/index.js",
   "author": "han",
   "license": "MIT",

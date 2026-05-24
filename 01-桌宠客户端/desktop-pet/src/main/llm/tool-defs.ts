@@ -37,6 +37,7 @@ import {
   ORGANIZE_FILES,
   SAVE_USER_PROFILE,
   SET_PET_ANIMATION,
+  LOAD_SKILL,
   REMEMBER,
   FETCH_URL,
   GET_WEATHER,
@@ -133,6 +134,8 @@ const SETTINGS_PANES = [
 ] as const
 
 const PERSONA_PRESETS = [
+  'furina-god',
+  'furina-actor',
   'warm-friend',
   'professional',
   'witty-cold',
@@ -246,7 +249,10 @@ export function buildToolSetForContext(ctx: ToolContext): ToolSet {
                 .describe('Body paragraphs under this section')
             })
           )
-          .describe('Ordered sections. Empty array allowed if only title needed.')
+          .describe(
+            'Ordered sections. Must contain at least one section with non-empty ' +
+              'paragraph text OR a non-empty title — empty docs rejected at runtime.'
+          )
       }),
       ctx
     ),
@@ -486,7 +492,20 @@ export function buildToolSetForContext(ctx: ToolContext): ToolSet {
           .enum(PET_ANIMATIONS)
           .describe(
             'One of: juggling (multi-task) / sweeping (tidying) / conducting ' +
-              '(rhythm) / grooving (headphones bopping) / celebrating (happy/celebrate)'
+              '(rhythm) / carrying (hauling) / happy (celebrate/joy). ' +
+              'NOTE: do NOT include thinking — pet is auto-thinking during chat already.'
+          )
+      }),
+      ctx
+    ),
+    load_skill: wrapTool(
+      'load_skill',
+      LOAD_SKILL.description,
+      z.object({
+        name: z
+          .string()
+          .describe(
+            'Skill name from the "Available skills" section in the system prompt (e.g. "pdf-summary")'
           )
       }),
       ctx

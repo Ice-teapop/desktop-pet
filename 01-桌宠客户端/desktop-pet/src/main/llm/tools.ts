@@ -38,6 +38,7 @@ import { isPathSafe } from './path-safety'
 import { checkCommand, tokenizeSafeCommand } from './command-whitelist'
 import { checkTrusted, requestApproval } from './approval'
 import { logToolAction } from '../audit-log'
+import { getAllSkillsMetadata, getSkillContent } from './skill-loader'
 import { appendMemory, MEMORY_LINE_MAX } from '../storage/pet-memory'
 import { loadUserProfile, saveUserProfile } from '../storage/user-profile'
 import type { PersonaPreset, UserProfile } from '../../shared/user-profile-types'
@@ -286,7 +287,11 @@ export const RUN_COMMAND: ToolDef = {
     "Other commands show a permission modal. " +
     'SAFETY: rm -rf / / sudo / curl|sh / dd / mkfs etc are permanently ' +
     'denied even with approval. stdout truncated to 20,000 chars; ' +
-    '30s timeout. Use this for queries — not for destructive ops.',
+    '30s timeout. ' +
+    'USE CASES: shell queries (status / version / list); **launching macOS apps** ' +
+    "via `open -a 'AppName'` (e.g. user says 打开微信 → `open -a 'WeChat'`; " +
+    "打开 Chrome → `open -a 'Google Chrome'`); opening files in default app via " +
+    "`open <path>`. Modal popping is expected — don't refuse with \"no permission\".",
   input_schema: {
     type: 'object',
     properties: {
@@ -393,6 +398,9 @@ export const WRITE_DOCX: ToolDef = {
     'structured prose that needs typography. NOT for plain notes (use write_file .md). ' +
     'Each section optionally has a heading (level 1/2/3) and a list of paragraphs. ' +
     'Total paragraph text ≤ 100k chars per call. Same path safety as write_file. ' +
+    '**IMPORTANT**: gather actual content FIRST (web_search / fetch_url / read_file / ' +
+    'user-provided data) — do NOT call write_docx with empty sections to pre-create ' +
+    'a placeholder file. Empty docs (no title, no content) are rejected at runtime. ' +
     'Returns confirmation with bytes written.',
   input_schema: {
     type: 'object',
@@ -404,7 +412,9 @@ export const WRITE_DOCX: ToolDef = {
       title: { type: 'string', description: 'Document title (rendered as H1 at top)' },
       sections: {
         type: 'array',
-        description: 'Ordered sections. Empty array allowed if only title needed.',
+        description:
+          'Ordered sections. Must contain at least one section with non-empty paragraph ' +
+          'text OR a non-empty title — empty docs rejected at runtime.',
         items: {
           type: 'object',
           properties: {
@@ -703,22 +713,20 @@ export const ORGANIZE_FILES: ToolDef = {
 export const SET_PET_ANIMATION: ToolDef = {
   name: 'set_pet_animation',
   description:
-    "Make the desktop pet (the pixel crab 🦀 in the bottom-right corner) PLAY " +
+    'Make the desktop pet (Furina chibi in the bottom-right corner) PLAY ' +
     'a specific animation so the user visually sees the pet doing something fun. ' +
     'Call this when the user asks the pet to perform/dance/show off/express a ' +
-    `mood ("表演杂技" → juggling, "庆祝下" → celebrating, "扫地" → sweeping, etc). ` +
+    `mood ("表演杂技" → juggling, "庆祝下" → happy, "扫地" → sweeping, etc). ` +
     'Also acceptable when YOUR text response would be more vivid with a visual ' +
-    "complement (e.g. completing a complex task → 'celebrating'). " +
+    "complement (e.g. completing a complex task → 'happy'). " +
     'The animation auto-returns to idle after one cycle (2-3.5s); call it ONCE, ' +
     "don't loop the call. Calling with the same animation while it's playing is " +
     'a no-op. Available animations (pick the closest match in spirit):\n' +
     `  • juggling     —— juggling balls / multi-tasking / handling several things\n` +
     `  • sweeping     —— tidying / cleaning / organizing\n` +
     `  • conducting   —— waving baton / keeping rhythm / music conducting\n` +
-    `  • grooving     —— headphones bopping / listening / enjoying rhythm\n` +
-    `  • celebrating  —— happy / celebrate / task done / thanks\n` +
     `  • carrying     —— hauling / moving items / helping organize / "我帮你拿过来"\n` +
-    `  • ultrathink   —— deep reasoning pose (Opus adaptive thinking style, static)`,
+    `  • happy        —— celebrate / task done / thanks / joy`,
   input_schema: {
     type: 'object',
     properties: {
@@ -729,6 +737,25 @@ export const SET_PET_ANIMATION: ToolDef = {
       }
     },
     required: ['animation']
+  }
+}
+
+export const LOAD_SKILL: ToolDef = {
+  name: 'load_skill',
+  description:
+    'Fetch the full instructions for a dev-curated skill (see "Available skills" ' +
+    'section in system prompt). Call this when the user query matches a skill trigger; ' +
+    'use the returned instructions to guide your response for this turn. ' +
+    'Skills are higher-level than tools — they orchestrate tools with discipline.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      name: {
+        type: 'string',
+        description: 'Skill name as listed in system prompt (e.g., "pdf-summary", "code-review")'
+      }
+    },
+    required: ['name']
   }
 }
 
@@ -998,6 +1025,8 @@ export async function executeTool(
       return await execSaveUserProfile(input)
     case 'set_pet_animation':
       return execSetPetAnimation(input, ctx)
+    case 'load_skill':
+      return execLoadSkill(input)
     default:
       return { ok: false, error: `unknown tool: ${name}` }
   }
@@ -1034,7 +1063,34 @@ function execSetPetAnimation(input: unknown, ctx: ToolContext): ToolResult {
   return { ok: true, content: `Pet started ${name} animation (auto-returns to idle after one cycle).` }
 }
 
+/**
+ * load_skill: LLM 按 user query 决定要哪个 skill, 调本 tool 拉完整指令.
+ * 不做 path-safety / approval —— skills 是 dev 内置 .md, 不访问 user 数据.
+ */
+function execLoadSkill(input: unknown): ToolResult {
+  if (typeof input !== 'object' || input === null) {
+    return { ok: false, error: 'input must be { name: string }' }
+  }
+  const name = (input as { name?: unknown }).name
+  if (typeof name !== 'string' || !name) {
+    return { ok: false, error: 'name must be a non-empty string' }
+  }
+  const content = getSkillContent(name)
+  if (!content) {
+    const available = getAllSkillsMetadata()
+      .map((s) => s.name)
+      .join(', ')
+    return {
+      ok: false,
+      error: `unknown skill "${name}". Available: ${available}`
+    }
+  }
+  return { ok: true, content: `# Skill: ${name}\n\n${content}` }
+}
+
 const VALID_PERSONA_PRESETS: PersonaPreset[] = [
+  'furina-god',
+  'furina-actor',
   'warm-friend',
   'professional',
   'witty-cold',
@@ -1709,6 +1765,18 @@ async function execWriteDocx(input: unknown): Promise<ToolResult> {
   }
   const title = typeof obj.title === 'string' ? obj.title : undefined
   if (title) totalChars += title.length
+  // Bug-B 修复 (2026-05-22): 拒绝空内容. 原 schema 允许 sections:[] 是设计漏洞 ——
+  // LLM 在没拿到数据时 (web_search 失败 / 没调) 会 "占位写空 docx", 用户拿到空文档.
+  // totalChars 已累计 title + headings + paragraphs, 全 0 即真空 → 拒.
+  if (totalChars === 0) {
+    return {
+      ok: false,
+      error:
+        'docx is empty: no title, no headings, no paragraphs. ' +
+        'Fetch real content (web_search / fetch_url / read_file / user data) ' +
+        "BEFORE calling write_docx — don't pre-create with sections:[] and no title."
+    }
+  }
   if (totalChars > WRITE_DOCX_MAX_CHARS) {
     return {
       ok: false,

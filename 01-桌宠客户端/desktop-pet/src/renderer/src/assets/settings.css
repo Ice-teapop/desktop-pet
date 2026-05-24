@@ -23,23 +23,23 @@
 
 .settings-app h1 {
   font-size: 24px;
-  color: var(--coral-deep);
+  color: var(--royal-deep);
   margin-bottom: 22px;
   letter-spacing: 0.5px;
 }
 
 .settings-app h2 {
   font-size: 14.5px;
-  color: var(--coral-deep);
+  color: var(--royal-deep);
   margin-bottom: 12px;
   padding-bottom: 6px;
-  border-bottom: 2px solid var(--coral);
+  border-bottom: 2px solid var(--royal);
   letter-spacing: 0.4px;
 }
 
 .settings-app h3 {
   font-size: 16px;
-  color: var(--coral-deep);
+  color: var(--royal-deep);
   margin-bottom: 10px;
 }
 
@@ -60,7 +60,7 @@
 .settings-app code {
   font-family: var(--fnt-en);
   font-size: 11px;
-  background: var(--coral-soft);
+  background: var(--ice-faint);
   padding: 1px 5px;
   border-radius: 0;
 }
@@ -82,19 +82,19 @@
 .badge {
   font-size: 10.5px;
   padding: 2px 8px;
-  border: 2px solid var(--coral);
+  border: 2px solid var(--royal);
   font-family: var(--fnt-cn);
   letter-spacing: 0.3px;
 }
 .badge-ok {
-  background: var(--coral);
+  background: var(--royal);
   color: #fff;
-  border-color: var(--coral-deep);
+  border-color: var(--royal-deep);
 }
 .badge-warn {
-  background: #fce4e0;
-  color: #6b2418;
-  border-color: #a94c3a;
+  background: #fde0e2;
+  color: #5a1219;
+  border-color: var(--danger);
 }
 .badge-muted {
   background: var(--paper);
@@ -108,10 +108,10 @@
   padding: 5px 12px;
   background: var(--paper);
   color: var(--ink);
-  border: 2px solid var(--coral);
+  border: 2px solid var(--royal);
   cursor: pointer;
   clip-path: var(--clip-pixel-card);
-  filter: drop-shadow(2px 2px 0 var(--coral-deep));
+  filter: drop-shadow(2px 2px 0 var(--royal-deep));
   transition: transform 80ms steps(2);
 }
 .settings-app button:hover:not(:disabled) {
@@ -119,22 +119,22 @@
 }
 .settings-app button:active:not(:disabled) {
   transform: translate(1px, 1px);
-  filter: drop-shadow(1px 1px 0 var(--coral-deep));
+  filter: drop-shadow(1px 1px 0 var(--royal-deep));
 }
 .settings-app button:disabled {
   opacity: 0.35;
   cursor: not-allowed;
 }
 .settings-app button.danger {
-  background: #fce4e0;
-  border-color: #a94c3a;
-  color: #6b2418;
-  filter: drop-shadow(2px 2px 0 #8a3a28);
+  background: #fde0e2;
+  border-color: var(--danger);
+  color: #5a1219;
+  filter: drop-shadow(2px 2px 0 rgba(189, 71, 86, 0.5));
 }
 .settings-app button.primary {
-  background: var(--coral);
+  background: var(--royal);
   color: #fff;
-  border-color: var(--coral-deep);
+  border-color: var(--royal-deep);
 }
 .settings-app button.small {
   font-size: 10px;
@@ -191,7 +191,7 @@
   cursor: pointer;
   font-size: 12px;
   padding: 6px 0;
-  color: var(--coral-deep);
+  color: var(--royal-deep);
   user-select: none;
 }
 .tool-list {
@@ -209,14 +209,14 @@
   bottom: 24px;
   left: 50%;
   transform: translateX(-50%);
-  background: var(--coral);
+  background: var(--royal);
   color: #fff;
   padding: 8px 18px;
   font-size: 12px;
   font-family: var(--fnt-cn);
-  border: 2px solid var(--coral-deep);
+  border: 2px solid var(--royal-deep);
   clip-path: var(--clip-pixel-card);
-  filter: drop-shadow(2px 2px 0 var(--coral-deep));
+  filter: drop-shadow(2px 2px 0 var(--royal-deep));
   animation: toast-in 180ms ease-out;
   z-index: 100;
 }
@@ -239,14 +239,14 @@
   font-size: 12px;
   color: var(--ink);
   background: #fff;
-  border: 2px solid var(--coral);
+  border: 2px solid var(--royal);
   padding: 6px 10px;
   outline: none;
   clip-path: var(--clip-pixel-card);
 }
 .profile-input:focus,
 .profile-textarea:focus {
-  border-color: var(--coral-deep);
+  border-color: var(--royal-deep);
 }
 .profile-textarea {
   resize: vertical;
@@ -262,7 +262,7 @@
   font-size: 11.5px;
   line-height: 1.55;
   background: #fff;
-  border: 2px solid var(--coral);
+  border: 2px solid var(--royal);
   padding: 10px 12px;
   margin: 8px 0;
   min-height: 180px;
@@ -273,7 +273,7 @@
   clip-path: var(--clip-pixel-card);
 }
 .memory-editor:focus {
-  border-color: var(--coral-deep);
+  border-color: var(--royal-deep);
 }
 
 /* —— Settings 内嵌 modal（Tavily key 输入） —— */
@@ -289,7 +289,7 @@
 .settings-modal {
   background: var(--paper);
   color: var(--ink);
-  border: 3px solid var(--coral);
+  border: 3px solid var(--royal);
   padding: 24px;
   width: 460px;
   max-width: calc(100% - 40px);
@@ -305,12 +305,12 @@
   font-size: 12px;
   color: var(--ink);
   background: #fff;
-  border: 2px solid var(--coral);
+  border: 2px solid var(--royal);
   outline: none;
   clip-path: var(--clip-pixel-card);
 }
 .settings-modal input:focus {
-  border-color: var(--coral-deep);
+  border-color: var(--royal-deep);
 }
 .modal-actions {
   display: flex;
@@ -328,15 +328,15 @@
   padding: 14px;
   margin: 12px 0;
   background: var(--paper);
-  border: 2px solid var(--coral);
+  border: 2px solid var(--royal);
   clip-path: var(--clip-pixel-card);
-  filter: drop-shadow(2px 2px 0 var(--coral-deep));
+  filter: drop-shadow(2px 2px 0 var(--royal-deep));
   transition: filter 120ms steps(2);
 }
 .provider-card--active {
-  background: var(--coral-soft);
-  border-color: var(--coral-deep);
-  filter: drop-shadow(4px 4px 0 var(--coral-deep));
+  background: var(--ice-faint);
+  border-color: var(--royal-deep);
+  filter: drop-shadow(4px 4px 0 var(--royal-deep));
 }
 .provider-card--unconfigured {
   border-style: dashed;
@@ -363,14 +363,14 @@
   font-size: 13px;
 }
 
-/* 绿 ● "当前使用" chip */
+/* 金 ● "当前使用" chip (royal 配色里 gold 标识选中) */
 .chip-current {
   display: inline-block;
   font-size: 10.5px;
   padding: 2px 8px;
-  background: #6db33f;
-  color: #fff;
-  border: 2px solid #4d8327;
+  background: var(--gold);
+  color: var(--royal-dark);
+  border: 2px solid var(--gold-deep);
   font-family: var(--fnt-cn);
   letter-spacing: 0.3px;
   clip-path: var(--clip-pixel-card);
@@ -381,13 +381,13 @@
   font-size: 11px;
   padding: 4px 10px;
   background: var(--paper);
-  color: var(--coral-deep);
-  border-color: var(--coral);
+  color: var(--royal-deep);
+  border-color: var(--royal);
 }
 .settings-app button.btn-switch-provider:hover:not(:disabled) {
   /* CR Issue 3 fix: 不用 coral-soft (跟 active card bg 撞色让用户以为切了),
    * 改实色 + 白字让按钮自身变暗一档表达 hover */
-  background: var(--coral);
+  background: var(--royal);
   color: #fff;
 }
 
@@ -415,7 +415,7 @@
 .btn-link {
   background: none;
   border: none;
-  color: var(--coral);
+  color: var(--royal);
   cursor: pointer;
   font-size: 11px;
   padding: 0 4px;
@@ -423,7 +423,7 @@
   font-family: inherit;
 }
 .btn-link:hover {
-  color: var(--coral-dark, var(--coral));
+  color: var(--royal);
 }
 
 /* v0.4.3+ About 区头图 — clawd-about-hero.svg 居中 */
