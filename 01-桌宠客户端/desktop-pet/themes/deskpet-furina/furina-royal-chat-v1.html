@@ -1,0 +1,1241 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Furina Royal Pet Chat</title>
+<style>
+  :root {
+    color-scheme: light;
+    --ink: #182150;
+    --ink-soft: #566084;
+    --paper: #fffaf0;
+    --paper-2: #f2ead8;
+    --paper-3: #ded1b6;
+    --royal: #1b3aa7;
+    --royal-deep: #0b1d67;
+    --royal-dark: #06103a;
+    --ice: #45aefb;
+    --ice-soft: #bfe0ff;
+    --ice-faint: #eaf5ff;
+    --gold: #e7bf65;
+    --gold-deep: #aa7e20;
+    --gold-faint: #fff0bf;
+    --rose: #d56d81;
+    --ok: #3d9877;
+    --danger: #bd4756;
+    --bubble-line: rgba(69, 174, 251, .5);
+    --bubble-fill: rgba(234, 245, 255, .58);
+    --shadow: 4px 4px 0 var(--royal-deep);
+    --shadow-soft: 3px 3px 0 rgba(11, 29, 103, .2);
+    --font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "PingFang SC", "Microsoft YaHei", monospace;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html,
+  body {
+    margin: 0;
+    min-height: 100%;
+  }
+
+  body {
+    min-height: 100vh;
+    color: var(--ink);
+    font-family: var(--font);
+    background:
+      linear-gradient(rgba(27, 58, 167, .05) 1px, transparent 1px) 0 0 / 10px 10px,
+      linear-gradient(90deg, rgba(27, 58, 167, .05) 1px, transparent 1px) 0 0 / 10px 10px,
+      linear-gradient(180deg, #fff8e8 0%, #efe4c9 100%);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  button,
+  input {
+    font: inherit;
+  }
+
+  button {
+    appearance: none;
+    cursor: pointer;
+  }
+
+  .app {
+    min-height: 100vh;
+    display: grid;
+    grid-template-columns: minmax(360px, 1fr) minmax(360px, 430px);
+    gap: 22px;
+    padding: 22px;
+  }
+
+  .stage {
+    position: relative;
+    min-height: calc(100vh - 44px);
+    display: grid;
+    grid-template-rows: auto minmax(360px, 1fr) auto;
+    overflow: hidden;
+    border: 3px solid var(--royal);
+    background:
+      linear-gradient(90deg, transparent 0 7px, rgba(231, 191, 101, .22) 7px 10px, transparent 10px 100%) 0 0 / 26px 100%,
+      linear-gradient(180deg, rgba(234, 245, 255, .86) 0%, rgba(255, 250, 240, .82) 46%, rgba(231, 191, 101, .16) 100%);
+    box-shadow: var(--shadow);
+    clip-path: polygon(
+      8px 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 8px),
+      calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px), 0 8px
+    );
+  }
+
+  .stage::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    height: 58px;
+    background:
+      linear-gradient(90deg, var(--gold) 0 12px, transparent 12px calc(100% - 12px), var(--gold) calc(100% - 12px) 100%),
+      var(--royal);
+    border-bottom: 3px solid var(--gold-deep);
+  }
+
+  .stage::after {
+    content: "";
+    position: absolute;
+    left: 9%;
+    right: 9%;
+    bottom: 88px;
+    height: 24px;
+    background: rgba(11, 29, 103, .1);
+    border: 2px solid rgba(27, 58, 167, .12);
+    transform: skewX(-12deg);
+  }
+
+  .stage-head {
+    position: relative;
+    z-index: 1;
+    min-height: 58px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 10px 18px;
+    color: #fff;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+  }
+
+  .crown {
+    position: relative;
+    width: 34px;
+    height: 24px;
+    flex: 0 0 auto;
+  }
+
+  .crown::before {
+    content: "";
+    position: absolute;
+    inset: 8px 2px 2px;
+    background: var(--gold);
+    box-shadow: inset 0 -4px 0 var(--gold-deep);
+  }
+
+  .crown span {
+    position: absolute;
+    bottom: 8px;
+    width: 8px;
+    height: 16px;
+    background: var(--gold);
+    box-shadow: inset 0 -3px 0 var(--gold-deep);
+    transform: rotate(45deg);
+  }
+
+  .crown span:nth-child(1) { left: 1px; }
+  .crown span:nth-child(2) {
+    left: 13px;
+    bottom: 10px;
+    height: 18px;
+  }
+  .crown span:nth-child(3) { right: 1px; }
+
+  .brand-copy {
+    min-width: 0;
+  }
+
+  .brand-title {
+    font-size: clamp(16px, 2vw, 23px);
+    line-height: 1;
+    font-weight: 900;
+    color: var(--gold-faint);
+    text-transform: uppercase;
+    letter-spacing: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .brand-sub {
+    margin-top: 5px;
+    font-size: 12px;
+    color: var(--ice-soft);
+  }
+
+  .status-tile {
+    min-width: 128px;
+    padding: 7px 10px;
+    border: 2px solid var(--gold);
+    color: var(--gold-faint);
+    background: var(--royal-deep);
+    text-align: center;
+    font-size: 12px;
+    font-weight: 800;
+    box-shadow: 2px 2px 0 var(--royal-dark);
+    clip-path: polygon(
+      4px 0, calc(100% - 4px) 0, 100% 4px, 100% calc(100% - 4px),
+      calc(100% - 4px) 100%, 4px 100%, 0 calc(100% - 4px), 0 4px
+    );
+  }
+
+  .pet-wrap {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    place-items: end center;
+    padding: 22px 22px 6px;
+  }
+
+  .speech {
+    position: absolute;
+    top: 26px;
+    left: 50%;
+    z-index: 3;
+    width: min(520px, calc(100% - 32px));
+    transform: translateX(-50%);
+    padding: 12px 14px;
+    color: var(--royal-dark);
+    background: var(--paper);
+    border: 3px solid var(--royal);
+    box-shadow: var(--shadow-soft);
+    font-size: clamp(13px, 1.5vw, 16px);
+    line-height: 1.45;
+    text-align: center;
+    clip-path: polygon(
+      7px 0, calc(100% - 7px) 0, 100% 7px, 100% calc(100% - 7px),
+      calc(100% - 7px) 100%, 7px 100%, 0 calc(100% - 7px), 0 7px
+    );
+  }
+
+  .speech::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    bottom: -14px;
+    width: 18px;
+    height: 14px;
+    margin-left: -9px;
+    background:
+      linear-gradient(var(--paper), var(--paper)) 4px 0 / 10px 7px no-repeat,
+      linear-gradient(var(--paper), var(--paper)) 7px 7px / 4px 7px no-repeat;
+  }
+
+  .pet-stage {
+    position: relative;
+    width: min(66vh, 540px);
+    min-width: 290px;
+    aspect-ratio: 1;
+    display: grid;
+    place-items: center;
+  }
+
+  .pet-stage::before {
+    content: "";
+    position: absolute;
+    left: 15%;
+    right: 15%;
+    bottom: 7%;
+    height: 12%;
+    border: 2px solid rgba(27, 58, 167, .18);
+    background: rgba(69, 174, 251, .12);
+    transform: skewX(-10deg);
+  }
+
+  .pet-layer {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    opacity: 0;
+    transform-origin: center bottom;
+    transition: opacity 110ms linear, transform 180ms ease;
+    image-rendering: pixelated;
+    user-select: none;
+    -webkit-user-drag: none;
+  }
+
+  .pet-layer.is-active {
+    opacity: 1;
+  }
+
+  .pet-layer.is-dragging {
+    transform: translateY(-5px) rotate(-2deg);
+  }
+
+  .quickbar {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 8px;
+    padding: 14px 16px 16px;
+    background: rgba(255, 250, 240, .82);
+    border-top: 2px solid rgba(27, 58, 167, .18);
+  }
+
+  .state-button,
+  .scenario-button {
+    min-height: 42px;
+    border: 2px solid var(--royal);
+    color: var(--royal-dark);
+    background: var(--paper);
+    box-shadow: 2px 2px 0 rgba(11, 29, 103, .22);
+    font-size: 12px;
+    font-weight: 800;
+    clip-path: polygon(
+      4px 0, calc(100% - 4px) 0, 100% 4px, 100% calc(100% - 4px),
+      calc(100% - 4px) 100%, 4px 100%, 0 calc(100% - 4px), 0 4px
+    );
+    transition: transform 80ms steps(2), background 120ms ease, color 120ms ease;
+  }
+
+  .state-button:hover,
+  .scenario-button:hover {
+    transform: translateY(-1px);
+    background: var(--ice-faint);
+  }
+
+  .state-button:active,
+  .scenario-button:active {
+    transform: translateY(1px);
+  }
+
+  .state-button.is-active {
+    color: #fff;
+    background: var(--royal);
+    border-color: var(--royal-deep);
+    box-shadow: inset 0 -3px 0 var(--gold-deep);
+  }
+
+  .chat-shell {
+    position: relative;
+    min-height: calc(100vh - 44px);
+    display: grid;
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    overflow: hidden;
+    border: 3px solid var(--royal);
+    background: var(--paper);
+    box-shadow: var(--shadow);
+    clip-path: polygon(
+      8px 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 8px),
+      calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px), 0 8px
+    );
+  }
+
+  .bubble-field {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    overflow: hidden;
+  }
+
+  .bubble-field span {
+    position: absolute;
+    display: block;
+    width: var(--size);
+    height: var(--size);
+    left: var(--x);
+    top: var(--y);
+    border: 2px solid var(--bubble-line);
+    border-radius: 50%;
+    background:
+      linear-gradient(135deg, rgba(255, 255, 255, .78) 0 24%, transparent 25% 100%),
+      var(--bubble-fill);
+    opacity: var(--alpha);
+    animation: bubble-drift var(--speed) steps(8) infinite;
+    animation-delay: var(--delay);
+  }
+
+  .bubble-field span::after {
+    content: "";
+    position: absolute;
+    top: 24%;
+    left: 24%;
+    width: 22%;
+    height: 22%;
+    border: 1px solid rgba(255, 255, 255, .82);
+    border-radius: 50%;
+  }
+
+  .chat-bar {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    min-height: 48px;
+    padding: 9px 12px;
+    color: #fff;
+    background: var(--royal);
+    border-bottom: 3px solid var(--gold);
+  }
+
+  .chat-bar::after {
+    content: "";
+    position: absolute;
+    right: 38px;
+    bottom: -11px;
+    width: 8px;
+    height: 8px;
+    border: 2px solid var(--ice-soft);
+    border-radius: 50%;
+    background: var(--royal);
+    box-shadow:
+      -18px 4px 0 -1px var(--royal),
+      -18px 4px 0 1px var(--ice-soft),
+      -34px -2px 0 -2px var(--royal),
+      -34px -2px 0 0 var(--ice-soft),
+      -52px 3px 0 -1px var(--royal),
+      -52px 3px 0 1px var(--ice-soft);
+  }
+
+  .chat-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    font-size: 13px;
+    font-weight: 900;
+    text-transform: uppercase;
+  }
+
+  .mini-crown {
+    position: relative;
+    width: 18px;
+    height: 14px;
+    flex: 0 0 auto;
+  }
+
+  .mini-crown::before {
+    content: "";
+    position: absolute;
+    left: 1px;
+    right: 1px;
+    bottom: 1px;
+    height: 7px;
+    background: var(--gold);
+  }
+
+  .mini-crown::after {
+    content: "";
+    position: absolute;
+    left: 4px;
+    top: 0;
+    width: 10px;
+    height: 10px;
+    background: var(--gold);
+    transform: rotate(45deg);
+  }
+
+  .chat-led {
+    width: 8px;
+    height: 8px;
+    background: var(--ice);
+    box-shadow: 0 0 0 2px var(--royal-deep);
+    animation: blink 1.4s steps(1) infinite;
+  }
+
+  .queue {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 12px;
+    color: var(--ink-soft);
+    background: var(--ice-faint);
+    border-bottom: 2px solid var(--ice-soft);
+    font-size: 12px;
+  }
+
+  .queue-blocks {
+    display: flex;
+    gap: 3px;
+  }
+
+  .queue-block {
+    width: 11px;
+    height: 11px;
+    border: 1px solid var(--royal);
+    background: var(--paper);
+  }
+
+  .queue-block.is-done { background: var(--royal); }
+  .queue-block.is-current {
+    background: var(--ice);
+    animation: pulse 1s steps(2) infinite;
+  }
+
+  .queue-state {
+    margin-left: auto;
+    color: var(--royal-deep);
+    font-size: 11px;
+    font-weight: 900;
+  }
+
+  .messages {
+    position: relative;
+    z-index: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    overflow-y: auto;
+    padding: 14px 12px;
+    background:
+      linear-gradient(rgba(222, 209, 182, .42) 1px, transparent 1px) 0 0 / 100% 38px,
+      var(--paper);
+  }
+
+  .message {
+    display: flex;
+    padding-bottom: 10px;
+  }
+
+  .message.user {
+    justify-content: flex-end;
+  }
+
+  .bubble {
+    position: relative;
+    max-width: 82%;
+    padding: 9px 11px;
+    color: var(--ink);
+    background: var(--paper);
+    border: 2px solid var(--royal);
+    border-radius: 8px;
+    box-shadow: 2px 2px 0 var(--royal-deep);
+    font-size: 13px;
+    line-height: 1.55;
+    word-break: break-word;
+    animation: pop-in .18s steps(3) both;
+  }
+
+  .bubble::before,
+  .bubble::after {
+    content: "";
+    position: absolute;
+    border-radius: 50%;
+    pointer-events: none;
+  }
+
+  .bubble::before {
+    left: 16px;
+    bottom: -9px;
+    width: 10px;
+    height: 10px;
+    border: 2px solid var(--royal);
+    background: inherit;
+  }
+
+  .bubble::after {
+    left: 5px;
+    bottom: -17px;
+    width: 6px;
+    height: 6px;
+    border: 2px solid var(--bubble-line);
+    background: var(--bubble-fill);
+  }
+
+  .message.pet .bubble {
+    background: var(--ice-faint);
+  }
+
+  .message.user .bubble {
+    color: var(--royal-dark);
+    background:
+      linear-gradient(90deg, transparent 0 calc(100% - 8px), rgba(231, 191, 101, .72) calc(100% - 8px) 100%),
+      linear-gradient(180deg, #fffdf6 0%, #eef8ff 100%);
+    border-color: var(--royal);
+    box-shadow:
+      inset 0 -3px 0 rgba(69, 174, 251, .18),
+      3px 3px 0 rgba(170, 126, 32, .34);
+  }
+
+  .message.user .bubble::before {
+    right: 16px;
+    left: auto;
+    border-color: var(--royal);
+    background: #eef8ff;
+  }
+
+  .message.user .bubble::after {
+    right: 5px;
+    left: auto;
+    background: var(--gold-faint);
+    border-color: rgba(170, 126, 32, .62);
+    box-shadow:
+      -12px -4px 0 -2px var(--ice-faint),
+      -12px -4px 0 0 var(--bubble-line);
+  }
+
+  .system-line {
+    position: relative;
+    align-self: center;
+    padding: 5px 10px;
+    color: var(--ink-soft);
+    background: var(--paper-2);
+    border: 1px dashed var(--paper-3);
+    border-radius: 8px;
+    font-size: 12px;
+  }
+
+  .system-line::before,
+  .system-line::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    width: 7px;
+    height: 7px;
+    border: 1px solid var(--bubble-line);
+    border-radius: 50%;
+    background: var(--ice-faint);
+    transform: translateY(-50%);
+  }
+
+  .system-line::before { left: -13px; }
+  .system-line::after { right: -13px; }
+
+  .bubble-divider {
+    align-self: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    padding: 2px 0 4px;
+  }
+
+  .bubble-divider span {
+    width: var(--dot);
+    height: var(--dot);
+    border: 2px solid var(--bubble-line);
+    border-radius: 50%;
+    background: var(--bubble-fill);
+    animation: bubble-pop 1.6s steps(4) infinite;
+    animation-delay: var(--delay);
+  }
+
+  .tool-card,
+  .file-card {
+    position: relative;
+    align-self: flex-start;
+    width: min(86%, 330px);
+    padding: 8px 10px;
+    color: var(--ink-soft);
+    background: var(--paper);
+    border: 2px solid var(--ice-soft);
+    border-radius: 8px;
+    box-shadow: 2px 2px 0 rgba(11, 29, 103, .16);
+    font-size: 12px;
+    animation: pop-in .18s steps(3) both;
+  }
+
+  .tool-card::after,
+  .file-card::after {
+    content: "";
+    position: absolute;
+    right: 9px;
+    top: -7px;
+    width: 8px;
+    height: 8px;
+    border: 2px solid var(--bubble-line);
+    border-radius: 50%;
+    background: var(--bubble-fill);
+    box-shadow:
+      -15px 4px 0 -1px var(--ice-faint),
+      -15px 4px 0 1px var(--bubble-line);
+  }
+
+  .tool-row,
+  .file-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .tag {
+    flex: 0 0 auto;
+    padding: 3px 5px;
+    color: var(--royal-dark);
+    background: var(--gold);
+    border-radius: 6px;
+    font-size: 10px;
+    font-weight: 900;
+  }
+
+  .tool-name,
+  .file-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--ink);
+    font-weight: 800;
+  }
+
+  .tool-status {
+    margin-left: auto;
+    color: var(--ok);
+    font-weight: 900;
+  }
+
+  .file-summary {
+    margin-top: 6px;
+    line-height: 1.55;
+  }
+
+  .scenario-strip {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 7px;
+    padding: 10px 12px 0;
+    border-top: 1px dashed var(--paper-3);
+    background: rgba(255, 250, 240, .9);
+  }
+
+  .scenario-button {
+    min-height: 36px;
+    padding: 0 8px;
+    border-radius: 8px;
+    font-size: 11px;
+    box-shadow: none;
+  }
+
+  .composer {
+    position: relative;
+    z-index: 1;
+    background: rgba(255, 250, 240, .92);
+  }
+
+  .input-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+    padding: 10px 12px 12px;
+  }
+
+  .chat-input {
+    min-width: 0;
+    min-height: 40px;
+    padding: 0 11px;
+    color: var(--ink);
+    background: var(--paper-2);
+    border: 2px solid var(--ice-soft);
+    border-radius: 8px;
+    outline: 0;
+  }
+
+  .chat-input:focus {
+    background: var(--paper);
+    border-color: var(--royal);
+  }
+
+  .send-button {
+    min-width: 74px;
+    min-height: 40px;
+    padding: 0 12px;
+    color: var(--gold-faint);
+    background: var(--royal);
+    border: 2px solid var(--royal-deep);
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 900;
+    box-shadow: inset 0 -3px 0 var(--gold-deep);
+  }
+
+  .send-button:active {
+    transform: translateY(1px);
+    box-shadow: inset 0 -1px 0 var(--gold-deep);
+  }
+
+  @keyframes blink {
+    0%, 49% { opacity: 1; }
+    50%, 100% { opacity: .3; }
+  }
+
+  @keyframes pulse {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-2px); }
+  }
+
+  @keyframes pop-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes bubble-drift {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    40% { transform: translate(5px, -10px) scale(1.04); }
+    70% { transform: translate(-3px, -18px) scale(.96); }
+  }
+
+  @keyframes bubble-pop {
+    0%, 100% { transform: translateY(0); opacity: .65; }
+    50% { transform: translateY(-3px); opacity: 1; }
+  }
+
+  @media (max-width: 940px) {
+    .app {
+      grid-template-columns: 1fr;
+    }
+
+    .stage,
+    .chat-shell {
+      min-height: auto;
+    }
+
+    .pet-wrap {
+      min-height: 480px;
+    }
+
+    .chat-shell {
+      height: min(690px, calc(100vh - 44px));
+    }
+  }
+
+  @media (max-width: 620px) {
+    .app {
+      padding: 12px;
+      gap: 14px;
+    }
+
+    .stage-head {
+      align-items: flex-start;
+      flex-direction: column;
+    }
+
+    .status-tile {
+      min-width: 0;
+      width: 100%;
+      text-align: left;
+    }
+
+    .pet-wrap {
+      min-height: 420px;
+      padding-top: 82px;
+    }
+
+    .pet-stage {
+      width: min(92vw, 400px);
+      min-width: 240px;
+    }
+
+    .quickbar,
+    .scenario-strip {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .bubble {
+      max-width: 92%;
+    }
+
+    .input-row {
+      grid-template-columns: 1fr;
+    }
+
+    .send-button {
+      width: 100%;
+    }
+  }
+</style>
+</head>
+<body>
+  <main class="app">
+    <section class="stage" aria-label="芙宁娜桌宠舞台">
+      <header class="stage-head">
+        <div class="brand">
+          <div class="crown" aria-hidden="true"><span></span><span></span><span></span></div>
+          <div class="brand-copy">
+            <div class="brand-title">Furina</div>
+            <div class="brand-sub">Royal desk companion</div>
+          </div>
+        </div>
+        <div class="status-tile" id="statusTile">闲置仪态</div>
+      </header>
+
+      <div class="pet-wrap">
+        <div class="speech" id="speech">肃静。今日的舞台已经准备好，把问题呈上来吧。</div>
+        <div class="pet-stage" id="petStage">
+          <img class="pet-layer is-active" id="layerA" src="svg/idle.svg" alt="">
+          <img class="pet-layer" id="layerB" src="svg/idle.svg" alt="">
+        </div>
+      </div>
+
+      <div class="quickbar" aria-label="桌宠状态">
+        <button class="state-button is-active" data-action="state" data-state="idle">闲置</button>
+        <button class="state-button" data-action="state" data-state="thinking">审理</button>
+        <button class="state-button" data-action="state" data-state="typing">记录</button>
+        <button class="state-button" data-action="state" data-state="conducting">指挥</button>
+        <button class="state-button" data-action="poke">戳戳</button>
+        <button class="state-button" data-action="sleep">小憩</button>
+      </div>
+    </section>
+
+    <section class="chat-shell" aria-label="皇家对话框">
+      <div class="bubble-field" aria-hidden="true">
+        <span style="--size:18px;--x:8%;--y:10%;--alpha:.45;--speed:4.5s;--delay:-.2s"></span>
+        <span style="--size:10px;--x:21%;--y:7%;--alpha:.38;--speed:5.2s;--delay:-1s"></span>
+        <span style="--size:28px;--x:74%;--y:11%;--alpha:.32;--speed:5.8s;--delay:-2.2s"></span>
+        <span style="--size:14px;--x:88%;--y:18%;--alpha:.42;--speed:4.2s;--delay:-.7s"></span>
+        <span style="--size:36px;--x:12%;--y:28%;--alpha:.22;--speed:6.6s;--delay:-2.8s"></span>
+        <span style="--size:12px;--x:54%;--y:25%;--alpha:.5;--speed:4.8s;--delay:-1.6s"></span>
+        <span style="--size:22px;--x:82%;--y:32%;--alpha:.36;--speed:5.1s;--delay:-3.1s"></span>
+        <span style="--size:9px;--x:34%;--y:39%;--alpha:.46;--speed:4.4s;--delay:-2.4s"></span>
+        <span style="--size:30px;--x:66%;--y:45%;--alpha:.26;--speed:6.1s;--delay:-.9s"></span>
+        <span style="--size:16px;--x:9%;--y:52%;--alpha:.44;--speed:5s;--delay:-1.9s"></span>
+        <span style="--size:11px;--x:42%;--y:58%;--alpha:.5;--speed:4.2s;--delay:-3.2s"></span>
+        <span style="--size:25px;--x:87%;--y:61%;--alpha:.34;--speed:5.7s;--delay:-1.4s"></span>
+        <span style="--size:13px;--x:18%;--y:69%;--alpha:.48;--speed:4.7s;--delay:-2.6s"></span>
+        <span style="--size:34px;--x:57%;--y:73%;--alpha:.24;--speed:6.4s;--delay:-.5s"></span>
+        <span style="--size:12px;--x:77%;--y:80%;--alpha:.46;--speed:4.9s;--delay:-1.8s"></span>
+        <span style="--size:20px;--x:29%;--y:86%;--alpha:.4;--speed:5.3s;--delay:-3.4s"></span>
+      </div>
+      <header class="chat-bar">
+        <div class="chat-title">
+          <span class="mini-crown" aria-hidden="true"></span>
+          <span>Salon Chat</span>
+        </div>
+        <span class="chat-led" aria-hidden="true"></span>
+      </header>
+
+      <div class="queue" aria-label="当前流程">
+        <div class="queue-blocks" aria-hidden="true">
+          <span class="queue-block is-done"></span>
+          <span class="queue-block is-current"></span>
+          <span class="queue-block"></span>
+          <span class="queue-block"></span>
+        </div>
+        <span id="queueText">待审理</span>
+        <strong class="queue-state" id="queueState">IDLE</strong>
+      </div>
+
+      <div class="messages" id="messages">
+        <div class="system-line">Royal channel opened</div>
+        <div class="bubble-divider" aria-hidden="true">
+          <span style="--dot:6px;--delay:-.1s"></span>
+          <span style="--dot:10px;--delay:-.4s"></span>
+          <span style="--dot:7px;--delay:-.8s"></span>
+          <span style="--dot:13px;--delay:-1.1s"></span>
+          <span style="--dot:8px;--delay:-.6s"></span>
+          <span style="--dot:11px;--delay:-1.4s"></span>
+          <span style="--dot:6px;--delay:-.2s"></span>
+        </div>
+        <div class="message pet">
+          <div class="bubble">本日沙龙正式开场。我会以优雅、迅速、稍微隆重一点的方式陪你处理任务。</div>
+        </div>
+        <div class="tool-card">
+          <div class="tool-row">
+            <span class="tag">PET</span>
+            <span class="tool-name">svg/idle.svg</span>
+            <span class="tool-status">READY</span>
+          </div>
+        </div>
+        <div class="file-card">
+          <div class="file-head">
+            <span class="tag">LOOK</span>
+            <span class="file-name">蓝礼服、金冠、银白短发、舞台感</span>
+          </div>
+          <div class="file-summary">对话框保留皇家像素切角，角色气质偏戏剧化、自信、爱宣布结果。</div>
+        </div>
+      </div>
+
+      <div class="composer">
+        <div class="scenario-strip" aria-label="对话场景">
+          <button class="scenario-button" data-scenario="trial">开庭</button>
+          <button class="scenario-button" data-scenario="write">写判词</button>
+          <button class="scenario-button" data-scenario="notice">传令</button>
+          <button class="scenario-button" data-scenario="finish">谢幕</button>
+        </div>
+        <div class="input-row">
+          <input class="chat-input" id="chatInput" type="text" autocomplete="off" placeholder="向芙宁娜递交一条请求">
+          <button class="send-button" id="sendButton" type="button">SEND</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+<script>
+  const theme = {
+    states: {
+      idle: { file: "svg/idle.svg", type: "A", label: "闲置仪态" },
+      thinking: { file: "svg/thinking.svg", type: "A", label: "审理中" },
+      typing: { file: "svg/typing.svg", type: "A", label: "记录判词" },
+      building: { file: "svg/building.svg", type: "A", label: "构筑舞台" },
+      conducting: { file: "svg/conducting.svg", type: "A", label: "指挥全场" },
+      sleeping: { file: "svg/sleeping.svg", type: "A", label: "幕间小憩" },
+      error: { file: "svg/error.svg", type: "A", label: "异议成立" },
+      happy: { file: "svg/happy.svg", type: "B", label: "谢幕喝彩", returnTo: "idle", durMs: 2400 },
+      notification: { file: "svg/notification.svg", type: "B", label: "传令提醒", returnTo: "idle", durMs: 2500 },
+      "react-drag": { file: "svg/react-drag.svg", type: "A", label: "被拖拽" },
+      "react-poke": { file: "svg/react-poke.svg", type: "B", label: "被戳戳", returnTo: "idle", durMs: 1500 },
+      "collapse-sleep": { file: "svg/collapse-sleep.svg", type: "C", label: "落幕入睡", to: "sleeping", durMs: 1500 },
+      wake: { file: "svg/wake.svg", type: "C", label: "醒来", to: "idle", durMs: 1500 }
+    }
+  };
+
+  const personaLines = {
+    idle: "肃静。今日的舞台已经准备好，把问题呈上来吧。",
+    thinking: "嗯哼，此案值得认真审理。让我把线索排成优雅的队列。",
+    typing: "判词正在誊写中。每一个字都要配得上这顶冠冕。",
+    building: "舞台机关启动。复杂任务也该有华丽的秩序。",
+    conducting: "听我指挥，所有线索按节拍入场。",
+    sleeping: "暂时休庭。帷幕落下，但本女士仍然保持优雅。",
+    error: "异议成立。这里有一处不够优雅，需要重新审视。",
+    happy: "完美谢幕。掌声可以稍微热烈一点。",
+    notification: "传令到达。有新事务正在等待裁定。",
+    "react-drag": "哎呀，移动王座时请保持礼仪。",
+    "react-poke": "咳，注意分寸。不过这次准许了。",
+    "collapse-sleep": "那么，进入幕间休息。",
+    wake: "休庭结束。沙龙重新开场。"
+  };
+
+  const layers = [document.getElementById("layerA"), document.getElementById("layerB")];
+  const petStage = document.getElementById("petStage");
+  const speech = document.getElementById("speech");
+  const statusTile = document.getElementById("statusTile");
+  const queueText = document.getElementById("queueText");
+  const queueState = document.getElementById("queueState");
+  const messages = document.getElementById("messages");
+  const chatInput = document.getElementById("chatInput");
+  const sendButton = document.getElementById("sendButton");
+  const stateButtons = Array.from(document.querySelectorAll("[data-state]"));
+
+  let activeLayer = 0;
+  let base = "idle";
+  let current = "idle";
+  let locked = false;
+  let returnTimer = 0;
+  let queuedAfterWake = "";
+
+  function lookup(name) {
+    const state = theme.states[name];
+    if (!state) throw new Error(`Unknown state: ${name}`);
+    return state;
+  }
+
+  function setCopy(name) {
+    const state = lookup(name);
+    const label = state.label || name;
+    speech.textContent = personaLines[name] || personaLines.idle;
+    statusTile.textContent = label;
+    queueState.textContent = name.toUpperCase();
+    queueText.textContent = locked ? "过渡中" : label;
+    stateButtons.forEach((button) => {
+      button.classList.toggle("is-active", button.dataset.state === base);
+    });
+  }
+
+  function show(name) {
+    const state = lookup(name);
+    const next = 1 - activeLayer;
+    layers[next].src = state.file;
+    layers[next].classList.toggle("is-dragging", name === "react-drag");
+    layers[activeLayer].classList.remove("is-active", "is-dragging");
+    layers[next].classList.add("is-active");
+    activeLayer = next;
+    current = name;
+    setCopy(name);
+  }
+
+  function clearReturnTimer() {
+    if (returnTimer) {
+      window.clearTimeout(returnTimer);
+      returnTimer = 0;
+    }
+  }
+
+  function setPetState(name, options = {}) {
+    const state = lookup(name);
+    if (locked && !options.force) return;
+
+    clearReturnTimer();
+    show(name);
+
+    if (state.type === "A") {
+      base = name === "react-drag" ? base : name;
+      setCopy(name);
+      return;
+    }
+
+    if (state.type === "B") {
+      const target = state.returnTo || base || "idle";
+      returnTimer = window.setTimeout(() => setPetState(target, { force: true }), state.durMs || 1800);
+      return;
+    }
+
+    if (state.type === "C") {
+      locked = true;
+      setCopy(name);
+      returnTimer = window.setTimeout(() => {
+        const next = name === "wake" && queuedAfterWake ? queuedAfterWake : state.to;
+        queuedAfterWake = "";
+        locked = false;
+        setPetState(next, { force: true });
+      }, state.durMs || 1500);
+    }
+  }
+
+  function goSleep() {
+    if (base === "sleeping" || current === "sleeping") return;
+    setPetState("collapse-sleep");
+    addMessage("pet", "暂时休庭。需要我醒来时，直接提交新的请求即可。");
+  }
+
+  function wake(target = "") {
+    if (target) queuedAfterWake = target;
+    if (base !== "sleeping" && current !== "sleeping") return;
+    setPetState("wake", { force: true });
+  }
+
+  function addMessage(type, text) {
+    const row = document.createElement("div");
+    row.className = `message ${type}`;
+    const bubble = document.createElement("div");
+    bubble.className = "bubble";
+    bubble.textContent = text;
+    row.appendChild(bubble);
+    messages.appendChild(row);
+    messages.scrollTop = messages.scrollHeight;
+  }
+
+  function addTool(name, status = "DONE") {
+    const card = document.createElement("div");
+    card.className = "tool-card";
+
+    const row = document.createElement("div");
+    row.className = "tool-row";
+
+    const tag = document.createElement("span");
+    tag.className = "tag";
+    tag.textContent = "TASK";
+
+    const toolName = document.createElement("span");
+    toolName.className = "tool-name";
+    toolName.textContent = name;
+
+    const toolStatus = document.createElement("span");
+    toolStatus.className = "tool-status";
+    toolStatus.textContent = status;
+
+    row.append(tag, toolName, toolStatus);
+    card.appendChild(row);
+    messages.appendChild(card);
+    messages.scrollTop = messages.scrollHeight;
+  }
+
+  function runPrompt(rawText) {
+    const text = rawText.trim();
+    if (!text) return;
+
+    addMessage("user", text);
+    if (base === "sleeping" || current === "sleeping") wake("thinking");
+    else setPetState("thinking");
+
+    window.setTimeout(() => {
+      addTool("court.review");
+      setPetState("typing");
+      window.setTimeout(() => {
+        addMessage("pet", "裁定如下：这件事可以交给我。先把目标拆清楚，再把最亮的结果端上台面。");
+        setPetState("happy");
+      }, 820);
+    }, 620);
+  }
+
+  function runScenario(name) {
+    const scenarios = {
+      trial: {
+        state: "thinking",
+        tool: "evidence.sort",
+        text: "开庭。证据、疑点、优先级依次入席，我来主持这场漂亮的审理。"
+      },
+      write: {
+        state: "typing",
+        tool: "verdict.write",
+        text: "判词写好了：语气要锋利，格式要端正，结论要像聚光灯一样清楚。"
+      },
+      notice: {
+        state: "notification",
+        tool: "notice.raise",
+        text: "传令完毕。有新任务抵达，建议立刻进入审理流程。"
+      },
+      finish: {
+        state: "happy",
+        tool: "curtain.call",
+        text: "谢幕。今日表现相当值得记录，当然，主要功劳属于本女士。"
+      }
+    };
+
+    const scenario = scenarios[name];
+    if (!scenario) return;
+    if (base === "sleeping" || current === "sleeping") wake(scenario.state);
+    else setPetState(scenario.state);
+    addTool(scenario.tool);
+    window.setTimeout(() => addMessage("pet", scenario.text), 220);
+  }
+
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest("button");
+    if (!button) return;
+
+    if (button.dataset.action === "state") {
+      const next = button.dataset.state;
+      if (base === "sleeping" || current === "sleeping") wake(next);
+      else setPetState(next);
+    }
+
+    if (button.dataset.action === "poke") setPetState("react-poke");
+    if (button.dataset.action === "sleep") goSleep();
+    if (button.dataset.scenario) runScenario(button.dataset.scenario);
+  });
+
+  petStage.addEventListener("dblclick", () => {
+    if (base === "sleeping" || current === "sleeping") wake("happy");
+    else setPetState("happy");
+  });
+
+  sendButton.addEventListener("click", () => {
+    runPrompt(chatInput.value);
+    chatInput.value = "";
+  });
+
+  chatInput.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    runPrompt(chatInput.value);
+    chatInput.value = "";
+  });
+
+  setCopy("idle");
+</script>
+</body>
+</html>

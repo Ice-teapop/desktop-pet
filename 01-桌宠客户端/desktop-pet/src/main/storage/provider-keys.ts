@@ -91,6 +91,18 @@ export function isEncryptionAvailable(): boolean {
  * 兼容老 credentials.bin（Anthropic 单 key 时代）—— 启动一次性 migration。
  * 老文件存在 → 解密 → 写入 anthropic-key.bin → 删老文件。
  * 失败时静默 keep 老文件，下次启动再试。
+ *
+ * ─── 🔔 Sunset Target: v1.0.0 ────────────────────────────────────────
+ * 引入于 v0.1.0 (2026-05-17) —— Anthropic 单 key → multi-provider 格式转换.
+ * 幂等保证: 检查 credentials.bin 存在 + 搬完即 unlink, 无重复 I/O.
+ *
+ * 已知 data-loss window (波浪 4.1-4.3 build): 文档化在函数体内注释 + CR 共识.
+ *
+ * 删除时机: v1.0.0 cut branch 时. 理由:
+ *   - 与 migrateLegacyUserData 配对清理 (见 ./migration.ts 顶注)
+ *   - 删后省 42 行 + 启动 1 步 try/decrypt
+ *   - 老 credentials.bin 在 0.5-0.9 间已全部迁完
+ * ─────────────────────────────────────────────────────────────────────
  */
 export async function migrateLegacyCredentials(): Promise<void> {
   const legacyPath = join(app.getPath('userData'), 'credentials.bin')

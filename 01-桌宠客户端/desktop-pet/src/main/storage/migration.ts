@@ -8,6 +8,17 @@
  * 一份）。两边都有时以 current 为准并删 legacy。
  *
  * Idempotent：多次启动不会重复操作。
+ *
+ * ─── 🔔 Sunset Target: v1.0.0 ────────────────────────────────────────
+ * 引入于 v0.0.1 (2026-05-15) —— productName 改名时的 userData 目录迁移.
+ * 幂等保证: 检查旧目录存在 + fs.rename 原子搬, 搬完旧目录自动消失.
+ *
+ * 删除时机: v1.0.0 cut branch 时. 理由:
+ *   - v0.4.x → v1.0.0 是 8+ 月 SemVer 大跨度, 老用户启动过 ≥1 次 → 已迁完
+ *   - 删后省 73 行 + 启动 I/O 2 步
+ *   - 新用户从 v1.0 开始装机不存在 legacy 目录
+ * 删除前确认: CHANGELOG 中 v1.0 release notes 写明 "drop pre-v0.x migration".
+ * ─────────────────────────────────────────────────────────────────────
  */
 import { app } from 'electron'
 import { promises as fs } from 'fs'

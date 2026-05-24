@@ -1,4 +1,4 @@
-appId: com.deskpet.desktop-pet
+appId: com.deskpet.furina
 # productName 单一来源在 package.json —— 这里删掉避免 drift（改 app 名时只改一处）
 directories:
   buildResources: build
@@ -16,7 +16,7 @@ extraResources:
   - from: resources/frontmost-listener
     to: frontmost-listener
 win:
-  executableName: desktop-pet
+  executableName: desktop-pet-furina
   target:
     - target: nsis
       arch:
@@ -28,7 +28,7 @@ mac:
   # LSUIElement=true → 不在 dock 显示，只在状态栏（菜单条托盘）显示 —— 桌宠应用要的就是这种
   extendInfo:
     LSUIElement: true
-    NSHumanReadableCopyright: © 2026 han · DeskPet
+    NSHumanReadableCopyright: © 2026 han · DeskPet-Furina
   # dev build 跳过 codesign（避开「resource fork detritus」+ 不需要 Apple Developer 证书）。
   # 首次启动 Gatekeeper 会拦：右键 .app → 打开 → 允许。
   # 上架前打开签名：identity 改成你的 Developer ID，notarize 设 true。

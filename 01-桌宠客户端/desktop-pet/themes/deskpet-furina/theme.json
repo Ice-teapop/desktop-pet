@@ -1,0 +1,83 @@
+{
+  "name": "furina",
+  "displayName": "芙宁娜 Furina",
+  "version": "1.0.0",
+  "author": "han",
+  "description": "Furina (《原神》水神) chibi 桌宠主题, 150×150 SMIL 自包含动画",
+  "schemaVersion": 1,
+  "meta": {
+    "anchor": "中性站姿(furina-source.png)",
+    "canvas": { "w": 300, "h": 300 },
+    "format": "svg-smil",
+    "note": "全部状态统一 150x150 画布、角色同尺度、脚底居中对齐;每个 .svg 自包含动画,可当 <img> 加载直接动。"
+  },
+
+  "states": {
+    "idle":            { "file": "svg/idle.svg",            "type": "A", "loop": "pingpong" },
+    "idle-living":     { "file": "svg/idle-living.svg",     "type": "A", "loop": "pingpong" },
+    "idle-look":       { "file": "svg/idle-look.svg",       "type": "B", "loop": "pingpong", "returnTo": "idle" },
+    "idle-yawn":       { "file": "svg/idle-yawn.svg",       "type": "B", "loop": "pingpong", "returnTo": "idle" },
+    "thinking":        { "file": "svg/thinking.svg",        "type": "A", "loop": "pingpong" },
+    "typing":          { "file": "svg/typing.svg",          "type": "A", "loop": "subloop" },
+    "building":        { "file": "svg/building.svg",        "type": "A", "loop": "subloop" },
+    "juggling":        { "file": "svg/juggling.svg",        "type": "A", "loop": "subloop" },
+    "conducting":      { "file": "svg/conducting.svg",      "type": "A", "loop": "subloop" },
+    "sweeping":        { "file": "svg/sweeping.svg",        "type": "A", "loop": "subloop" },
+    "carrying":        { "file": "svg/carrying.svg",        "type": "A", "loop": "subloop" },
+    "sleeping":        { "file": "svg/sleeping.svg",        "type": "A", "loop": "pingpong" },
+    "error":           { "file": "svg/error.svg",           "type": "A", "loop": "pingpong" },
+    "happy":           { "file": "svg/happy.svg",           "type": "B", "loop": "pingpong", "returnTo": "idle", "durMs": 2400 },
+    "notification":    { "file": "svg/notification.svg",    "type": "B", "loop": "pingpong", "returnTo": "idle", "durMs": 2500 }
+  },
+
+  "transitions": {
+    "collapse-sleep":  { "file": "svg/collapse-sleep.svg",  "type": "C", "loop": "once-freeze", "from": "idle",     "to": "sleeping", "durMs": 100 },
+    "wake":            { "file": "svg/wake.svg",            "type": "C", "loop": "once-freeze", "from": "sleeping", "to": "idle",     "durMs": 100 },
+    "mini-enter":      { "file": "svg/mini-enter.svg",      "type": "C", "loop": "once-freeze", "from": "offscreen","to": "mini-idle","durMs": 100 }
+  },
+
+  "reactions": {
+    "react-drag":      { "file": "svg/react-drag.svg",      "type": "A", "loop": "pingpong" },
+    "react-poke":      { "file": "svg/react-poke.svg",      "type": "B", "loop": "pingpong", "returnTo": "idle", "durMs": 1500 }
+  },
+
+  "mini": {
+    "idle":   { "file": "svg/mini-idle.svg",   "type": "A", "loop": "pingpong" },
+    "alert":  { "file": "svg/mini-alert.svg",  "type": "A", "loop": "pingpong" },
+    "happy":  { "file": "svg/mini-happy.svg",  "type": "A", "loop": "pingpong" },
+    "sleep":  { "file": "svg/mini-sleep.svg",  "type": "A", "loop": "pingpong" },
+    "peek":   { "file": "svg/mini-peek.svg",   "type": "B", "loop": "pingpong", "returnTo": "mini-idle" },
+    "enter":  { "file": "svg/mini-enter.svg",  "type": "C", "loop": "once-freeze", "to": "mini-idle" },
+    "_mirror_hint": "mini-peek 朝屏幕中心探看;右屏幕边框用 CSS transform:scaleX(-1) 镜像复用即可。",
+    "_scale_hint": "若要 mini 真正变小角落挂件,运行时给 mini 的元素加 transform:scale(0.5)。"
+  },
+
+  "eventMap": {
+    "_comment": "clawd-on-desk / Claude Code agent 事件 → 状态。idle 随机彩蛋在 idleEggs 里轮换。",
+    "Idle":                    "idle",
+    "UserPromptSubmit":        "thinking",
+    "PreToolUse":              "typing",
+    "PostToolUse":             "typing",
+    "PreToolUse:repeated(3+)": "building",
+    "SubagentStart:1":         "juggling",
+    "SubagentStart:2+":        "conducting",
+    "PostToolUseFailure":      "error",
+    "PermissionRequest":       "notification",
+    "PreCompact":              "sweeping",
+    "WorktreeCreate":          "carrying",
+    "Stop":                    "happy",
+    "PostCompact":             "happy",
+    "IdleTimeout:60s":         "collapse-sleep -> sleeping",
+    "WakeFromSleep":           "wake -> idle",
+    "onDrag":                  "react-drag",
+    "onPoke":                  "react-poke"
+  },
+
+  "idleEggs": ["idle-living", "idle-look", "idle-yawn"],
+
+  "_loopSemantics": {
+    "A": "循环型:进入即播,离开即停。pingpong=来回播无缝;subloop=截取核心循环帧连续重复。",
+    "B": "回归型:播一次(durMs),结束回 returnTo(通常 idle)。",
+    "C": "过渡桥:播一次定格在尾帧(once-freeze),结束后切到 to 指定的状态。"
+  }
+}

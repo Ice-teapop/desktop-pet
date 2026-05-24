@@ -36,6 +36,9 @@ export function createSettingsWindow(): BrowserWindow {
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
+      // 显式声明 Electron 安全默认（S2 grep-able）：nodeIntegration 关 + contextIsolation 开
+      nodeIntegration: false,
+      contextIsolation: true,
       devTools: is.dev
     }
   })

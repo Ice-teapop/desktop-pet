@@ -1,93 +1,81 @@
 /**
- * 桌宠状态枚举 —— 单一事实来源（main / preload / renderer 都从这里 import）。
+ * PetState 类型枚举 (v0.5.0 重构) —— 仅作 IPC 协议跟 sprite import map.
  *
- * 对照《动画引擎与状态机》第三章状态清单 + 5.1 优先级表。
- * 主进程的状态机用 priority / minMs；preload 仅用 PetState 联合类型作 IPC 协议；
- * 渲染层用 PetState 决定显示哪个 SVG。
- */
-
-/**
- * 状态配置：
- * - priority：数值越大越高，高优先级可立刻打断当前任何低优先级状态
- * - minMs：最小显示时长，受 minMs 保护期内不被同/低优先级目标打断
+ * v0.5.0 之前: hardcoded PET_STATES 枚举含 priority/minMs, 状态机 logic 写死.
+ * v0.5.0 之后: 状态机 logic 全 theme.json driven (见 src/main/state-machine.ts),
+ *   这里只剩"合法状态名" 跟 IPC type 用. priority/minMs/type/durMs 等元数据
+ *   全从 theme.json 读, 不再 hardcode.
  *
- * 设计目标对照 5.1 + 5.2：
- * - awaiting（等待确认）最高，安全关键，不能被盖
- * - error 次之，需要用户注意
- * - drag 是叠加交互态
- * - success 短暂庆祝，需保证播完（minMs 1500ms）
- * - 执行类（working/moving/organizing/building/multitask）同级，按事件最新值
- * - thinking 略高于 idle/sleep
+ * State union 包含两类:
+ *  - Furina theme.json key (v0.5.0+ canonical): 'idle', 'happy', 'collapse-sleep' ...
+ *  - 老 v0.4.x crab 时代别名 (向后兼容, 状态机内部 aliasMap 译到 canonical):
+ *    'success' → 'happy', 'sleep' → 'sleeping', 'collapsing' → 'collapse-sleep' etc.
+ *    Renderer App.tsx 老的 if-else 链还在用别名, Stage B 才统一改名.
  */
-export const PET_STATES = {
-  idle: { priority: 1, minMs: 0 },
-  // —— M9-3 多阶段 sleep chain（Officer B 校准 minMs = SVG CSS animation dur） ——
-  // idle 60s → yawning 3.8s → dozing 4s → collapsing 1s → sleep
-  // 每阶段 priority 1 跟 idle 同级 —— thinking (prio 2) 能随时打断；chain timer
-  // 用 nested setTimeout（每 phase 成功 transition 才 schedule 下一个），消除
-  // absolute timer + jitter 让阶段被 minMs gate silently 跳过 race
-  yawning: { priority: 1, minMs: 3800 },    // clawd-idle-yawn.svg dur=3.8s
-  dozing: { priority: 1, minMs: 4000 },     // clawd-idle-doze.svg dur=4s (infinite loop, 切一个完整周期)
-  collapsing: { priority: 1, minMs: 1000 }, // clawd-idle-collapse.svg dur=1s
-  sleep: { priority: 1, minMs: 0 },
-  // 惊醒动画：priority 2 让其能从 sleep chain 任意阶段抢占；minMs 0 让 thinking
-  // 能随时抢（user 在 wake 期间 chat 时不被 wake 卡住）；scheduleReturnToIdle
-  // 给 1500ms 让 wake SVG 动画播完整（clawd-wake.svg dur=1.5s）
-  // waking minMs 1500 = 跟 crab-wake.svg 1.5s animation 严格对齐, 守护期内
-  // 不被低 priority transition 抢占 (确保 stir → 撑起 → 站定 → 眨眼 全程播完)
-  waking: { priority: 2, minMs: 1500 },
-  thinking: { priority: 2, minMs: 300 },
-  drag: { priority: 3, minMs: 0 },
-  success: { priority: 4, minMs: 1500 },
-  working: { priority: 5, minMs: 400 },
-  moving: { priority: 5, minMs: 400 },
-  organizing: { priority: 5, minMs: 400 },
-  building: { priority: 5, minMs: 4800 },  // crab-hammer.svg 1.2s infinite loop × 4 完整锤击周期 (user 反馈"时间不够")
-  multitask: { priority: 5, minMs: 400 },
-  // —— M8 表演动画（AI 通过 set_pet_animation tool 主动触发） ——
-  // priority 5（同执行类）= 高于 success/thinking，让动画播完一个 GIF cycle
-  // minMs 3500 ≈ 大部分 GIF 一遍循环时长；celebrating 2000 短一点收尾用
-  juggling: { priority: 5, minMs: 3500 },
-  sweeping: { priority: 5, minMs: 3500 },
-  conducting: { priority: 5, minMs: 3500 },
-  grooving: { priority: 5, minMs: 3500 },
-  celebrating: { priority: 5, minMs: 2000 },
-  // v0.4.3+: 新加 2 个 set_pet_animation type
-  carrying: { priority: 5, minMs: 3500 }, // 搬东西 / 整理 / "我帮你拿过来"
-  ultrathink: { priority: 5, minMs: 5000 }, // 深推理 (Opus adaptive thinking) — 静态 SVG 久一点
-  // —— M9-2 瞬态点击反应 ——
-  // priority 4（同 success）= 高于 idle/sleep/thinking，低于 multitask 等执行类
-  // 不打断 AI 动画但能从 sleep / idle 拉醒；minMs 1200ms 让动画播完。
-  poked: { priority: 4, minMs: 1200 },
-  looking_around: { priority: 4, minMs: 6000 }, // crab-looking-around.svg 6s forwards 一次性, 7 phase 完整播完
-  error: { priority: 6, minMs: 1200 },
-  awaiting: { priority: 7, minMs: 0 }
-} as const
 
-export type PetState = keyof typeof PET_STATES
+/** Furina theme.json canonical state names (Stage A 引入) */
+export type FurinaCanonicalState =
+  // states (A 循环)
+  | 'idle'
+  | 'idle-living'
+  | 'idle-look'
+  | 'idle-yawn'
+  | 'thinking'
+  | 'typing'
+  | 'building'
+  | 'juggling'
+  | 'conducting'
+  | 'sweeping'
+  | 'carrying'
+  | 'sleeping'
+  | 'error'
+  // states (B 回归)
+  | 'happy'
+  | 'notification'
+  // transitions (C 过渡桥)
+  | 'collapse-sleep'
+  | 'wake'
+  | 'mini-enter'
+  // reactions
+  | 'react-drag'
+  | 'react-poke'
 
-/**
- * M8 表演动画 enum —— AI 通过 set_pet_animation tool 主动触发的子集。
- * LLM-flow state（thinking / success / error / idle / sleep）不在这个列表，
- * 由 stream + idleSleepTimer 自动驱动；这里是给 user 直观看的"动起来"。
- */
+/** 老 crab 时代别名 (向后兼容, state-machine.ts:ALIAS_MAP 解析). Stage C 已收的别名
+ *  不在此 list, callers 已改 canonical (见 state-machine.ts ALIAS_MAP 顶注).
+ *
+ *  **单一来源** — state-machine.ALIAS_MAP keys 通过 `satisfies Record<LegacyAliasState, string>`
+ *  与此 list 在 TS 编译期强绑定, 添/删别名只改这一处即可. */
+export const LEGACY_ALIAS_NAMES = [
+  'sleep', // → sleeping
+  'collapsing', // → collapse-sleep
+  'waking', // → wake
+  'drag', // → react-drag
+  'yawning', // → (deprecated, sleep chain 现在直接 collapse-sleep)
+  'dozing', // → (deprecated)
+  'working' // → typing (LLM tool 调用; cc 主题 theme.json 还在用)
+] as const
+
+export type LegacyAliasState = (typeof LEGACY_ALIAS_NAMES)[number]
+
+export type PetState = FurinaCanonicalState | LegacyAliasState
+
+/** M8 表演动画 enum —— AI 通过 set_pet_animation tool 主动触发的子集.
+ *  Stage C: grooving/celebrating/ultrathink 三个 alias 收掉; thinking 也移除 (chat:submit
+ *  会自动 setState('thinking'), LLM 在 chat 中调 set_pet_animation('thinking') 永远 block
+ *  → 重复 surface 反而让 LLM 误以为失败). 留 5 个真正 LLM 可触发的动画. */
 export type PetAnimation =
   | 'juggling'
   | 'sweeping'
   | 'conducting'
-  | 'grooving'
-  | 'celebrating'
-  | 'carrying' // 搬东西 / 帮忙整理 (v0.4.3+)
-  | 'ultrathink' // 深推理 — 静态 SVG, 适合 Opus adaptive thinking 时主动触发 (v0.4.3+)
+  | 'carrying'
+  | 'happy'
 
 export const PET_ANIMATIONS: ReadonlyArray<PetAnimation> = [
   'juggling',
   'sweeping',
   'conducting',
-  'grooving',
-  'celebrating',
   'carrying',
-  'ultrathink'
+  'happy'
 ]
 
 export function isPetAnimation(s: string): s is PetAnimation {
@@ -95,13 +83,44 @@ export function isPetAnimation(s: string): s is PetAnimation {
 }
 
 /**
- * M8: renderer 跨态 GIF cross-fade 单边时长（跟 App.tsx FADE_HALF_MS 对齐）。
- * 给 main 端 scheduleReturnToIdle 加 buffer：动画 minMs 之外多留一个 fade 时长，
- * 否则 fade-in 占用 minMs 起始 ~10% 时段，user 实际看 animation 周期略短。
+ * v0.5.0 cross-fade 单边时长 (规格 §5.3 万能顺滑剂 80-120ms).
+ * Stage A 暂用 100ms; Stage B 引入 render 层 crossfade 用此常量.
  */
-export const RENDERER_FADE_HALF_MS = 280
+export const RENDERER_FADE_HALF_MS = 100
 
-/** 类型守卫：判断字符串是否合法状态 ID（用于 IPC 入口防御性校验） */
+/**
+ * v0.5.0: 合法 state 集合 (canonical + 老别名). state-machine.ts ALIAS_MAP 把
+ * 老别名映射到 canonical 后再查 theme.json. 这里只作运行时校验入口.
+ */
+const ALL_PET_STATES = new Set<string>([
+  // canonical
+  'idle',
+  'idle-living',
+  'idle-look',
+  'idle-yawn',
+  'thinking',
+  'typing',
+  'building',
+  'juggling',
+  'conducting',
+  'sweeping',
+  'carrying',
+  'sleeping',
+  'error',
+  'happy',
+  'notification',
+  'collapse-sleep',
+  'wake',
+  'mini-enter',
+  'react-drag',
+  'react-poke',
+  // legacy aliases (cc 主题 + sleep-chain 兼容; Stage C 已收: success / looking_around /
+  // poked / awaiting / grooving / celebrating / ultrathink / multitask / moving / organizing).
+  // spread LEGACY_ALIAS_NAMES — 单一来源, 添/删别名只改顶部 const 即可
+  ...LEGACY_ALIAS_NAMES
+])
+
+/** 类型守卫: IPC 入口校验防 attack */
 export function isPetState(s: string): s is PetState {
-  return Object.prototype.hasOwnProperty.call(PET_STATES, s)
+  return ALL_PET_STATES.has(s)
 }

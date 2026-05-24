@@ -26,6 +26,8 @@ import {
   getSystemPrompt,
   renderCurrentTimeSection,
   renderUserProfileSection,
+  renderPersonaPreamble,
+  renderSkillsSection,
   memoryInjectionWrapper,
   petStateInjection
 } from './system-prompts'
@@ -136,7 +138,11 @@ export class LlmClient {
       // **当前时间**也每次 fresh 注入（用户跨多 turn 时间在变, system prompt cache 会
       // miss 但 time-awareness 比 cache hit 重要 1 个量级）.
       // ZH/EN 通过 system-prompts.ts 内部 LOCALE 分支 (build-time)。
-      let systemWithMemory = getSystemPrompt() + renderCurrentTimeSection()
+      // 宪法式 persona 前置 —— 强 persona (Furina) 时把身份钉在 SYSTEM_PROMPT 最前面,
+      // 让 LLM 在读"简洁温暖"默认风格之前先确认身份是 Furina, 优先级最高.
+      const preamble = options.userProfile ? renderPersonaPreamble(options.userProfile) : ''
+      let systemWithMemory =
+        preamble + getSystemPrompt() + renderCurrentTimeSection() + renderSkillsSection()
       if (options.userProfile) {
         systemWithMemory += renderUserProfileSection(options.userProfile)
       }

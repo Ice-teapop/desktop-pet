@@ -29,49 +29,55 @@ import type { SelectedModel } from '../../shared/provider-types'
 import type { UserProfile } from '../../shared/user-profile-types'
 import { getToolDisplay } from '../../shared/tool-display'
 import { t } from '../../shared/i18n'
-// v0.4.9 起改用 deskpet-cc 像素风 CC 螃蟹主题 (21 sprite, 完全原创, MIT)
-// idle 池：CC 螃蟹只有 idle-follow / search / typing 等几个 idle 变体, 复用占位
-import idleGif from '@themes/deskpet-cc/crab-idle-follow.svg'
-import idleReadingGif from '@themes/deskpet-cc/crab-idle-follow.svg'
-import sweepingGif from '@themes/deskpet-cc/crab-sweeping.svg'
-import jugglingGif from '@themes/deskpet-cc/crab-juggling.svg'
-import buildingGif from '@themes/deskpet-cc/crab-hammer.svg'
-import conductingGif from '@themes/deskpet-cc/crab-conducting.svg'
-import sleepingGif from '@themes/deskpet-cc/crab-sleeping.svg'
-import carryingGif from '@themes/deskpet-cc/crab-carrying.svg'
-import ultrathinkSvg from '@themes/deskpet-cc/crab-thinking.svg'
-// M9-2 click reactions
-// poked (2-3 击) → crab-jump.svg「跳一跳」(原 react-double-jump 搬运)
-// looking_around (4+ 击) → crab-looking-around.svg「东张西望」(原 react-annoyed 反应)
-// 历史坑: 这两个 import 曾错指向 crab-looking-around.svg / crab-error.svg
-//   导致双击只闪 looking、四击显示 error, 完全反了
-import reactDoubleJumpGif from '@themes/deskpet-cc/crab-jump.svg'
-import reactAnnoyedGif from '@themes/deskpet-cc/crab-looking-around.svg'
-// M9-3 sleep sequence 多阶段
-import yawningSvg from '@themes/deskpet-cc/crab-yawning.svg'
-import dozingSvg from '@themes/deskpet-cc/crab-dozing.svg'
-import collapsingSvg from '@themes/deskpet-cc/crab-collapsing.svg'
-import wakingSvg from '@themes/deskpet-cc/crab-wake.svg'
-// M9-4 eye tracking: inline SVG component
-import IdleFollowSvg from '@themes/deskpet-cc/crab-idle-follow.svg?react'
-// mini mode
-import miniIdleGif from '@themes/deskpet-cc/crab-mini-idle.svg'
-import miniEnterGif from '@themes/deskpet-cc/crab-wave.svg'
-import miniPeekGif from '@themes/deskpet-cc/crab-peek.svg'
-import miniHappyGif from '@themes/deskpet-cc/crab-happy.svg'
-import miniAlertGif from '@themes/deskpet-cc/crab-notification.svg'
-import notificationGif from '@themes/deskpet-cc/crab-notification.svg'
-// wizard 通过 svgr ?react 当 inline 组件加载 (rAF 写 #eyes-js/#body-js/#shadow-js)
-import WizardSvgComponent from '@themes/deskpet-cc/crab-working-wizard.svg?react'
-import idleLivingSvg from '@themes/deskpet-cc/crab-idle-follow.svg'
+// v0.5.0 起改用 deskpet-furina 主题 (25 SVG, SMIL 自包含动画, 150×150 canvas)
+// Furina 没有 rAF hook (#eyes-js/#body-js/#shadow-js), 那部分代码自动 no-op
+// state mapping 参照 themes/deskpet-furina/theme.json 的 eventMap + states
+import idleGif from '@themes/deskpet-furina/svg/idle.svg'
+import idleReadingGif from '@themes/deskpet-furina/svg/idle-living.svg'
+import sweepingGif from '@themes/deskpet-furina/svg/sweeping.svg'
+import jugglingGif from '@themes/deskpet-furina/svg/juggling.svg'
+// v0.5.0 final: buildingGif 暂删 — IDLE_POOL 简化后无引用. state='building' 当前
+// gifUrl 链未映射 (落到 activity/idle 兜底), 后续如需 building sprite 再加 import + 映射
+import conductingGif from '@themes/deskpet-furina/svg/conducting.svg'
+import sleepingGif from '@themes/deskpet-furina/svg/sleeping.svg'
+import carryingGif from '@themes/deskpet-furina/svg/carrying.svg'
+// 点击反应:
+// poked (2-3 击) → react-poke.svg「被戳一下小跳惊」(Furina-native)
+// looking_around (4+ 击) → idle-look.svg「东张西望」
+import reactDoubleJumpGif from '@themes/deskpet-furina/svg/react-poke.svg'
+import reactAnnoyedGif from '@themes/deskpet-furina/svg/idle-look.svg'
+// sleep sequence: yawning → dozing → collapsing → sleeping → waking
+// (Furina 没单独 dozing sprite. v0.5.0 改用 idle-yawn 复用 — 打哈欠语义比
+// idle-living "站姿东张望" 更接近"打瞌睡". 跟 yawning 同 sprite 但 chain 时序错开)
+import yawningSvg from '@themes/deskpet-furina/svg/idle-yawn.svg'
+import dozingSvg from '@themes/deskpet-furina/svg/idle-yawn.svg'
+import collapsingSvg from '@themes/deskpet-furina/svg/collapse-sleep.svg'
+import wakingSvg from '@themes/deskpet-furina/svg/wake.svg'
+// v0.5.0 final2: IdleFollowSvg 回归 — chromium <img src=svg> 路径下 SMIL 有 quirk
+// (大文件 idle.svg 2.5MB 不播或卡), inline svg 路径 SMIL 更可靠. 多分身根因已修
+// (SVG width 300 + overflow:hidden + 无 will-change), 这次 inline 不复发 ghost.
+import IdleFollowSvg from '@themes/deskpet-furina/svg/idle.svg?react'
+// mini mode (Furina 单独 mini-* 系列)
+import miniIdleGif from '@themes/deskpet-furina/svg/mini-idle.svg'
+import miniEnterGif from '@themes/deskpet-furina/svg/mini-enter.svg'
+import miniPeekGif from '@themes/deskpet-furina/svg/mini-peek.svg'
+import miniHappyGif from '@themes/deskpet-furina/svg/mini-happy.svg'
+import miniAlertGif from '@themes/deskpet-furina/svg/mini-alert.svg'
+import notificationGif from '@themes/deskpet-furina/svg/notification.svg'
+// v0.5.0 final: WizardSvgComponent 已删 — 同 IdleFollowSvg 原因 (svgr SMIL strip);
+// wizard 模式 sprite 走单 img 路径 (gifUrl → typing.svg 作 placeholder, 待 Furina
+// wizard 专属 sprite 设计)
+// v0.5.0 final: idleLivingSvg 暂删 — IDLE_POOL 简化为 [idle.svg] 后无引用
 // activity → sprite 映射
-import typingGif from '@themes/deskpet-cc/crab-typing.svg'
-import debuggerGif from '@themes/deskpet-cc/crab-search.svg'
-import headphonesGif from '@themes/deskpet-cc/crab-conducting.svg'
+import typingGif from '@themes/deskpet-furina/svg/typing.svg'
+// debugger/terminal activity: 用 typing 而非 thinking (避免 idle activity=terminal 时
+// 桌宠显示思考状态的视觉错觉; v0.5.0 bug 修复)
+import debuggerGif from '@themes/deskpet-furina/svg/typing.svg'
+import headphonesGif from '@themes/deskpet-furina/svg/conducting.svg'
 // LLM 流状态
-import thinkingGif from '@themes/deskpet-cc/crab-thinking.svg'
-import happyGif from '@themes/deskpet-cc/crab-happy.svg'
-import errorGif from '@themes/deskpet-cc/crab-error.svg'
+import thinkingGif from '@themes/deskpet-furina/svg/thinking.svg'
+import happyGif from '@themes/deskpet-furina/svg/happy.svg'
+import errorGif from '@themes/deskpet-furina/svg/error.svg'
 
 const DRAG_THRESHOLD_PX = 5
 
@@ -81,8 +87,12 @@ const DRAG_THRESHOLD_PX = 5
 //   BODY_MAX_DEG = 身体倾斜最大角度（pixel rotate >5° 锯齿明显, 降到 3°）
 //   SHADOW_MAX_STRETCH = 影子 scaleX 增量
 const SENSE_RANGE_PX = 400
-const EYE_MAX_SVG = 0.8
-const BODY_MAX_DEG = 3
+// v0.5.0 final: EYE_MAX_SVG / BODY_MAX_DEG 已删 (inner SVG group rAF mutate 整段删,
+// Furina sprite 无 inline svg 层)
+// v0.5.0 #6 outer tilt: 整身倾斜跟随光标 (Furina sprite 无 inner #body-js hook,
+// 改成在 .pet 容器层 rotate). 2° 比 BODY_MAX_DEG 3° 更收敛 —— 整身 156×156 px
+// 比 inner SVG group 30×30 viewBox 视觉放大效应大, 3° 边缘像素位移 ~8px 太夸张.
+const OUTER_TILT_MAX_DEG = 2
 // SHADOW_MAX_STRETCH 已删 — shadow 不再 cursor-driven, 改纯 body breathe + body lean shift
 
 // M9-2 click burst 时间常量：
@@ -98,26 +108,18 @@ const IDLE_VARIANT_MAX_MS = 30000
 // idle-reading GIF 是一次性表演的姿态（坐姿看书一个 loop ~ 5-7s），不该跟其他 idle 一样
 // 占 15-30s。检测到 reading 时短化 delay 让它播完一遍就切走
 const READING_LOOP_MS = 7000
-// Cross-fade 单边时长：双层 img overlap 跑同一时长，所以总切换感官 ≈ FADE_HALF_MS
-// 280ms 落在人眼 motion-fusion 阈值（~250ms），ease-in-out 让首尾更柔
-const FADE_HALF_MS = 280
-const FADE_EASING = 'cubic-bezier(0.4, 0, 0.2, 1)'
+// v0.5.0 #7: FADE_HALF_MS / FADE_EASING 已删 (dual-img cross-fade 砍掉换单 img,
+// Furina SMIL 自包含动画不需要 fade). pet-state.ts 那边 RENDERER_FADE_HALF_MS=280
+// 仍存在但 main 端 scheduleReturnToIdle 用不到 fade buffer, 后续清理.
 
 /**
  * idle 池 —— 6 个变体完全随机切，唯一规则是不重复当前正在播的那个。
  * 不强制"动作 → 静态"流程，让节奏不可预测；扫地→杂耍这种姿态硬跳由
  * fade-out / fade-in 的透明度过渡掩盖（FADE_HALF_MS × 2 = 320ms）。
  */
-const IDLE_POOL: ReadonlyArray<string> = [
-  idleGif,
-  idleReadingGif,
-  sweepingGif,
-  jugglingGif,
-  buildingGif,
-  conductingGif,
-  // v0.4.5+ Batch 3: 加 living 静态变体 — pickNextIdle 自动适配 length 变化, 不动逻辑
-  idleLivingSvg
-]
+// v0.5.0 final: IDLE_POOL 简化为只 idle.svg (user 要求待机用 idle.svg, 不要 6 变体
+// 轮换). idle.svg 是 6s pingpong 自包含 SMIL, 一直播待机动画无需调度.
+const IDLE_POOL: ReadonlyArray<string> = [idleGif]
 
 function pickNextIdle(currentIdx: number): number {
   // 池只剩 0/1 个时无可切，保持当前不动（防御性：future 改主题包后崩）
@@ -128,8 +130,8 @@ function pickNextIdle(currentIdx: number): number {
   return next
 }
 
-// LLM 流相关 GIF —— 用于 fade 路径区分（这些状态切换 bypass fade 立即生效）
-const LLM_FLOW_GIFS = new Set<string>([thinkingGif, happyGif, errorGif])
+// v0.5.0 #7: LLM_FLOW_GIFS 已删 — dual-img cross-fade 砍掉换单 img 后, 所有状态切换
+// 都是单 src 直绑无 fade, 没有 bypass 区分需求.
 
 // activity → GIF：识别到不同活动时桌宠"陪你做同样的事"
 const ACTIVITY_GIF: Readonly<Record<Exclude<ActivityState, 'idle'>, string>> = {
@@ -140,11 +142,11 @@ const ACTIVITY_GIF: Readonly<Record<Exclude<ActivityState, 'idle'>, string>> = {
 }
 
 const GREETING_TEXT =
-  '嗨，第一次见面 🦀 我是 Claw。要跟我聊天得先有把 API key —— 任意 provider 都行 (Anthropic / OpenAI / Google / xAI / DeepSeek / 字节豆包)，把 key 粘到下面发给我，我会自动识别 + 本地加密保存。'
+  '初次见面——本座芙宁娜，枫丹的水神 🌊 要与本座对谈，请先献上一把 API key（任意 provider 皆可：Anthropic / OpenAI / Google / xAI / DeepSeek / 字节豆包），将 key 粘贴至下方发予本座，本座会自动识别并于本地加密保存。'
 
 // 中性文案 —— 不暗示「已加密存好」，因为 Linux 无 keyring 时存盘会失败但内存仍可用，
 // 后续 'key-not-persisted' 错误气泡会单独说明「下次启动会丢」，两条不互相打脸
-const KEY_STORED_TEXT = '钥匙记下了，咱们可以聊了 🦀'
+const KEY_STORED_TEXT = '钥匙已收，本座准备就绪 🌊'
 
 const KEY_RESET_PROMPT = '🔑 钥匙没了或被拒了 —— 再贴一个 API key 给我？'
 
@@ -258,20 +260,16 @@ function App(): React.JSX.Element {
   const notifyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // idle 6 变体池索引（仅 stateMachine=idle + activity=idle 时玩）
   const [idleVariantIdx, setIdleVariantIdx] = useState(0)
-  // 双层 <img> cross-fade：两个 absolute 叠加，frontIdx 指当前显示的那层
-  // 切换时把新 url 塞 back 层（opacity 0），等 onLoad（新 GIF 解码完）→ swap frontIdx
-  // → CSS opacity transition 让 back 0→1 + front 1→0 同时 ramp，永远不出现透明窗口
-  const [frontIdx, setFrontIdx] = useState<0 | 1>(0)
-  const [urls, setUrls] = useState<[string, string]>([IDLE_POOL[0], IDLE_POOL[0]])
+  // v0.5.0 #7: 双层 cross-fade 已砍 (Furina SMIL 12fps 不需要 fade), 单 img 直绑
+  // gifUrl. urls/frontIdx/pendingBackRef/handleImgLoad/cross-fade useEffect 全删.
   // —— M4-C 高风险 tool 待审批的请求队列 ——
   // 队列化（v0.4 后续 fix）: 原来是单 state 'last-wins' 覆盖, 多个并发 IPC 来
   // 只显示最后一个, 其它 N-1 个在 main 端 60s timeout 后被 auto-deny → 用户
   // 看到「批量删除失败 N-1 次」的假象。改成 queue 后, head 显示, response 后 shift。
   const [approvalQueue, setApprovalQueue] = useState<ApprovalRequest[]>([])
   const pendingApproval = approvalQueue[0] ?? null
-  // v0.4.0 改动 1: vision/tavily UI 全部迁移到 Settings, 这里不再持 state.
-  // 记录"想切到的 url" —— 防止 back img 在我们没期待时（如初始 mount）fire onLoad 误触发 swap
-  const pendingBackRef = useRef<string | null>(null)
+  // v0.4.0 改动 1: vision/tavily UI 全部迁移到 Settings.
+  // (v0.5.0: pendingBackRef 跟 cross-fade 一起删了)
   const msgIdRef = useRef(1)
   const prevKeyStateRef = useRef<KeyState | null>(null)
   const petRef = useRef<HTMLDivElement | null>(null)
@@ -313,9 +311,8 @@ function App(): React.JSX.Element {
    * 平滑过渡，不需手动 lerp）。
    */
   const cursorRef = useRef<{ dx: number; dy: number }>({ dx: 0, dy: 0 })
-  const idleFollowSvgRef = useRef<SVGSVGElement>(null)
-  // v0.4.5+ Batch 3 后续: wizard SVG ref 给 rAF mutator 同一接口 (#eyes-js/body-js/shadow-js)
-  const wizardSvgRef = useRef<SVGSVGElement>(null)
+  // v0.5.0 final: idleFollowSvgRef / wizardSvgRef 已删 (IdleFollowSvg /
+  // WizardSvgComponent 整个移除, refs 无目标)
 
   const isConvMounted = chatPhase === 'open' || chatPhase === 'closing'
   // 等 AI 回复：ready 状态下最后一条是 user 才显示 typing
@@ -598,16 +595,8 @@ function App(): React.JSX.Element {
     petMode === 'full' &&
     state !== 'error' &&
     (wizardOnboardingActive || manualWizardMode)
-  // wizard mount counter: 每次 showWizardOverlay 上升沿 +1, 让 <WizardSvgComponent>
-  // key 变化 → React remount → hat-drop 入场 animation 重新播 (否则只在初次加载时播一次)
-  const [wizardMountKey, setWizardMountKey] = useState(0)
-  const prevWizardVisibleRef = useRef(false)
-  useEffect(() => {
-    if (showWizardOverlay && !prevWizardVisibleRef.current) {
-      setWizardMountKey((k) => k + 1)
-    }
-    prevWizardVisibleRef.current = showWizardOverlay
-  }, [showWizardOverlay])
+  // v0.5.0 final: wizardMountKey 已删 — WizardSvgComponent 整个移除,
+  // 没有 key 重挂需求
   // rising edge → 1.6s cast intro (conducting.gif "施法挥棒"); falling edge → 清.
   useEffect(() => {
     if (!showWizardOverlay) {
@@ -646,75 +635,33 @@ function App(): React.JSX.Element {
    * CSS 已 transition: transform 0.2s ease-out 让 30Hz 输入平滑，不需手动 lerp.
    */
   useEffect(() => {
-    const idleSvg = idleFollowSvgRef.current
-    const wizardSvgEl = wizardSvgRef.current
-    if (!idleSvg && !wizardSvgEl) return
-    // 一次 mount querySelector 拿 6 个 group ref (idle + wizard), rAF 直接读 closure
-    // v0.4.5+ Batch 3 后续: wizard SVG 也有 #eyes-js / #body-js / #shadow-js
-    // (sed 加的 wrappers), 同一 rAF loop 复用同一份 cursor 计算, 按可见 SVG 写入
-    const idleEyes = idleSvg?.querySelector<SVGGElement>('#eyes-js') ?? null
-    const idleBody = idleSvg?.querySelector<SVGGElement>('#body-js') ?? null
-    const idleShadow = idleSvg?.querySelector<SVGGElement>('#shadow-js') ?? null
-    // v0.4.5+ wizard 也走 3-group rAF (eyes / body / shadow) — 用户要求身子+帽子
-    // 跟随倾斜, 影子长度实时变化. SVG 内部 .body-hunch / .shadow-walk 已改成
-    // 静态 transform (非 keyframe), inline style.transform 会覆盖, 不冲突.
-    // .eyes-wizard CSS drift 仍需杀掉 (跟 rAF eye 跟随冲突).
-    const wizEyes = wizardSvgEl?.querySelector<SVGGElement>('#eyes-js') ?? null
-    const wizBody = wizardSvgEl?.querySelector<SVGGElement>('#body-js') ?? null
-    const wizShadow = wizardSvgEl?.querySelector<SVGGElement>('#shadow-js') ?? null
-    if (wizardSvgEl) {
-      wizardSvgEl
-        .querySelectorAll<SVGElement>('.eyes-wizard')
-        .forEach((el) => (el.style.animation = 'none'))
-    }
+    // v0.5.0 final: 老 crab 的 inner SVG group mutate 已删. 现在只保留 outer tilt.
+    // v0.5.0 idle 卡顿修:
+    //  - 30Hz 节流 (rAF 默认 60Hz, 倾斜根本不需要 60Hz, 浪费 main thread + 跟 SMIL 抢)
+    //  - dirty check (光标没动就不写 transform, 省 layout/composite)
     let raf = 0
-    const tick = (): void => {
-      // 共享 gate: pure idle (state=idle + activity=idle) + full mode 时才 mutate.
-      // wizard / idle 哪个可见走哪边 — 由 showWizardOverlay && !wizardCastPlaying
-      // 区分 (cast 期 dual-img 跑 conducting.gif, wizard SVG 还没显示, 不要 mutate).
-      const pureIdle = petMode === 'full' && state === 'idle' && activity === 'idle'
-      if (!pureIdle) {
+    let lastTransform = ''
+    let lastTickAt = 0
+    const TILT_FPS_MS = 1000 / 30
+    const tick = (now: number): void => {
+      if (now - lastTickAt < TILT_FPS_MS) {
         raf = requestAnimationFrame(tick)
         return
       }
-      const { dx, dy } = cursorRef.current
+      lastTickAt = now
+      const { dx } = cursorRef.current
       const normX = Math.max(-1, Math.min(1, dx / SENSE_RANGE_PX))
-      const normY = Math.max(-1, Math.min(1, dy / SENSE_RANGE_PX))
-      const eyesTfm = `translate(${normX * EYE_MAX_SVG}px, ${normY * EYE_MAX_SVG}px)`
-      const bodyTfm = `rotate(${normX * BODY_MAX_DEG}deg)`
-      // shadow: 仅跟 body 本体空间站位变化, 不跟 cursor 远近
-      // · breathe sin 3.2s (跟 body .breathe-anim 同周期同相): body 压扁时影子变宽
-      // · body lean 间接驱动: body rotate normX*BODY_MAX_DEG 时, 影子横向 translate
-      //   微跟随 (不是直接 cursor, 是 body 几何中心横移的反射)
-      // · 历史教训: SVG <style> 里写 #shadow-js {animation: ...} 跟 inline
-      //   style.transform 同 property 抢占, animation 永远赢 — shadow breathe
-      //   必须在这里 inline 计算, 不能用 CSS keyframe.
-      const SCALE_COMP = 1 / 0.7 // ≈ 1.43, 抵消 outer .pet-scale-wrap scale(0.7)
-      const breathePhase = (performance.now() % 3200) / 3200 // 0..1
-      // body breathe 50% 时 scaleY 0.98 (压扁 + 下沉), 影子相应变宽 (反相)
-      const breatheStretch = 0.08 * Math.sin(breathePhase * Math.PI * 2) // ±8%
-      // body 倾斜带动 shadow 横向跟随 (是 body 位置的反射, 不是 cursor 距离)
-      const bodyLeanShift = (normX * BODY_MAX_DEG * 0.15) * SCALE_COMP
-      const shadowTfm = `scaleX(${1 + breatheStretch}) translateX(${bodyLeanShift}px)`
-      // wizard 身子叠加 2deg 基础前倾 (SVG .body-hunch 静态位姿) + 光标 tilt
-      const wizBodyTfm = `translate(0, 1px) rotate(${2 + normX * BODY_MAX_DEG}deg)`
-      const wizardVisible = showWizardOverlay && !wizardCastPlaying
-      if (wizardVisible) {
-        if (wizEyes) wizEyes.style.transform = eyesTfm
-        if (wizBody) wizBody.style.transform = wizBodyTfm
-        if (wizShadow) wizShadow.style.transform = shadowTfm
-      } else {
-        // 普通 idle (非 wizard 模式) → 写 IdleFollow 的 3 个 group
-        if (idleEyes) idleEyes.style.transform = eyesTfm
-        if (idleBody) idleBody.style.transform = bodyTfm
-        if (idleShadow) idleShadow.style.transform = shadowTfm
+      const tfm =
+        petMode === 'full' ? `rotate(${(normX * OUTER_TILT_MAX_DEG).toFixed(2)}deg)` : ''
+      if (tfm !== lastTransform && petRef.current) {
+        petRef.current.style.transform = tfm
+        lastTransform = tfm
       }
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-    // deps: gate inline 用最新 state/activity/petMode, wizard 切换重启 rAF
-  }, [state, activity, petMode, showWizardOverlay, wizardCastPlaying])
+  }, [petMode])
 
   // v0.4.0 改动 1: vision/tavily state 订阅 已迁移到 Settings 窗口
 
@@ -1200,21 +1147,15 @@ function App(): React.JSX.Element {
     gifUrl = sweepingGif
   } else if (state === 'conducting') {
     gifUrl = conductingGif
-  } else if (state === 'grooving') {
-    gifUrl = headphonesGif
-  } else if (state === 'celebrating') {
-    gifUrl = happyGif
   } else if (state === 'carrying') {
     gifUrl = carryingGif
-  } else if (state === 'ultrathink') {
-    gifUrl = ultrathinkSvg
-  } else if (state === 'poked') {
+  } else if (state === 'react-poke') {
     gifUrl = reactDoubleJumpGif
-  } else if (state === 'looking_around') {
+  } else if (state === 'idle-look') {
     gifUrl = reactAnnoyedGif
   } else if (state === 'thinking') {
     gifUrl = thinkingGif
-  } else if (state === 'success') {
+  } else if (state === 'happy') {
     gifUrl = happyGif
   } else if (state === 'yawning') {
     gifUrl = yawningSvg
@@ -1271,45 +1212,8 @@ function App(): React.JSX.Element {
     })
   }, [])
 
-  // GIF 切换调度：计算 gifUrl 跟 front 比较，不同就触发 cross-fade。
-  // LLM 流状态（thinking/happy/error）bypass fade 立即换 front url，保响应感。
-  // 普通切换：把新 url 塞 back 层 → onLoad 触发 swap frontIdx → CSS opacity ramp 自动跑。
-  /* eslint-disable react-hooks/set-state-in-effect */
-  useEffect(() => {
-    const front = urls[frontIdx]
-    if (gifUrl === front) return
-    if (LLM_FLOW_GIFS.has(gifUrl)) {
-      pendingBackRef.current = null
-      setUrls((cur) => {
-        const next = [...cur] as [string, string]
-        next[frontIdx] = gifUrl
-        return next
-      })
-      return
-    }
-    const backIdx = (1 - frontIdx) as 0 | 1
-    if (urls[backIdx] === gifUrl) return // 已经塞过 back，等 onLoad
-    pendingBackRef.current = gifUrl
-    setUrls((cur) => {
-      const next = [...cur] as [string, string]
-      next[backIdx] = gifUrl
-      return next
-    })
-  }, [gifUrl, frontIdx, urls])
-  /* eslint-enable react-hooks/set-state-in-effect */
-
-  /**
-   * back layer 的 onLoad 处理：只在「这次切换是我们刚请求的」时 swap frontIdx。
-   * - idx === frontIdx 时是 front 层 onLoad 不触发
-   * - urls[idx] !== pendingBackRef 时是别的 url 残留 onLoad（如 mount 初始），不触发
-   * - requestAnimationFrame 让 swap 跟 paint cycle 对齐，避免 setSrc → opacity 同帧 race
-   */
-  const handleImgLoad = (idx: 0 | 1) => (): void => {
-    if (idx === frontIdx) return
-    if (urls[idx] !== pendingBackRef.current) return
-    pendingBackRef.current = null
-    requestAnimationFrame(() => setFrontIdx(idx))
-  }
+  // v0.5.0 #7: 单 img + src 直绑 gifUrl, 浏览器自然按 src 切. cross-fade useEffect /
+  // handleImgLoad / urls 状态机全删. LLM_FLOW_GIFS 区分也不必要 (无 fade 就无 bypass 需求).
   // v0.4.0 改动 1: vision + tavily modal 已全部移到 Settings 窗口管理.
   // chat 顶部只剩 1 颗模型 pill, 不再保留 helpers / labels / handlers.
 
@@ -1404,6 +1308,21 @@ function App(): React.JSX.Element {
           className={chatPhase === 'closing' ? 'conversation closing' : 'conversation'}
           onAnimationEnd={handleConvAnimEnd}
         >
+          {/* Royal Salon: 背景 ice-bubble 装饰浮泡 (pointer-events: none, 不挡交互) */}
+          <div className="bubble-field" aria-hidden="true">
+            <span style={{ '--size': '12px', '--x': '8%', '--y': '8%', '--alpha': 0.45, '--speed': '4.5s', '--delay': '-0.2s' } as React.CSSProperties} />
+            <span style={{ '--size': '8px', '--x': '34%', '--y': '11%', '--alpha': 0.38, '--speed': '5.2s', '--delay': '-1s' } as React.CSSProperties} />
+            <span style={{ '--size': '18px', '--x': '70%', '--y': '6%', '--alpha': 0.32, '--speed': '5.8s', '--delay': '-2.2s' } as React.CSSProperties} />
+            <span style={{ '--size': '10px', '--x': '88%', '--y': '20%', '--alpha': 0.42, '--speed': '4.2s', '--delay': '-0.7s' } as React.CSSProperties} />
+            <span style={{ '--size': '22px', '--x': '15%', '--y': '32%', '--alpha': 0.22, '--speed': '6.6s', '--delay': '-2.8s' } as React.CSSProperties} />
+            <span style={{ '--size': '9px', '--x': '54%', '--y': '36%', '--alpha': 0.5, '--speed': '4.8s', '--delay': '-1.6s' } as React.CSSProperties} />
+            <span style={{ '--size': '14px', '--x': '78%', '--y': '46%', '--alpha': 0.36, '--speed': '5.1s', '--delay': '-3.1s' } as React.CSSProperties} />
+            <span style={{ '--size': '7px', '--x': '24%', '--y': '54%', '--alpha': 0.46, '--speed': '4.4s', '--delay': '-2.4s' } as React.CSSProperties} />
+            <span style={{ '--size': '20px', '--x': '60%', '--y': '64%', '--alpha': 0.26, '--speed': '6.1s', '--delay': '-0.9s' } as React.CSSProperties} />
+            <span style={{ '--size': '11px', '--x': '12%', '--y': '76%', '--alpha': 0.44, '--speed': '5s', '--delay': '-1.9s' } as React.CSSProperties} />
+            <span style={{ '--size': '8px', '--x': '46%', '--y': '82%', '--alpha': 0.5, '--speed': '4.2s', '--delay': '-3.2s' } as React.CSSProperties} />
+            <span style={{ '--size': '16px', '--x': '82%', '--y': '88%', '--alpha': 0.34, '--speed': '5.7s', '--delay': '-1.4s' } as React.CSSProperties} />
+          </div>
           <div ref={messagesRef} className="messages">
             {messages.length === 0 ? (
               <div className="hint">
@@ -1679,6 +1598,12 @@ function App(): React.JSX.Element {
           </div>
         </div>
       )}
+      {/* v0.5.0 #5 外置阴影 (Furina sprite 无内置阴影). 兄弟节点不在 .pet 内部
+          → outer tilt rotate() 不会带飞阴影, 静止椭圆模拟地面投影. */}
+      <div
+        className={petMode === 'mini' ? 'pet-shadow pet-shadow-mini' : 'pet-shadow'}
+        aria-hidden="true"
+      />
       <div
         ref={petRef}
         className={petMode === 'mini' ? 'pet pet-mini' : 'pet'}
@@ -1744,7 +1669,7 @@ function App(): React.JSX.Element {
                   ? miniAlertGif
                   : notifyPop
                     ? miniAlertGif // Batch 2: 通知期 mini 复用 alert.gif (无 96×96 GIF 空间)
-                    : state === 'success'
+                    : state === 'happy'
                       ? miniHappyGif
                       : miniPeeking
                         ? miniPeekGif
@@ -1755,95 +1680,24 @@ function App(): React.JSX.Element {
             style={{ opacity: 1 }}
           />
         )}
-        {/* M9-4 IdleFollow inline SVG layer —— state=idle && activity=idle 时显示，
-            内部 `#eyes-js`/`#body-js`/`#shadow-js` group 由 rAF loop 直接 mutate
-            transform 实现 eye tracking + body lean + shadow stretch。
-            其他状态时 opacity 0，让下面 dual-img 接管。 */}
-        <IdleFollowSvg
-          ref={idleFollowSvgRef}
-          style={{
-            // wizard 模式让位 (整身切 WizardSvgComponent 或 cast GIF)
-            opacity:
-              petMode === 'full' &&
-              state === 'idle' &&
-              activity === 'idle' &&
-              !showWizardOverlay
-                ? 1
-                : 0,
-            transition: `opacity ${FADE_HALF_MS}ms ${FADE_EASING}`
-          }}
-        />
-        {/* v0.4.5+ Batch 3 后续: wizard idle SVG inline (svgr ?react), 同 #eyes-js
-            等 group rAF mutate. 仅 showWizardOverlay && cast 已完 && pure idle 显示.
-            cast 期 (wizardCastPlaying) 让位 dual-img 跑 conducting.gif; AI 真响应
-            (state !== idle) 让位 dual-img 跑 thinking/success/error. */}
-        <WizardSvgComponent
-          key={wizardMountKey}
-          ref={wizardSvgRef}
-          style={{
-            // v0.4.5+ 修: wizard 是 user 主动 mode (toggle 或 onboarding), 应该 activity
-            // 不 idle 时也显示 — 用户在 VS Code 工作中切到巫师, 期望立刻看到巫师.
-            // 只 gate state==='idle' (让 AI 真响应时让位 thinking/success/error GIF).
-            opacity:
-              petMode === 'full' &&
-              showWizardOverlay &&
-              !wizardCastPlaying &&
-              state === 'idle'
-                ? 1
-                : 0,
-            transition: `opacity ${FADE_HALF_MS}ms ${FADE_EASING}`,
-            position: 'absolute',
-            inset: 0,
-            pointerEvents: 'none',
-            zIndex: 2 // 压过 dual-img 层 (z-auto), belt-and-suspenders
-          }}
-        />
-        {/* 双层 cross-fade：两个 absolute 叠加，opacity 互补 ramp。
-            会同时跑 0→1 和 1→0，旧 GIF 在 fade-out 期间继续 paint 旧帧（不会突然透明）。
-            onLoad 驱动 swap：新 GIF decode 完才 ramp，消除 Chromium <img src> 重置的 1-2 帧透明窗口。
-            两层都常驻 mount，避免 unmount/remount 抖动；通过 frontIdx 切角色。
-            M9-4: idle-follow 模式时整组 img 强制 opacity 0 让 SVG layer 占主导。 */}
+        {/* v0.5.0 final2: idle 单独走 inline svg ?react 路径 (chromium <img src=svg>
+            对大 SMIL 文件如 idle.svg 2.5MB 不稳, inline svg 一定播). 非 idle 状态
+            继续走单 img + gifUrl. 条件 mount, 永不并存 → 无多分身. */}
+        {petMode === 'full' &&
+          state === 'idle' &&
+          activity === 'idle' &&
+          !showWizardOverlay && <IdleFollowSvg />}
         <img
-          src={urls[0]}
+          src={gifUrl}
           alt=""
           draggable={false}
-          onLoad={handleImgLoad(0)}
-          style={{
-            // pure idle 时 dual-img 让位给 SVG 层 (IdleFollow / WizardSvg);
-            // wizard cast 期 (wizardCastPlaying=true) 例外 — dual-img 跑 conducting.gif
-            // 让"施法"挥棒姿态可见, 之后切到 WizardSvgComponent inline SVG.
-            opacity:
-              petMode === 'mini'
-                ? 0
-                : state === 'idle' &&
-                    (showWizardOverlay
-                      ? !wizardCastPlaying // wizard idle → WizardSvg 接管, dual-img 隐
-                      : activity === 'idle') // pure idle → IdleFollow 接管, dual-img 隐
-                  ? 0
-                  : frontIdx === 0
-                    ? 1
-                    : 0,
-            transition: `opacity ${FADE_HALF_MS}ms ${FADE_EASING}`
-          }}
-        />
-        <img
-          src={urls[1]}
-          alt=""
-          draggable={false}
-          onLoad={handleImgLoad(1)}
           style={{
             opacity:
               petMode === 'mini'
                 ? 0
-                : state === 'idle' &&
-                    (showWizardOverlay
-                      ? !wizardCastPlaying // wizard idle → WizardSvg 接管, dual-img 隐
-                      : activity === 'idle') // pure idle → IdleFollow 接管, dual-img 隐
-                  ? 0
-                  : frontIdx === 1
-                    ? 1
-                    : 0,
-            transition: `opacity ${FADE_HALF_MS}ms ${FADE_EASING}`
+                : state === 'idle' && activity === 'idle' && !showWizardOverlay
+                  ? 0 // idle 时让位给 IdleFollow inline svg
+                  : 1
           }}
         />
       </div>
