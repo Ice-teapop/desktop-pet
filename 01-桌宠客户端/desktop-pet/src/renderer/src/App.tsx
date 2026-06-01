@@ -3,18 +3,16 @@
  *
  * 渲染层职责：
  *  - 订阅 main 三类状态推送：pet:state (LLM 流) / pet:activity (前台 App) / key:state
- *  - GIF 选择优先级：state(LLM 流) > activity(前台 App) > idle 池（6 个变体随机切）
- *  - 闲态 8–15s 随机切 GIF 不重复 current，硬切由 fade-in/out 过渡掩盖（仅 idle/activity
- *    层级；LLM 流状态切换 bypass fade 立即 swap 避免响应延迟感）
+ *  - GIF 选择优先级：state(LLM 流) > activity(前台 App) > idle
+ *  - 闲态使用 Furina idle.svg；状态切换为单 img src 直绑，无 dual-img cross-fade
  *  - keyState='missing' 时输入框分流 key 提交 + 错误 hint 去重防累积
  *  - 流式消息 sticky-bottom-scrollback：用户主动滚上去看历史时不被 chunk 拉回底
  *
  * cr 健壮性补丁：
  *  - setState updater 内不放 IPC 副作用（React 18 StrictMode dev 会 double-invoke）
- *  - fade 透明度跟 LLM 流响应感解耦（thinking/success/error bypass fade）
  *  - NOT_KEY_HINT 末尾去重避免连续错误输入刷屏
  *  - hits-rect 检测严格用 chatPhase==='open'（不含 fade-out 中的 'closing'）
- *  - FADE_HALF_MS 单一来源 inline transition style（不跟 main.css 那行重复维护）
+ *  - 单 img 渲染路径避免透明窗口 stale layer 残影
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { PetState } from '../../shared/pet-state'
@@ -30,29 +28,28 @@ import type { UserProfile } from '../../shared/user-profile-types'
 import { getToolDisplay } from '../../shared/tool-display'
 import { t } from '../../shared/i18n'
 // v0.5.0 起改用 deskpet-furina 主题 (25 SVG, SMIL 自包含动画, 150×150 canvas)
-// Furina 没有 rAF hook (#eyes-js/#body-js/#shadow-js), 那部分代码自动 no-op
-// state mapping 参照 themes/deskpet-furina/theme.json 的 eventMap + states
+// Furina 没有 crab 时代内部 SVG hook，renderer 只在容器层做轻量 tilt/shadow。
+// state mapping 参照 themes/deskpet-furina/theme.json 的 eventMap + states。
 import idleGif from '@themes/deskpet-furina/svg/idle.svg'
 import idleReadingGif from '@themes/deskpet-furina/svg/idle-living.svg'
 import sweepingGif from '@themes/deskpet-furina/svg/sweeping.svg'
 import jugglingGif from '@themes/deskpet-furina/svg/juggling.svg'
-// v0.5.0 final: buildingGif 暂删 — IDLE_POOL 简化后无引用. state='building' 当前
-// gifUrl 链未映射 (落到 activity/idle 兜底), 后续如需 building sprite 再加 import + 映射
+import buildingGif from '@themes/deskpet-furina/svg/building.svg'
 import conductingGif from '@themes/deskpet-furina/svg/conducting.svg'
 import sleepingGif from '@themes/deskpet-furina/svg/sleeping.svg'
 import carryingGif from '@themes/deskpet-furina/svg/carrying.svg'
 // 点击反应:
 // poked (2-3 击) → react-poke.svg「被戳一下小跳惊」(Furina-native)
 // looking_around (4+ 击) → idle-look.svg「东张西望」
-import reactDoubleJumpGif from '@themes/deskpet-furina/svg/react-poke.svg'
-import reactAnnoyedGif from '@themes/deskpet-furina/svg/idle-look.svg'
+import reactPokeGif from '@themes/deskpet-furina/svg/react-poke.svg'
+import reactDragGif from '@themes/deskpet-furina/svg/react-drag.svg'
+import idleLookGif from '@themes/deskpet-furina/svg/idle-look.svg'
 // sleep sequence: yawning → dozing → collapsing → sleeping → waking
 // (Furina 没单独 dozing sprite. v0.5.0 改用 idle-yawn 复用 — 打哈欠语义比
 // idle-living "站姿东张望" 更接近"打瞌睡". 跟 yawning 同 sprite 但 chain 时序错开)
-import yawningSvg from '@themes/deskpet-furina/svg/idle-yawn.svg'
-import dozingSvg from '@themes/deskpet-furina/svg/idle-yawn.svg'
-import collapsingSvg from '@themes/deskpet-furina/svg/collapse-sleep.svg'
-import wakingSvg from '@themes/deskpet-furina/svg/wake.svg'
+import idleYawnGif from '@themes/deskpet-furina/svg/idle-yawn.svg'
+import collapseSleepGif from '@themes/deskpet-furina/svg/collapse-sleep.svg'
+import wakeGif from '@themes/deskpet-furina/svg/wake.svg'
 // v0.5.0 final2: IdleFollowSvg 回归 — chromium <img src=svg> 路径下 SMIL 有 quirk
 // (大文件 idle.svg 2.5MB 不播或卡), inline svg 路径 SMIL 更可靠. 多分身根因已修
 // (SVG width 300 + overflow:hidden + 无 will-change), 这次 inline 不复发 ghost.
@@ -81,19 +78,12 @@ import errorGif from '@themes/deskpet-furina/svg/error.svg'
 
 const DRAG_THRESHOLD_PX = 5
 
-// v0.4.9 eye tracking 参数 (deskpet-cc viewBox 0 0 30 30 重校):
-//   SENSE_RANGE_PX = cursor 超过这个距离 pet 中心 → eye/body 进入饱和（最大偏移）
-//   EYE_MAX_SVG = eye group transform 最大偏移（svg units, pixel 风建议 0.3-0.5）
-//   BODY_MAX_DEG = 身体倾斜最大角度（pixel rotate >5° 锯齿明显, 降到 3°）
-//   SHADOW_MAX_STRETCH = 影子 scaleX 增量
+// M9-4 cursor follow 参数:
+//   SENSE_RANGE_PX = cursor 超过这个距离 pet 中心 → 容器 tilt / shadow 偏移进入饱和
 const SENSE_RANGE_PX = 400
-// v0.5.0 final: EYE_MAX_SVG / BODY_MAX_DEG 已删 (inner SVG group rAF mutate 整段删,
-// Furina sprite 无 inline svg 层)
 // v0.5.0 #6 outer tilt: 整身倾斜跟随光标 (Furina sprite 无 inner #body-js hook,
-// 改成在 .pet 容器层 rotate). 2° 比 BODY_MAX_DEG 3° 更收敛 —— 整身 156×156 px
-// 比 inner SVG group 30×30 viewBox 视觉放大效应大, 3° 边缘像素位移 ~8px 太夸张.
+// 改成在 .pet 容器层 rotate). 2° 比旧 crab 内部 body 旋转更收敛。
 const OUTER_TILT_MAX_DEG = 2
-// SHADOW_MAX_STRETCH 已删 — shadow 不再 cursor-driven, 改纯 body breathe + body lean shift
 
 // M9-2 click burst 时间常量：
 //   POKE_DETECT_MS = 单击 burst window；250ms 内没新 click → fire burst action
@@ -108,15 +98,6 @@ const IDLE_VARIANT_MAX_MS = 30000
 // idle-reading GIF 是一次性表演的姿态（坐姿看书一个 loop ~ 5-7s），不该跟其他 idle 一样
 // 占 15-30s。检测到 reading 时短化 delay 让它播完一遍就切走
 const READING_LOOP_MS = 7000
-// v0.5.0 #7: FADE_HALF_MS / FADE_EASING 已删 (dual-img cross-fade 砍掉换单 img,
-// Furina SMIL 自包含动画不需要 fade). pet-state.ts 那边 RENDERER_FADE_HALF_MS=280
-// 仍存在但 main 端 scheduleReturnToIdle 用不到 fade buffer, 后续清理.
-
-/**
- * idle 池 —— 6 个变体完全随机切，唯一规则是不重复当前正在播的那个。
- * 不强制"动作 → 静态"流程，让节奏不可预测；扫地→杂耍这种姿态硬跳由
- * fade-out / fade-in 的透明度过渡掩盖（FADE_HALF_MS × 2 = 320ms）。
- */
 // v0.5.0 final: IDLE_POOL 简化为只 idle.svg (user 要求待机用 idle.svg, 不要 6 变体
 // 轮换). idle.svg 是 6s pingpong 自包含 SMIL, 一直播待机动画无需调度.
 const IDLE_POOL: ReadonlyArray<string> = [idleGif]
@@ -139,6 +120,34 @@ const ACTIVITY_GIF: Readonly<Record<Exclude<ActivityState, 'idle'>, string>> = {
   writing: typingGif, // 写文档 → 同上（都是码字）
   chatting: headphonesGif, // 沟通 → 戴耳机摇头
   terminal: debuggerGif // 终端 → debugger 形象
+}
+
+const STATE_GIF: Readonly<Partial<Record<PetState, string>>> = {
+  error: errorGif,
+  thinking: thinkingGif,
+  happy: happyGif,
+  notification: notificationGif,
+  typing: typingGif,
+  working: typingGif,
+  building: buildingGif,
+  juggling: jugglingGif,
+  sweeping: sweepingGif,
+  conducting: conductingGif,
+  carrying: carryingGif,
+  'react-poke': reactPokeGif,
+  'react-drag': reactDragGif,
+  drag: reactDragGif,
+  'idle-living': idleReadingGif,
+  'idle-look': idleLookGif,
+  'idle-yawn': idleYawnGif,
+  yawning: idleYawnGif,
+  dozing: idleYawnGif,
+  sleeping: sleepingGif,
+  sleep: sleepingGif,
+  'collapse-sleep': collapseSleepGif,
+  collapsing: collapseSleepGif,
+  wake: wakeGif,
+  waking: wakeGif
 }
 
 const GREETING_TEXT =
@@ -197,6 +206,8 @@ function chatErrorText(err: ChatError): string {
         t('err.empty_response_reason_2'),
         t('err.empty_response_reason_3')
       ].join('\n')
+    case 'tool-loop-limit':
+      return t('err.tool_loop_limit', String(err.maxSteps))
     case 'api':
       return t('err.api', err.message)
     default:
@@ -205,7 +216,6 @@ function chatErrorText(err: ChatError): string {
 }
 
 type ChatPhase = 'closed' | 'opening' | 'open' | 'closing'
-
 
 function App(): React.JSX.Element {
   const [state, setState] = useState<PetState>('idle')
@@ -250,7 +260,7 @@ function App(): React.JSX.Element {
   // 两条独立触发路径 (OR 关系). 不持久化, 重启 = false.
   const [manualWizardMode, setManualWizardMode] = useState(false)
   // v0.4.5+ Batch 3 后续: wizard 入场 cast 动画 (~1.6s conducting.gif "施法挥棒"),
-  // 之后切到 wizard idle SVG (带眼跟随). showWizardOverlay rising edge → true,
+  // 之后回到普通 state/activity 渲染链. showWizardOverlay rising edge → true,
   // 1.6s 后 timer 清回 false. toggle off → 立刻清 (无 exit 动画).
   const [wizardCastPlaying, setWizardCastPlaying] = useState(false)
   const wizardCastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -273,6 +283,7 @@ function App(): React.JSX.Element {
   const msgIdRef = useRef(1)
   const prevKeyStateRef = useRef<KeyState | null>(null)
   const petRef = useRef<HTMLDivElement | null>(null)
+  const shadowRef = useRef<HTMLDivElement | null>(null)
   const convRef = useRef<HTMLDivElement | null>(null)
   const messagesRef = useRef<HTMLDivElement | null>(null)
   // chatPhase 当前值的 ref —— window 'mouseup' native listener 闭包内拿最新 phase 用，
@@ -294,8 +305,8 @@ function App(): React.JSX.Element {
   /**
    * M9-2 click reactions: 累计 burst click 数决定单击 / 双击 / 4 连击 action。
    * - 单击 (count=1 + 250ms idle) → toggle chat
-   * - 2-3 连击 → poke 反应 (react-double-jump)
-   * - 4+ 连击 (within 1.5s) → 立即 startled 反应 (react-annoyed)
+   * - 2-3 连击 → react-poke
+   * - 4+ 连击 (within 1.5s) → idle-look
    * 250ms delay 单击 toggle chat 是 trade-off：必须等是否有第 2 击决定意图。
    */
   const clickRef = useRef<{
@@ -305,10 +316,8 @@ function App(): React.JSX.Element {
   } | null>(null)
 
   /**
-   * M9-4 eye tracking: main 端 30Hz 推 cursor dx/dy 进 ref（**不**触发 React
-   * re-render）。rAF loop 读 ref → 直接 mutate IdleFollow SVG 内部 group 的
-   * style.transform（CSS 已 transition: transform 0.2s ease-out 让 30Hz 输入
-   * 平滑过渡，不需手动 lerp）。
+   * M9-4 cursor follow: main 端 30Hz 推 cursor dx/dy 进 ref（**不**触发 React
+   * re-render）。rAF loop 读 ref → 直接 mutate .pet 容器 tilt 和外置 shadow。
    */
   const cursorRef = useRef<{ dx: number; dy: number }>({ dx: 0, dy: 0 })
   // v0.5.0 final: idleFollowSvgRef / wizardSvgRef 已删 (IdleFollowSvg /
@@ -332,6 +341,7 @@ function App(): React.JSX.Element {
 
   useEffect(() => {
     const off = window.api.onActivityState((a) => setActivity(a))
+    window.api.requestActivityState()
     return off
   }, [])
 
@@ -367,7 +377,7 @@ function App(): React.JSX.Element {
 
   // M9-5a: 订阅 petMode + 启动 race 防御 (pull request-state)
   // 进 mini 时主进程已 stopCursorPoll → 进 full 前 cursorRef 是 stale；这里 reset
-  // 到 (0,0)，避免切回 full 第一帧用过期 dx/dy 把 eyes/body/shadow 转到错的方向
+  // 到 (0,0)，避免切回 full 第一帧用过期 dx/dy 把 idle 倾斜/阴影转到错的方向
   // （CSS transition 会平滑追上，但视觉上会"先看错再回来"）。
   useEffect(() => {
     const off = window.api.onPetMode((m) => {
@@ -382,13 +392,17 @@ function App(): React.JSX.Element {
   // 之后 settle 到 mini-idle. 防止 full → mini 硬切感. 出 mini 不需要过渡 (full
   // 是默认渲染层, 直接显示).
   useEffect(() => {
+    const enterTid = setTimeout(() => {
+      setMiniEntering(petMode === 'mini')
+    }, 0)
     if (petMode !== 'mini') {
-      setMiniEntering(false)
-      return
+      return () => clearTimeout(enterTid)
     }
-    setMiniEntering(true)
-    const tid = setTimeout(() => setMiniEntering(false), 1600)
-    return () => clearTimeout(tid)
+    const settleTid = setTimeout(() => setMiniEntering(false), 1600)
+    return () => {
+      clearTimeout(enterTid)
+      clearTimeout(settleTid)
+    }
   }, [petMode])
 
   // v0.4.5+ Batch 1: 订阅 main 的 mini-peek 边沿 push, 切 GIF 让桌宠探头看 user.
@@ -552,7 +566,7 @@ function App(): React.JSX.Element {
   // 不切 variant (避免 chat 框旁边 pet 突然东张西望 / 看报纸 等动作)
   useEffect(() => {
     if (state !== 'idle' || activity !== 'idle') return
-    if (chatPhase !== 'closed') return  // chat 打开期间锁定 idle sprite, 不切 variant
+    if (chatPhase !== 'closed') return // chat 打开期间锁定 idle sprite, 不切 variant
     const schedule = (): NodeJS.Timeout => {
       const isReading = IDLE_POOL[idleVariantIdx] === idleReadingGif
       const delay = isReading
@@ -570,7 +584,7 @@ function App(): React.JSX.Element {
   // 主进程 did-finish-load 推 key:state 时若这个 useEffect 还没 subscribe 会丢
   useEffect(() => {
     const off = window.api.onKeyState((s) => setKeyState(s))
-    // M9-4 eye tracking: 订阅 main 端 30Hz cursor push → 写 ref，不触发 React re-render
+    // M9-4 cursor follow: 订阅 main 端 30Hz cursor push → 写 ref，不触发 React re-render
     const offCursor = window.api.onPetCursor((cursor) => {
       cursorRef.current = cursor
     })
@@ -588,32 +602,32 @@ function App(): React.JSX.Element {
   //  (b) 手动 toggle: 托盘 🧙 巫师模式
   // 共同 gate: full mode + 非 error.
   const wizardOnboardingActive =
-    chatPhase === 'open' &&
-    keyState === 'ready' &&
-    userProfile?.setupCompleted === false
+    chatPhase === 'open' && keyState === 'ready' && userProfile?.setupCompleted === false
   const showWizardOverlay =
-    petMode === 'full' &&
-    state !== 'error' &&
-    (wizardOnboardingActive || manualWizardMode)
+    petMode === 'full' && state !== 'error' && (wizardOnboardingActive || manualWizardMode)
+  const showIdleCursorFollow =
+    petMode === 'full' && state === 'idle' && activity === 'idle' && !showWizardOverlay
   // v0.5.0 final: wizardMountKey 已删 — WizardSvgComponent 整个移除,
   // 没有 key 重挂需求
   // rising edge → 1.6s cast intro (conducting.gif "施法挥棒"); falling edge → 清.
   useEffect(() => {
+    const castTid = setTimeout(() => {
+      setWizardCastPlaying(showWizardOverlay)
+    }, 0)
     if (!showWizardOverlay) {
       if (wizardCastTimerRef.current) {
         clearTimeout(wizardCastTimerRef.current)
         wizardCastTimerRef.current = null
       }
-      setWizardCastPlaying(false)
-      return
+      return () => clearTimeout(castTid)
     }
-    setWizardCastPlaying(true)
     if (wizardCastTimerRef.current) clearTimeout(wizardCastTimerRef.current)
     wizardCastTimerRef.current = setTimeout(() => {
       setWizardCastPlaying(false)
       wizardCastTimerRef.current = null
     }, 1600)
     return () => {
+      clearTimeout(castTid)
       if (wizardCastTimerRef.current) {
         clearTimeout(wizardCastTimerRef.current)
         wizardCastTimerRef.current = null
@@ -621,47 +635,55 @@ function App(): React.JSX.Element {
     }
   }, [showWizardOverlay])
 
-  /**
-   * M9-4 eye tracking rAF loop：每帧从 cursorRef 读取最新 cursor 位置 → mutate
-   * IdleFollow SVG 内部 `#eyes-js` / `#body-js` / `#shadow-js` group 的
-   * style.transform。**不**触发 React render（直接 DOM mutation）。
-   *
-   * Officer B fixes:
-   *   - querySelector cache：mount 一次性 query 3 group + 存闭包变量，rAF 直接读
-   *     （之前每帧 ×3 = 180 q/sec，svgr forwardRef 让 svg mount 后 group 引用稳定）
-   *   - SVG opacity 0 (非 idle) 时 skip transform mutation（CSS 已 transition,
-   *     残留 transform 值无视觉影响；省 frame 写）
-   *
-   * CSS 已 transition: transform 0.2s ease-out 让 30Hz 输入平滑，不需手动 lerp.
-   */
+  /** M9-4 cursor follow：30Hz 读 cursorRef，直接 mutate pet / shadow。 */
   useEffect(() => {
-    // v0.5.0 final: 老 crab 的 inner SVG group mutate 已删. 现在只保留 outer tilt.
+    // v0.5.0 final: 老 crab 的 inner SVG group mutate 已删；Furina idle 是 sprite sheet,
+    // 阴影用 CSS vars 做光标方向计算；角色本体只使用原始 idle.svg。
     // v0.5.0 idle 卡顿修:
     //  - 30Hz 节流 (rAF 默认 60Hz, 倾斜根本不需要 60Hz, 浪费 main thread + 跟 SMIL 抢)
     //  - dirty check (光标没动就不写 transform, 省 layout/composite)
     let raf = 0
     let lastTransform = ''
+    let lastShadowVars = ''
     let lastTickAt = 0
     const TILT_FPS_MS = 1000 / 30
+    const clampUnit = (value: number): number => Math.max(-1, Math.min(1, value))
     const tick = (now: number): void => {
       if (now - lastTickAt < TILT_FPS_MS) {
         raf = requestAnimationFrame(tick)
         return
       }
       lastTickAt = now
-      const { dx } = cursorRef.current
-      const normX = Math.max(-1, Math.min(1, dx / SENSE_RANGE_PX))
-      const tfm =
-        petMode === 'full' ? `rotate(${(normX * OUTER_TILT_MAX_DEG).toFixed(2)}deg)` : ''
+      const { dx, dy } = cursorRef.current
+      const normX = showIdleCursorFollow ? clampUnit(dx / SENSE_RANGE_PX) : 0
+      const normY = showIdleCursorFollow ? clampUnit(dy / SENSE_RANGE_PX) : 0
+      const cursorDistance = Math.min(1, Math.hypot(normX, normY))
+      const tfm = petMode === 'full' ? `rotate(${(normX * OUTER_TILT_MAX_DEG).toFixed(2)}deg)` : ''
       if (tfm !== lastTransform && petRef.current) {
         petRef.current.style.transform = tfm
         lastTransform = tfm
+      }
+      const shadowVars = [
+        (-normX * 9).toFixed(1),
+        (-normY * 2.5).toFixed(1),
+        (1 + cursorDistance * 0.16).toFixed(3),
+        (0.78 - Math.max(0, -normY) * 0.08 + Math.max(0, normY) * 0.05).toFixed(3),
+        (1.5 + cursorDistance * 1.2).toFixed(2)
+      ].join('|')
+      if (shadowVars !== lastShadowVars && shadowRef.current) {
+        const [x, y, scaleX, opacity, blur] = shadowVars.split('|')
+        shadowRef.current.style.setProperty('--pet-shadow-x', `${x}px`)
+        shadowRef.current.style.setProperty('--pet-shadow-y', `${y}px`)
+        shadowRef.current.style.setProperty('--pet-shadow-scale-x', scaleX)
+        shadowRef.current.style.setProperty('--pet-shadow-opacity', opacity)
+        shadowRef.current.style.setProperty('--pet-shadow-blur', `${blur}px`)
+        lastShadowVars = shadowVars
       }
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [petMode])
+  }, [petMode, showIdleCursorFollow])
 
   // v0.4.0 改动 1: vision/tavily state 订阅 已迁移到 Settings 窗口
 
@@ -670,9 +692,7 @@ function App(): React.JSX.Element {
   // 防 race: 即使 main 端有并发 IPC (batch tool 引入后理论上少了, 但 read_file/
   // write_file 等其它 tool 仍可能 concurrent), 也不会丢请求。
   useEffect(() => {
-    const off = window.api.onApprovalRequest((req) =>
-      setApprovalQueue((q) => [...q, req])
-    )
+    const off = window.api.onApprovalRequest((req) => setApprovalQueue((q) => [...q, req]))
     return off
   }, [])
 
@@ -699,8 +719,7 @@ function App(): React.JSX.Element {
       setMessages(() => {
         if (event.reason === 'provider-switch' && event.toProvider) {
           const providerLabel =
-            PROVIDERS[event.toProvider as keyof typeof PROVIDERS]?.label ??
-            event.toProvider
+            PROVIDERS[event.toProvider as keyof typeof PROVIDERS]?.label ?? event.toProvider
           return [
             {
               id: msgIdRef.current++,
@@ -829,7 +848,12 @@ function App(): React.JSX.Element {
         )
         return [
           ...swept,
-          { id: msgIdRef.current++, role: 'ai' as const, text: chatErrorText(err), status: 'error' as const }
+          {
+            id: msgIdRef.current++,
+            role: 'ai' as const,
+            text: chatErrorText(err),
+            status: 'error' as const
+          }
         ]
       })
     })
@@ -1061,14 +1085,15 @@ function App(): React.JSX.Element {
     if (keyState === 'missing') {
       const detect = detectProvider(text)
       if (detect.kind === 'detected' || detect.kind === 'ambiguous') {
-        const provider =
-          detect.kind === 'detected' ? detect.provider : detect.defaultPick
+        const provider = detect.kind === 'detected' ? detect.provider : detect.defaultPick
         const providerLabel = PROVIDERS[provider].label
         const ambiguousNote =
           detect.kind === 'ambiguous'
             ? `（sk- 前缀在 ${detect.candidates
                 .map((p) => PROVIDERS[p].label)
-                .join(' / ')} 都用，默认按 ${providerLabel} 试；如果是另一个去设置 ⌘+, 改 provider）`
+                .join(
+                  ' / '
+                )} 都用，默认按 ${providerLabel} 试；如果是另一个去设置 ⌘+, 改 provider）`
             : ''
         setMessages((prev) => [
           ...prev,
@@ -1139,38 +1164,13 @@ function App(): React.JSX.Element {
   // useEffect 前面 (line ~590), 避免 TDZ. 这里直接用.
 
   let gifUrl: string
-  if (state === 'error') {
-    gifUrl = errorGif
-  } else if (state === 'juggling') {
-    gifUrl = jugglingGif
-  } else if (state === 'sweeping') {
-    gifUrl = sweepingGif
-  } else if (state === 'conducting') {
-    gifUrl = conductingGif
-  } else if (state === 'carrying') {
-    gifUrl = carryingGif
-  } else if (state === 'react-poke') {
-    gifUrl = reactDoubleJumpGif
-  } else if (state === 'idle-look') {
-    gifUrl = reactAnnoyedGif
-  } else if (state === 'thinking') {
-    gifUrl = thinkingGif
-  } else if (state === 'happy') {
-    gifUrl = happyGif
-  } else if (state === 'yawning') {
-    gifUrl = yawningSvg
-  } else if (state === 'dozing') {
-    gifUrl = dozingSvg
-  } else if (state === 'collapsing') {
-    gifUrl = collapsingSvg
-  } else if (state === 'waking') {
-    gifUrl = wakingSvg
-  } else if (state === 'sleep') {
-    gifUrl = sleepingGif
+  const stateGif = STATE_GIF[state]
+  if (stateGif) {
+    gifUrl = stateGif
   } else if (showWizardOverlay && wizardCastPlaying) {
     // v0.4.5+ Batch 3 后续: wizard 入场 cast 动画 — 复用 conducting.gif 当 "施法
     // 挥棒" 入场 ~1.6s, 之后 wizardCastPlaying=false → 下面 WizardSvgComponent
-    // 层 (带 rAF 眼跟随) 接管. 期间 dual-img 是可见的 (gifUrl 走 conductingGif).
+    // 期间 gifUrl 走 conductingGif，入场后回到普通 state/activity 渲染链。
     gifUrl = conductingGif
   } else if (activity !== 'idle') {
     gifUrl = ACTIVITY_GIF[activity]
@@ -1179,21 +1179,16 @@ function App(): React.JSX.Element {
   }
 
   // 启动时预加载所有 GIF —— 让后续 onLoad 几乎同步触发（cache 命中），避免第一次切换
-  // 时还要等 ~50ms 网络/磁盘解码。M8 加 sleepingGif（PetState 'sleep'）
+  // 时还要等 ~50ms 网络/磁盘解码。
   useEffect(() => {
     const all = [
       ...IDLE_POOL,
       ...Object.values(ACTIVITY_GIF),
+      ...Object.values(STATE_GIF),
       thinkingGif,
       happyGif,
       errorGif,
       sleepingGif,
-      reactDoubleJumpGif,
-      reactAnnoyedGif,
-      yawningSvg,
-      dozingSvg,
-      collapsingSvg,
-      wakingSvg,
       // v0.4.5+ Batch 1: mini-mode 反应 GIF 预热, 防第一次切到 mini-peek/happy/alert
       // 时 1-frame 透明闪 (Chromium 第一次 decode GIF 有 ~50ms 延迟)
       miniPeekGif,
@@ -1218,9 +1213,7 @@ function App(): React.JSX.Element {
   // chat 顶部只剩 1 颗模型 pill, 不再保留 helpers / labels / handlers.
 
   // v0.4.0 [A] anyToolRunning — pet 容器 .pet-busy-ring 接 running tool state
-  const anyToolRunning = messages.some(
-    (m) => m.tool && m.tool.status === 'running'
-  )
+  const anyToolRunning = messages.some((m) => m.tool && m.tool.status === 'running')
 
   // keyState 还没就位时禁用：避免「user msg / no-api-key 错误 / 迎宾」三连闪
   // 等 AI 回复时禁用：避免连点 submit 让旧 stream 被 token 屏蔽但仍在烧 Anthropic token
@@ -1310,18 +1303,150 @@ function App(): React.JSX.Element {
         >
           {/* Royal Salon: 背景 ice-bubble 装饰浮泡 (pointer-events: none, 不挡交互) */}
           <div className="bubble-field" aria-hidden="true">
-            <span style={{ '--size': '12px', '--x': '8%', '--y': '8%', '--alpha': 0.45, '--speed': '4.5s', '--delay': '-0.2s' } as React.CSSProperties} />
-            <span style={{ '--size': '8px', '--x': '34%', '--y': '11%', '--alpha': 0.38, '--speed': '5.2s', '--delay': '-1s' } as React.CSSProperties} />
-            <span style={{ '--size': '18px', '--x': '70%', '--y': '6%', '--alpha': 0.32, '--speed': '5.8s', '--delay': '-2.2s' } as React.CSSProperties} />
-            <span style={{ '--size': '10px', '--x': '88%', '--y': '20%', '--alpha': 0.42, '--speed': '4.2s', '--delay': '-0.7s' } as React.CSSProperties} />
-            <span style={{ '--size': '22px', '--x': '15%', '--y': '32%', '--alpha': 0.22, '--speed': '6.6s', '--delay': '-2.8s' } as React.CSSProperties} />
-            <span style={{ '--size': '9px', '--x': '54%', '--y': '36%', '--alpha': 0.5, '--speed': '4.8s', '--delay': '-1.6s' } as React.CSSProperties} />
-            <span style={{ '--size': '14px', '--x': '78%', '--y': '46%', '--alpha': 0.36, '--speed': '5.1s', '--delay': '-3.1s' } as React.CSSProperties} />
-            <span style={{ '--size': '7px', '--x': '24%', '--y': '54%', '--alpha': 0.46, '--speed': '4.4s', '--delay': '-2.4s' } as React.CSSProperties} />
-            <span style={{ '--size': '20px', '--x': '60%', '--y': '64%', '--alpha': 0.26, '--speed': '6.1s', '--delay': '-0.9s' } as React.CSSProperties} />
-            <span style={{ '--size': '11px', '--x': '12%', '--y': '76%', '--alpha': 0.44, '--speed': '5s', '--delay': '-1.9s' } as React.CSSProperties} />
-            <span style={{ '--size': '8px', '--x': '46%', '--y': '82%', '--alpha': 0.5, '--speed': '4.2s', '--delay': '-3.2s' } as React.CSSProperties} />
-            <span style={{ '--size': '16px', '--x': '82%', '--y': '88%', '--alpha': 0.34, '--speed': '5.7s', '--delay': '-1.4s' } as React.CSSProperties} />
+            <span
+              style={
+                {
+                  '--size': '12px',
+                  '--x': '8%',
+                  '--y': '8%',
+                  '--alpha': 0.45,
+                  '--speed': '4.5s',
+                  '--delay': '-0.2s'
+                } as React.CSSProperties
+              }
+            />
+            <span
+              style={
+                {
+                  '--size': '8px',
+                  '--x': '34%',
+                  '--y': '11%',
+                  '--alpha': 0.38,
+                  '--speed': '5.2s',
+                  '--delay': '-1s'
+                } as React.CSSProperties
+              }
+            />
+            <span
+              style={
+                {
+                  '--size': '18px',
+                  '--x': '70%',
+                  '--y': '6%',
+                  '--alpha': 0.32,
+                  '--speed': '5.8s',
+                  '--delay': '-2.2s'
+                } as React.CSSProperties
+              }
+            />
+            <span
+              style={
+                {
+                  '--size': '10px',
+                  '--x': '88%',
+                  '--y': '20%',
+                  '--alpha': 0.42,
+                  '--speed': '4.2s',
+                  '--delay': '-0.7s'
+                } as React.CSSProperties
+              }
+            />
+            <span
+              style={
+                {
+                  '--size': '22px',
+                  '--x': '15%',
+                  '--y': '32%',
+                  '--alpha': 0.22,
+                  '--speed': '6.6s',
+                  '--delay': '-2.8s'
+                } as React.CSSProperties
+              }
+            />
+            <span
+              style={
+                {
+                  '--size': '9px',
+                  '--x': '54%',
+                  '--y': '36%',
+                  '--alpha': 0.5,
+                  '--speed': '4.8s',
+                  '--delay': '-1.6s'
+                } as React.CSSProperties
+              }
+            />
+            <span
+              style={
+                {
+                  '--size': '14px',
+                  '--x': '78%',
+                  '--y': '46%',
+                  '--alpha': 0.36,
+                  '--speed': '5.1s',
+                  '--delay': '-3.1s'
+                } as React.CSSProperties
+              }
+            />
+            <span
+              style={
+                {
+                  '--size': '7px',
+                  '--x': '24%',
+                  '--y': '54%',
+                  '--alpha': 0.46,
+                  '--speed': '4.4s',
+                  '--delay': '-2.4s'
+                } as React.CSSProperties
+              }
+            />
+            <span
+              style={
+                {
+                  '--size': '20px',
+                  '--x': '60%',
+                  '--y': '64%',
+                  '--alpha': 0.26,
+                  '--speed': '6.1s',
+                  '--delay': '-0.9s'
+                } as React.CSSProperties
+              }
+            />
+            <span
+              style={
+                {
+                  '--size': '11px',
+                  '--x': '12%',
+                  '--y': '76%',
+                  '--alpha': 0.44,
+                  '--speed': '5s',
+                  '--delay': '-1.9s'
+                } as React.CSSProperties
+              }
+            />
+            <span
+              style={
+                {
+                  '--size': '8px',
+                  '--x': '46%',
+                  '--y': '82%',
+                  '--alpha': 0.5,
+                  '--speed': '4.2s',
+                  '--delay': '-3.2s'
+                } as React.CSSProperties
+              }
+            />
+            <span
+              style={
+                {
+                  '--size': '16px',
+                  '--x': '82%',
+                  '--y': '88%',
+                  '--alpha': 0.34,
+                  '--speed': '5.7s',
+                  '--delay': '-1.4s'
+                } as React.CSSProperties
+              }
+            />
           </div>
           <div ref={messagesRef} className="messages">
             {messages.length === 0 ? (
@@ -1343,11 +1468,12 @@ function App(): React.JSX.Element {
                         <span className="msg-tool-icon">{display.icon}</span>
                         <span className="msg-tool-name">{display.label}</span>
                         <span className="msg-tool-sep">·</span>
-                        <span
-                          className="msg-tool-status"
-                          data-state={m.tool.status}
-                        >
-                          {isError ? t('tool.status.error') : isDone ? t('tool.status.done') : t('tool.status.running')}
+                        <span className="msg-tool-status" data-state={m.tool.status}>
+                          {isError
+                            ? t('tool.status.error')
+                            : isDone
+                              ? t('tool.status.done')
+                              : t('tool.status.running')}
                           {isDone && <span className="msg-tool-check">✓</span>}
                           {!isDone && !isError && (
                             <span className="msg-tool-loading">
@@ -1449,14 +1575,8 @@ function App(): React.JSX.Element {
       {/* v0.4.0 改动 1: vision modal + tavily modal 已删 — 全部迁移到 Settings 窗口 */}
       {/* v0.4.0 改动 4: 模型切换 modal — 用户要"放在额外弹出的方框里", 不是 inline dropdown */}
       {modelDropdownOpen && (
-        <div
-          className="vision-modal-overlay"
-          onClick={() => setModelDropdownOpen(false)}
-        >
-          <div
-            className="vision-modal model-modal"
-            onClick={(e) => e.stopPropagation()}
-          >
+        <div className="vision-modal-overlay" onClick={() => setModelDropdownOpen(false)}>
+          <div className="vision-modal model-modal" onClick={(e) => e.stopPropagation()}>
             <div className="vision-modal-title">切换模型</div>
             <div className="vision-modal-body model-modal-body">
               {PROVIDER_ORDER.filter((p) => modelsByProvider[p]?.length).map((p) => (
@@ -1545,14 +1665,10 @@ function App(): React.JSX.Element {
               {pendingApproval.contentPreview && (
                 <p className="approval-detail">
                   <b>{t('approval.label_content_preview')}</b>
-                  <code className="approval-content-preview">
-                    {pendingApproval.contentPreview}
-                  </code>
+                  <code className="approval-content-preview">{pendingApproval.contentPreview}</code>
                 </p>
               )}
-              <p className="approval-hint">
-                {t('approval.hint_auto_deny', pendingApproval.tool)}
-              </p>
+              <p className="approval-hint">{t('approval.hint_auto_deny', pendingApproval.tool)}</p>
             </div>
             <div className="approval-actions">
               <button
@@ -1601,6 +1717,7 @@ function App(): React.JSX.Element {
       {/* v0.5.0 #5 外置阴影 (Furina sprite 无内置阴影). 兄弟节点不在 .pet 内部
           → outer tilt rotate() 不会带飞阴影, 静止椭圆模拟地面投影. */}
       <div
+        ref={shadowRef}
         className={petMode === 'mini' ? 'pet-shadow pet-shadow-mini' : 'pet-shadow'}
         aria-hidden="true"
       />
@@ -1648,7 +1765,7 @@ function App(): React.JSX.Element {
         )}
         {/* v0.4.5+ Batch 3 (修): wizard SVG 改成 body-swap (不是 overlay) —
             wizard 是完整巫师姿势, 当 overlay 会跟 pet body GIF 重叠. 现在直接进
-            gifUrl 优先级链 (sleep < wizard < activity), 不在这渲染. */}
+            gifUrl 优先级链, 不在这渲染. */}
         {/* v0.4.0 S6.2 [D] pet-drop overlay — 用户拖文件到 pet 时弹大字提示
             "松手喂我". 实际文件处理 S6.3-S6.5 后续接入. */}
         {dragOver && (
@@ -1659,7 +1776,7 @@ function App(): React.JSX.Element {
         )}
         {/* M9-5a Mini mode：单 img 渲染. v0.4.3+: 进 mini 头 1.6s 播 enter.gif 当过渡,
             之后 settle 到 mini-idle. Sub-wave B 加 hover peek / mini state→gif 映射.
-            Mini 模式下完全独立于下方 IdleFollow + dual-img 体系. */}
+            Mini 模式下完全独立于下方 IdleFollow + 单 img 体系. */}
         {petMode === 'mini' && (
           <img
             src={
@@ -1683,10 +1800,7 @@ function App(): React.JSX.Element {
         {/* v0.5.0 final2: idle 单独走 inline svg ?react 路径 (chromium <img src=svg>
             对大 SMIL 文件如 idle.svg 2.5MB 不稳, inline svg 一定播). 非 idle 状态
             继续走单 img + gifUrl. 条件 mount, 永不并存 → 无多分身. */}
-        {petMode === 'full' &&
-          state === 'idle' &&
-          activity === 'idle' &&
-          !showWizardOverlay && <IdleFollowSvg />}
+        {showIdleCursorFollow && <IdleFollowSvg />}
         <img
           src={gifUrl}
           alt=""
@@ -1695,7 +1809,7 @@ function App(): React.JSX.Element {
             opacity:
               petMode === 'mini'
                 ? 0
-                : state === 'idle' && activity === 'idle' && !showWizardOverlay
+                : showIdleCursorFollow
                   ? 0 // idle 时让位给 IdleFollow inline svg
                   : 1
           }}

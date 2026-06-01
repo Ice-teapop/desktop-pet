@@ -35,6 +35,9 @@ export type ChatError =
   //   (c) max_tokens=0 / 模型 silent 拒
   // 给用户一个具体的 hint, 别让 SDK 默认错误吞掉
   | { kind: 'empty-response'; finishReason: string }
+  // 连续 tool loop 达到本地上限仍未产出最终文字；显式停住，避免用户看到一串
+  // 已完成 tool 卡但不知道为什么没有总结。
+  | { kind: 'tool-loop-limit'; maxSteps: number }
 
 export interface ChatUsage {
   inputTokens: number

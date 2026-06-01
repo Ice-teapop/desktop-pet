@@ -14,7 +14,7 @@
  * 安全设计：
  *  - 持久 trust 写盘前要求用户在 modal 显式点了"永久信任"
  *  - 信任目录路径用 normalize/resolve 后绝对路径 + 末尾 '/'，防 prefix-match bypass
- *    （"/Users/han/Docs" 不应匹配 "/Users/han/DocsBackup"）
+ *    （"/Users/alice/Docs" 不应匹配 "/Users/alice/DocsBackup"）
  *  - main 退出时 sessionTrustedDirs 丢弃 → 防 modal 疲劳
  */
 import { BrowserWindow, ipcMain, app } from 'electron'
@@ -76,9 +76,7 @@ async function savePersistentTrustedDirs(): Promise<void> {
  * 这是 M4-C-4 后放宽的默认信任范围，user 不需要点 modal 即可访问/修改。
  * 黑名单仍由调用方先用 isPathSafe 检查（这里假设调用方已过了 isPathSafe）。
  */
-export function checkTrusted(
-  absPath: string
-): 'default' | 'session' | 'persistent' | null {
+export function checkTrusted(absPath: string): 'default' | 'session' | 'persistent' | null {
   const normalized = normalize(resolve(absPath))
   // 持久 + 会话信任优先（用户显式信任过的精确目录）
   for (const dir of persistentTrustedDirs) {
@@ -147,9 +145,7 @@ const APPROVAL_QUEUE_STUCK_MS = 5 * 60_000
  * 请求用户审批。如果 petWindow 不可用（启动时序异常），直接 deny。
  * Promise 永远 resolve（不会 reject），由 decision 区分 allow/deny。
  */
-export async function requestApproval(
-  req: Omit<ApprovalRequest, 'id'>
-): Promise<ApprovalDecision> {
+export async function requestApproval(req: Omit<ApprovalRequest, 'id'>): Promise<ApprovalDecision> {
   if (!petWindowRef || petWindowRef.isDestroyed()) {
     console.warn('[approval] no pet window, auto-deny')
     return 'deny'

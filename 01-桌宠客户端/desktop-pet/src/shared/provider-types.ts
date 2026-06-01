@@ -10,13 +10,7 @@
  * 条目；providers.ts registry 加 createXxx 分支即可。
  */
 
-export type Provider =
-  | 'anthropic'
-  | 'openai'
-  | 'google'
-  | 'xai'
-  | 'deepseek'
-  | 'bytedance'
+export type Provider = 'anthropic' | 'openai' | 'google' | 'xai' | 'deepseek' | 'bytedance'
 
 export interface ProviderInfo {
   id: Provider

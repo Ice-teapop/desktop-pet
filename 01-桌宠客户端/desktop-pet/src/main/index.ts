@@ -47,7 +47,7 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import type { PetAnimation } from '../shared/pet-state'
 // v0.5.0: 老 PetStateMachine class 抽走到 ./state-machine.ts (theme.json driven).
-// RENDERER_FADE_HALF_MS / PetState 老 import 已删 (Stage A 不再 schedule fade buffer).
+// Renderer 已改为单 img src 切换，不再需要 main 端 fade buffer 调度。
 import { PetStateMachine } from './state-machine'
 import {
   DEFAULT_PET_MODE,
@@ -118,10 +118,7 @@ import { ActiveAppMonitor } from './services/active-app'
 import { createSettingsWindow } from './services/settings-window'
 import { processDroppedFiles } from './services/dropped-files'
 import { checkForUpdate } from './services/update-check'
-import {
-  getAllAvailableModels,
-  getCachedAvailableModels
-} from './llm/available-models'
+import { getAllAvailableModels, getCachedAvailableModels } from './llm/available-models'
 import { fetchProviderBalance } from './llm/provider-balance'
 import { LOCALE, t } from '../shared/i18n'
 // M7-4: llm/tools 老 ToolDef + buildToolsForContext + executeTool 路径已被
@@ -136,11 +133,7 @@ import {
   revokePersistentTrust,
   setApprovalPetWindow
 } from './llm/approval'
-import {
-  clearTavilyKey,
-  resolveTavilyKey,
-  saveTavilyKey
-} from './storage/tavily-key'
+import { clearTavilyKey, resolveTavilyKey, saveTavilyKey } from './storage/tavily-key'
 import { clearAuditLog, logPath as auditLogPath } from './audit-log'
 import {
   chatHistoryPath,
@@ -148,29 +141,22 @@ import {
   loadChatHistory,
   saveChatHistory
 } from './storage/chat-history'
-import {
-  clearMemory,
-  loadMemory,
-  petMemoryPath,
-  setMemory
-} from './storage/pet-memory'
+import { clearMemory, loadMemory, petMemoryPath, setMemory } from './storage/pet-memory'
 import {
   loadUserProfile,
   resetUserProfileSetup,
   saveUserProfile,
   userProfilePath
 } from './storage/user-profile'
-import {
-  DEFAULT_USER_PROFILE,
-  type UserProfile
-} from '../shared/user-profile-types'
+import { DEFAULT_USER_PROFILE, type UserProfile } from '../shared/user-profile-types'
 import type { VisionState } from '../shared/vision-types'
 import type { TavilyState } from '../shared/tavily-types'
 import trayIconPath from '../../resources/icon.png?asset'
 
-// userData 路径走 package.json 的 productName='DeskPet' —— Electron 启动早期就读
-// package.json 决定 app.getName()，dev / prod 都用 ~/Library/Application Support/DeskPet/。
-// 之前用 app.setName('DeskPet') 时序偏晚 —— 在某些路径上 userData 已经按 name='desktop-pet'
+// userData 路径走 package.json 的 productName='DeskPet-Furina' —— Electron 启动早期就读。
+// package.json 决定 app.getName()，默认 dev / prod 都用
+// ~/Library/Application Support/DeskPet-Furina/。
+// 之前用 app.setName(...) 时序偏晚 —— 在某些路径上 userData 已经按 name='desktop-pet'
 // 创建过；改 productName 是更早 + 更稳的方式。旧目录 desktop-pet/credentials.bin 由
 // migrateLegacyUserData() 在 startup 自动搬到新目录。
 
@@ -189,9 +175,9 @@ const MAX_HISTORY_PAIRS = 10
 // src/main/state-machine.ts (theme.json driven, A/B/C 三类语义化 + C lock).
 
 /**
- * M9-4 eye tracking: main 端轮询全局 cursor，推 dx/dy 给 renderer 让 inline SVG
- * 眼球/身体/影子跟随。renderer 在 panel 外收不到 mousemove（DOM mousemove 只
- * 当 cursor 在 webContents 区域内 fire），所以必须 main 端 polling。
+ * M9-4 cursor follow: main 端轮询全局 cursor，推 dx/dy 给 renderer 让 pet 容器
+ * tilt 和外置 shadow 响应。renderer 在 panel 外收不到 mousemove（DOM mousemove
+ * 只当 cursor 在 webContents 区域内 fire），所以必须 main 端 polling。
  *
  * 33ms ≈ 30Hz，跟 renderer rAF (60Hz 但实际很多 frame 一致) 协调够用；CPU
  * 负担经测 < 0.5% (screen.getCursorScreenPoint 是 sync native call)。
@@ -261,7 +247,7 @@ function broadcastManualWizardMode(): void {
  * - full: 260×280, 回到右下角 MARGIN_FROM_EDGE
  *
  * Sub-wave A: 直接 setBounds（无 animate），无抛物线 —— C 阶段加 60Hz JS 插值。
- * Mini mode 时强制 stopCursorPoll（cursor poll 只服务 full+idle eye tracking）。
+ * Mini mode 时强制 stopCursorPoll（cursor poll 只服务 full+idle cursor follow）。
  */
 /**
  * M9-5b B-1: 纯函数算 mode 对应窗口 bounds（无副作用）—— 拆出来给 sub-wave C 抛物线
@@ -270,10 +256,7 @@ function broadcastManualWizardMode(): void {
  *
  * 接受可选 currentBounds 参数（决定 display）—— 无参数时用 primary display.
  */
-function computeModeBounds(
-  mode: PetMode,
-  currentBounds?: Electron.Rectangle
-): Electron.Rectangle {
+function computeModeBounds(mode: PetMode, currentBounds?: Electron.Rectangle): Electron.Rectangle {
   let display = currentBounds
     ? screen.getDisplayMatching(currentBounds)
     : screen.getPrimaryDisplay()
@@ -324,7 +307,7 @@ function setPetMode(mode: PetMode): void {
   petMode = mode
   petWindow.setBounds(computeModeBounds(mode, petWindow.getBounds()))
   if (mode === 'mini') {
-    // Mini 时 cursor poll 无意义（eye-following 仅 full mode），强制停
+    // Mini 时 cursor poll 无意义（full idle 倾斜/阴影才需要），强制停
     stopCursorPoll()
     // M9-5b B-4: 进 mini 起 peek watcher（cursor 靠近时滑出 peek，离开收回 retract）
     startMiniPeekWatcher()
@@ -477,9 +460,7 @@ function updateCursorPoll(): void {
   // 切回 idle) 都会让 30Hz cursor poll IPC **悄悄复活**，跟 mini 模式 stopCursorPoll
   // 承诺直接冲突，prod 跑久了累积无效 IPC.
   const shouldPoll =
-    petMode === 'full' &&
-    stateMachine.getState() === 'idle' &&
-    currentActivity === 'idle'
+    petMode === 'full' && stateMachine.getState() === 'idle' && currentActivity === 'idle'
   if (shouldPoll) {
     startCursorPoll()
   } else {
@@ -703,14 +684,20 @@ function notifyActivity(): void {
  *
  * 无 key 或 classify 失败 → fallback 'idle' 不让桌宠卡在错误状态。
  */
+let activeAppChangeSeq = 0
 const activeAppMonitor = new ActiveAppMonitor((app) => {
+  const seq = ++activeAppChangeSeq
   // M4-B: 同步存当前 app —— current_app_info tool 直接读这两个变量
   currentAppName = app?.name ?? ''
   currentAppBundleId = app?.bundleId ?? ''
   void (async (): Promise<void> => {
     const nextActivity = await resolveActivity(app)
-    if (nextActivity === currentActivity) return
+    // 前台 App 快速切换时，旧 app 的 LLM 分类可能晚于新 app 返回；
+    // 只接受最后一次 frontmost event 对应的分类结果，避免 activity/app 不匹配。
+    if (seq !== activeAppChangeSeq) return
     currentActivity = nextActivity
+    // App identity 也可能已变但 activity 类别相同；仍推一次让 renderer/HMR 和托盘
+    // 与当前事实源对齐。
     notifyActivity()
     rebuildTrayMenu()
     // M9-4: activity 变也评估 cursor poll —— 跟随前台 app 切到 coding/etc 时停
@@ -842,8 +829,7 @@ function applySelectedModel(rawSel: SelectedModel): void {
   const isProviderSwitch = currentSelectedModel.provider !== rawSel.provider
   const oldCap = findModel(currentSelectedModel)
   const newCap = findModel(rawSel)
-  const sameToolCapability =
-    !!oldCap && !!newCap && oldCap.supportsTools === newCap.supportsTools
+  const sameToolCapability = !!oldCap && !!newCap && oldCap.supportsTools === newCap.supportsTools
   const canSoftSwitch = !isProviderSwitch && sameToolCapability
 
   if (!canSoftSwitch) {
@@ -1323,15 +1309,13 @@ function buildModelSubmenu(): MenuItemConstructorOptions[] {
   }
   return configured.map<MenuItemConstructorOptions>((p) => {
     const dynamicIds = trayAvailableModels.get(p) ?? []
-    const ids =
-      dynamicIds.length > 0 ? dynamicIds : modelsForProvider(p).map((m) => m.id)
+    const ids = dynamicIds.length > 0 ? dynamicIds : modelsForProvider(p).map((m) => m.id)
     return {
       label: PROVIDERS[p].label,
       submenu: ids.map<MenuItemConstructorOptions>((id) => ({
         label: findModel({ provider: p, modelId: id })?.label ?? id,
         type: 'radio' as const,
-        checked:
-          currentSelectedModel.provider === p && currentSelectedModel.modelId === id,
+        checked: currentSelectedModel.provider === p && currentSelectedModel.modelId === id,
         click: () => applySelectedModel({ provider: p, modelId: id })
       }))
     }
@@ -1640,68 +1624,65 @@ function registerIpc(): void {
 
   // —— M7-4 multi-provider key + selected-model IPC ——
 
-  ipcMain.on(
-    'provider-key:submit',
-    async (event, rawProvider: unknown, rawKey: unknown) => {
-      if (!isValidProvider(rawProvider)) {
-        console.warn('[provider-key:submit] invalid provider, ignored:', rawProvider)
-        return
-      }
-      const key = String(rawKey ?? '').trim()
-      if (!key) {
-        console.warn(`[provider-key:submit] empty key for ${rawProvider}, ignored`)
-        return
-      }
-      let persisted = true
-      await queueCredentialOp(async () => {
-        try {
-          await saveProviderKey(rawProvider, key)
-        } catch (err) {
-          console.error(`[provider-key:submit] saveProviderKey(${rawProvider}) failed:`, err)
-          persisted = false
-        }
-      })
-      if (!persisted) {
-        const win = BrowserWindow.fromWebContents(event.sender)
-        win?.webContents.send('chat:error', { kind: 'key-not-persisted' })
-        return
-      }
-      // anthropic 走 legacy setKeyInMemory（内部同步 map + recomputeKeyState +
-      // notifyKeyState）；其它 provider 直接 set map + 显式 recompute + notify。
-      // 修架构师诊断的"keyState 单态裂缝": 只配 OpenAI key 的用户 keyState
-      // 永远 'missing' → chat 输入框被当作 key 提交闸门 → 用户聊天文本被解读成
-      // "提交 key" 弹"这不像 API key"。recomputeKeyState() 看全 map 任一非空即 'ready'。
-      if (rawProvider === 'anthropic') {
-        setKeyInMemory(key)
-      } else {
-        currentProviderKeys.set(rawProvider, key)
-        keyState = recomputeKeyState()
-        notifyKeyState()
-      }
-      // **关键修**: 自动切 selectedModel 到刚配 key 的 provider, 如果当前选中 provider
-      // 还没 key —— 防止 onboarding 后果"key 设了但 model 还选 Claude → chat 仍 no-api-key".
-      // 用户分场景:
-      //  - 第一次跑: keyState=missing, currentSelectedModel.provider=anthropic 但 anthropic key 没配 →
-      //    用户配 OpenAI key → 自动切 model 到 gpt-4o-mini.
-      //  - 已配过 Anthropic key 的用户在 settings 又加 OpenAI key → currentSelectedModel.provider=anthropic
-      //    + anthropic key 有 → 保留用户当前 model 不切.
-      const selectedHasKey = !!currentProviderKeys.get(currentSelectedModel.provider)
-      if (!selectedHasKey && rawProvider !== currentSelectedModel.provider) {
-        currentSelectedModel = defaultModelForProvider(rawProvider)
-        // legacy currentModel 仅 anthropic 有意义；其它 provider 保留旧 ModelId 值
-        // (selectedModel 才是新权威字段)
-        if (rawProvider === 'anthropic' && isValidModelId(currentSelectedModel.modelId)) {
-          currentModel = currentSelectedModel.modelId
-        }
-        rebuildTrayMenu()
-        broadcastSelectedModelState()
-        void savePreferences(currentPrefsSnapshot()).catch((err) => {
-          console.warn('[provider-key:submit] auto-switch model savePrefs failed:', err)
-        })
-      }
-      broadcastProviderKeyStates()
+  ipcMain.on('provider-key:submit', async (event, rawProvider: unknown, rawKey: unknown) => {
+    if (!isValidProvider(rawProvider)) {
+      console.warn('[provider-key:submit] invalid provider, ignored:', rawProvider)
+      return
     }
-  )
+    const key = String(rawKey ?? '').trim()
+    if (!key) {
+      console.warn(`[provider-key:submit] empty key for ${rawProvider}, ignored`)
+      return
+    }
+    let persisted = true
+    await queueCredentialOp(async () => {
+      try {
+        await saveProviderKey(rawProvider, key)
+      } catch (err) {
+        console.error(`[provider-key:submit] saveProviderKey(${rawProvider}) failed:`, err)
+        persisted = false
+      }
+    })
+    if (!persisted) {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      win?.webContents.send('chat:error', { kind: 'key-not-persisted' })
+      return
+    }
+    // anthropic 走 legacy setKeyInMemory（内部同步 map + recomputeKeyState +
+    // notifyKeyState）；其它 provider 直接 set map + 显式 recompute + notify。
+    // 修架构师诊断的"keyState 单态裂缝": 只配 OpenAI key 的用户 keyState
+    // 永远 'missing' → chat 输入框被当作 key 提交闸门 → 用户聊天文本被解读成
+    // "提交 key" 弹"这不像 API key"。recomputeKeyState() 看全 map 任一非空即 'ready'。
+    if (rawProvider === 'anthropic') {
+      setKeyInMemory(key)
+    } else {
+      currentProviderKeys.set(rawProvider, key)
+      keyState = recomputeKeyState()
+      notifyKeyState()
+    }
+    // **关键修**: 自动切 selectedModel 到刚配 key 的 provider, 如果当前选中 provider
+    // 还没 key —— 防止 onboarding 后果"key 设了但 model 还选 Claude → chat 仍 no-api-key".
+    // 用户分场景:
+    //  - 第一次跑: keyState=missing, currentSelectedModel.provider=anthropic 但 anthropic key 没配 →
+    //    用户配 OpenAI key → 自动切 model 到 gpt-4o-mini.
+    //  - 已配过 Anthropic key 的用户在 settings 又加 OpenAI key → currentSelectedModel.provider=anthropic
+    //    + anthropic key 有 → 保留用户当前 model 不切.
+    const selectedHasKey = !!currentProviderKeys.get(currentSelectedModel.provider)
+    if (!selectedHasKey && rawProvider !== currentSelectedModel.provider) {
+      currentSelectedModel = defaultModelForProvider(rawProvider)
+      // legacy currentModel 仅 anthropic 有意义；其它 provider 保留旧 ModelId 值
+      // (selectedModel 才是新权威字段)
+      if (rawProvider === 'anthropic' && isValidModelId(currentSelectedModel.modelId)) {
+        currentModel = currentSelectedModel.modelId
+      }
+      rebuildTrayMenu()
+      broadcastSelectedModelState()
+      void savePreferences(currentPrefsSnapshot()).catch((err) => {
+        console.warn('[provider-key:submit] auto-switch model savePrefs failed:', err)
+      })
+    }
+    broadcastProviderKeyStates()
+  })
 
   ipcMain.on('provider-key:reset', async (_event, rawProvider: unknown) => {
     if (!isValidProvider(rawProvider)) {
@@ -2072,6 +2053,11 @@ function registerIpc(): void {
     win?.webContents.send('key:state', keyState)
   })
 
+  ipcMain.on('pet:request-activity-state', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    win?.webContents.send('pet:activity', currentActivity)
+  })
+
   ipcMain.on('chat:submit', async (event, text: string) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return
@@ -2118,13 +2104,10 @@ function registerIpc(): void {
       // webSearch_20260209 supported model list 里，装上会让 API 拒绝整个请求
       // → 0 step → "No output generated" SDK 错（M8 实测）。
       selectedModel: currentSelectedModel,
-      // M8 set_pet_animation: AI 调 tool → stateMachine.transition 到对应动画
-      // state，scheduleReturnToIdle 让动画播完一个 GIF cycle 自动回 idle。
-      // minMs + fade buffer：renderer 切 GIF 走 cross-fade 占用 minMs 起始的
-      // 280ms（FADE_HALF_MS），不补上的话动画实际可见周期短一帧。
+      // M8 set_pet_animation: AI 调 tool → stateMachine 切到对应动画 state。
       // A 类持续循环不自动回 idle; B 类自带 returnTo. setPetAnimation 这里直接传
-      // canonical (juggling/sweeping/conducting/carrying/happy/thinking), 老的
-      // scheduleReturnToIdle 已 no-op. AI 调下个 tool 时 main 端会切走.
+      // canonical (juggling/sweeping/conducting/carrying/happy). AI 调下个 tool
+      // 时 main 端会切走.
       setPetAnimation: (name: PetAnimation): boolean => {
         return stateMachine.setState(name)
       },
@@ -2235,12 +2218,15 @@ function registerIpc(): void {
               startStreamFromProvider(next)
               return
             }
-            console.log(
-              `[chat] no fallback, surfacing err (canFallback=${canFallback})`
-            )
-            // 真错: surface 到 renderer + 回滚历史
+            console.log(`[chat] no fallback, surfacing err (canFallback=${canFallback})`)
+            // 真错: surface 到 renderer。若已经收到 chunk，或 tool loop 已经实际执行过，
+            // 不回滚 user turn；否则下一轮会丢失刚才的任务上下文。
             currentStreamHandle = null
-            if (chatHistory[chatHistory.length - 1]?.role === 'user') {
+            if (
+              !gotChunk &&
+              err.kind !== 'tool-loop-limit' &&
+              chatHistory[chatHistory.length - 1]?.role === 'user'
+            ) {
               chatHistory.pop()
             }
             win.webContents.send('chat:error', err)
@@ -2328,10 +2314,7 @@ function ensurePetVisibleAfterWake(): void {
   const inAnyDisplay = screen.getAllDisplays().some((d) => {
     const wa = d.workArea
     return (
-      centerX >= wa.x &&
-      centerX < wa.x + wa.width &&
-      centerY >= wa.y &&
-      centerY < wa.y + wa.height
+      centerX >= wa.x && centerX < wa.x + wa.width && centerY >= wa.y && centerY < wa.y + wa.height
     )
   })
   if (!inAnyDisplay) {

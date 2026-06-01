@@ -286,9 +286,7 @@ function buildSummary(accepted: AcceptedFile[], rejected: RejectedFile[]): strin
         if (ext === 'pdf' || ext === 'docx' || ext === 'xlsx') {
           lines.push(`  (${ext.toUpperCase()} — 用 read_file tool 读全文 (已装专门 parser).)`)
         } else if (ext === 'pptx') {
-          lines.push(
-            '  (PPTX — 没装 parser; 让用户截屏发过来或复制粘贴关键文字.)'
-          )
+          lines.push('  (PPTX — 没装 parser; 让用户截屏发过来或复制粘贴关键文字.)')
         } else if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext)) {
           lines.push(
             '  (图片 — 用 read_file tool, 若当前 model supportsVision 会返回 base64 image 让你"看到"; 否则会报错让用户换 vision 模型.)'

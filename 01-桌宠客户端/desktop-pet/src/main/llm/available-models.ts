@@ -115,9 +115,7 @@ function dedupeKeepLatest(provider: Provider, models: string[]): string[] {
       continue
     }
     // 1) prefer canonical (无日期后缀)
-    const canonical = group.find(
-      (g) => !/-\d{8}$/.test(g) && !/-\d{4}-\d{2}-\d{2}$/.test(g)
-    )
+    const canonical = group.find((g) => !/-\d{8}$/.test(g) && !/-\d{4}-\d{2}-\d{2}$/.test(g))
     if (canonical) {
       result.push(canonical)
       continue
@@ -166,7 +164,12 @@ async function fetchOpenAIModels(key: string): Promise<string[]> {
   // 保留 gpt-* + o\d-* (推理) + chatgpt-* 等
   return ids
     .filter((id) => /^(gpt|o\d|chatgpt|codex)/i.test(id))
-    .filter((id) => !/(embed|whisper|tts|moderation|dall-e|image-|search|audio|realtime|vision-preview)/i.test(id))
+    .filter(
+      (id) =>
+        !/(embed|whisper|tts|moderation|dall-e|image-|search|audio|realtime|vision-preview)/i.test(
+          id
+        )
+    )
 }
 
 async function fetchXaiModels(key: string): Promise<string[]> {
@@ -185,7 +188,9 @@ async function fetchGoogleModels(key: string): Promise<string[]> {
     { method: 'GET' }
   )
   if (!r.ok) throw new Error(`Google listModels HTTP ${r.status}`)
-  const j = (await r.json()) as { models?: Array<{ name?: string; supportedGenerationMethods?: string[] }> }
+  const j = (await r.json()) as {
+    models?: Array<{ name?: string; supportedGenerationMethods?: string[] }>
+  }
   return (j.models ?? [])
     .filter((m) => m.supportedGenerationMethods?.includes('generateContent'))
     .map((m) => (m.name ?? '').replace(/^models\//, ''))
@@ -234,7 +239,11 @@ export async function getAvailableModels(
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    console.warn(`[available-models] ${provider} listModels failed:`, msg, '— fallback to hardcoded')
+    console.warn(
+      `[available-models] ${provider} listModels failed:`,
+      msg,
+      '— fallback to hardcoded'
+    )
     models = fallbackHardcoded(provider)
   }
   // 改动 4: 同 family 只留最新一个 (用户要"同种模型只保留最新的版本")

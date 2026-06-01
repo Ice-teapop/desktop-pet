@@ -83,8 +83,7 @@ export async function captureCursorScreen(
     })
 
     // 用 display_id 精确匹配 source —— types/electron 暴露的 display_id 是字符串
-    const source =
-      sources.find((s) => s.display_id === String(display.id)) ?? sources[0]
+    const source = sources.find((s) => s.display_id === String(display.id)) ?? sources[0]
     if (!source || source.thumbnail.isEmpty()) {
       return {
         ok: false,

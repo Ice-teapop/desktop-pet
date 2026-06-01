@@ -11,7 +11,7 @@
  *   - PetState（idle / thinking / juggling / etc）描述"pet 在干什么"
  *   - PetMode（full / mini）描述"pet 怎么呈现"
  *   - 两个维度独立：mini mode 的 idle 用 mini-idle GIF；full mode 的 idle 用
- *     eye-following SVG。renderer 据 petMode 走不同 render path。
+ *     Furina idle sprite。renderer 据 petMode 走不同 render path。
  */
 export type PetMode = 'full' | 'mini'
 
@@ -25,7 +25,7 @@ export function isPetMode(s: string): s is PetMode {
 /** Mini mode 窗口尺寸（CSS `.pet-mini` 让 pet body 撑满 100×100 window，无 padding） */
 export const MINI_WIN_WIDTH = 100
 export const MINI_WIN_HEIGHT = 100
-/** Mini mode 默认露出多少 px（设计师 v2: 24→32，露半只钳 + 部分眼睛，用户余光可见
+/** Mini mode 默认露出多少 px（设计师 v2: 24→32，露出角色一部分，用户余光可见
  *  仍明确"贴边" + hit-test 横向 32px 远高于 Fitts 安全线 12px。100 - 32 = 68px 藏屏外） */
 export const MINI_VISIBLE_PX = 32
 /** Drag 时窗口在屏内的最小可见宽度（drag clamp 下限）—— 防全藏屏外让用户找不到

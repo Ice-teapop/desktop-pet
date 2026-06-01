@@ -26,11 +26,7 @@ import { resolveProviderKey } from '../storage/provider-keys'
  * 用 provider 对应的 SDK factory 实例化 LanguageModel。
  * apiKey 由调用方从 storage 拿来传入。
  */
-function instantiateModel(
-  provider: Provider,
-  apiKey: string,
-  modelId: string
-): LanguageModel {
+function instantiateModel(provider: Provider, apiKey: string, modelId: string): LanguageModel {
   switch (provider) {
     case 'anthropic':
       return createAnthropic({ apiKey }).languageModel(modelId)
@@ -74,9 +70,7 @@ function instantiateModel(
  * 根据 SelectedModel 解析出可调用的 LanguageModel 实例。
  * key 不存在 → null（上层应当转 'no-api-key' 错给 UI）。
  */
-export async function resolveLanguageModel(
-  selected: SelectedModel
-): Promise<LanguageModel | null> {
+export async function resolveLanguageModel(selected: SelectedModel): Promise<LanguageModel | null> {
   const apiKey = await resolveProviderKey(selected.provider)
   if (!apiKey) return null
   return instantiateModel(selected.provider, apiKey, selected.modelId)

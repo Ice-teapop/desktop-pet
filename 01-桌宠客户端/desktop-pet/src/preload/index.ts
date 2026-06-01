@@ -15,11 +15,7 @@ import type { VisionState } from '../shared/vision-types'
 import type { ApprovalDecision, ApprovalRequest } from '../shared/approval-types'
 import type { TavilyState } from '../shared/tavily-types'
 import type { ChatHistoryClearedEvent } from '../shared/chat-types'
-import type {
-  Provider,
-  ProviderKeyStates,
-  SelectedModel
-} from '../shared/provider-types'
+import type { Provider, ProviderKeyStates, SelectedModel } from '../shared/provider-types'
 import type { IpcResult, PrefsState, TrustedDirsState } from '../shared/settings-types'
 import type { UserProfile } from '../shared/user-profile-types'
 import type { PetMode } from '../shared/pet-mode'
@@ -82,11 +78,11 @@ const api = {
     ipcRenderer.send('chat:set-open', open)
   },
   // —— M9-2 click reactions ——
-  /** 双击/3 连击 pet → 触发 poked 反应（react-double-jump 动画） */
+  /** 双击/3 连击 pet → 触发 react-poke 反应 */
   petPoke(): void {
     ipcRenderer.send('pet:poke')
   },
-  /** 1.5s 内 4 连击 pet → 触发 looking_around 反应（react-annoyed 动画） */
+  /** 1.5s 内 4 连击 pet → 触发 idle-look 反应 */
   petStartled(): void {
     ipcRenderer.send('pet:startled')
   },
@@ -98,15 +94,13 @@ const api = {
     ipcRenderer.send('pet:wake')
   },
   /**
-   * M9-4 eye tracking: 订阅 main 端 30Hz 推的 cursor 位置（相对 pet window 中心）。
-   * 30Hz → renderer 在 rAF loop 里直接 mutate SVG group `#eyes-js`/`#body-js`/
-   * `#shadow-js` 的 style.transform，不触发 React re-render。
+   * M9-4 cursor follow: 订阅 main 端 30Hz 推的 cursor 位置（相对 pet window 中心）。
+   * 30Hz → renderer 在 rAF loop 里直接 mutate .pet tilt / shadow CSS vars，
+   * 不触发 React re-render。
    */
   onPetCursor(listener: (cursor: { dx: number; dy: number }) => void): () => void {
-    const handler = (
-      _event: IpcRendererEvent,
-      cursor: { dx: number; dy: number }
-    ): void => listener(cursor)
+    const handler = (_event: IpcRendererEvent, cursor: { dx: number; dy: number }): void =>
+      listener(cursor)
     ipcRenderer.on('pet:cursor', handler)
     return () => ipcRenderer.off('pet:cursor', handler)
   },
@@ -182,6 +176,10 @@ const api = {
     const handler = (_event: IpcRendererEvent, state: ActivityState): void => listener(state)
     ipcRenderer.on('pet:activity', handler)
     return () => ipcRenderer.off('pet:activity', handler)
+  },
+  /** 渲染层 mount / HMR 后主动拉一次 activity，防 did-finish-load 推送丢失。 */
+  requestActivityState(): void {
+    ipcRenderer.send('pet:request-activity-state')
   },
 
   // —— M4-A-3 视觉感知（Claude vision pivot） ——
@@ -283,8 +281,7 @@ const api = {
   },
   /** 订阅所有 provider 的 has-key boolean map 推送（Settings UI 渲染状态灯用） */
   onProviderKeyStates(listener: (states: ProviderKeyStates) => void): () => void {
-    const handler = (_event: IpcRendererEvent, states: ProviderKeyStates): void =>
-      listener(states)
+    const handler = (_event: IpcRendererEvent, states: ProviderKeyStates): void => listener(states)
     ipcRenderer.on('provider-key:states', handler)
     return () => ipcRenderer.off('provider-key:states', handler)
   },
@@ -320,8 +317,7 @@ const api = {
     ipcRenderer.send('trusted-dirs:request-state')
   },
   onTrustedDirsState(listener: (state: TrustedDirsState) => void): () => void {
-    const handler = (_event: IpcRendererEvent, state: TrustedDirsState): void =>
-      listener(state)
+    const handler = (_event: IpcRendererEvent, state: TrustedDirsState): void => listener(state)
     ipcRenderer.on('trusted-dirs:state', handler)
     return () => ipcRenderer.off('trusted-dirs:state', handler)
   },
@@ -353,11 +349,8 @@ const api = {
     ipcRenderer.send('chat-history:reveal-in-finder')
   },
   /** 主进程清 chatHistory 后广播此事件 (含 reason 让 renderer 决定是否 surface 气泡) */
-  onChatHistoryCleared(
-    listener: (event: ChatHistoryClearedEvent) => void
-  ): () => void {
-    const handler = (_e: IpcRendererEvent, ev: ChatHistoryClearedEvent): void =>
-      listener(ev)
+  onChatHistoryCleared(listener: (event: ChatHistoryClearedEvent) => void): () => void {
+    const handler = (_e: IpcRendererEvent, ev: ChatHistoryClearedEvent): void => listener(ev)
     ipcRenderer.on('chat:history-cleared', handler)
     return () => ipcRenderer.off('chat:history-cleared', handler)
   },
@@ -427,9 +420,7 @@ const api = {
   requestAvailableModels(): void {
     ipcRenderer.send('available-models:request')
   },
-  onAvailableModels(
-    listener: (modelsByProvider: Record<string, string[]>) => void
-  ): () => void {
+  onAvailableModels(listener: (modelsByProvider: Record<string, string[]>) => void): () => void {
     const handler = (_e: IpcRendererEvent, r: Record<string, string[]>): void => listener(r)
     ipcRenderer.on('available-models:state', handler)
     return () => ipcRenderer.off('available-models:state', handler)

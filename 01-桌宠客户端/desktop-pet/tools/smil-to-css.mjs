@@ -18,6 +18,7 @@
 
 import { readFileSync, writeFileSync } from 'fs'
 
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
 function convertSvg(content) {
   // 1. 提 viewBox 宽
   const vbMatch = content.match(/viewBox="0 0 (\d+) (\d+)"/)

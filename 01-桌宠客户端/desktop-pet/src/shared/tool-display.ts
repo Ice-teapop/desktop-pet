@@ -80,7 +80,8 @@ export function getToolDisplay(rawName: string): ToolDisplay {
   if (name === 'current_app_info') return { label: t('tool_label.current_app_info'), icon: '🪟' }
   if (name === 'view_screen') return { label: t('tool_label.view_screen'), icon: '👁' }
   if (name === 'get_weather') return { label: t('tool_label.get_weather'), icon: '⛅' }
-  if (name === 'read_system_preference') return { label: t('tool_label.read_system_preference'), icon: '⚙️' }
+  if (name === 'read_system_preference')
+    return { label: t('tool_label.read_system_preference'), icon: '⚙️' }
   if (name === 'set_pet_animation') return { label: t('tool_label.set_pet_animation'), icon: '🎭' }
 
   return { label: rawName, icon: DEFAULT_ICON }

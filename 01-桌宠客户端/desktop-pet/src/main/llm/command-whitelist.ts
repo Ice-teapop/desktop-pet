@@ -142,5 +142,8 @@ export function checkCommand(rawCmd: string): CommandCheck {
  * 用于 spawn shell:false 执行 —— 完全绕过 shell expand。
  */
 export function tokenizeSafeCommand(cmd: string): string[] {
-  return cmd.trim().split(/\s+/).filter((t) => t.length > 0)
+  return cmd
+    .trim()
+    .split(/\s+/)
+    .filter((t) => t.length > 0)
 }

@@ -159,7 +159,8 @@ export const zh = {
   'settings.audit.label': '审计日志',
   'settings.audit.reveal': '在 Finder 显示',
   'settings.audit.clear': '清空',
-  'settings.audit.hint': '~/Library/Application Support/DeskPet/audit.log —— JSONL append-only，5MB 自动滚动；仅本地，不上传。',
+  'settings.audit.hint':
+    '应用数据目录下的 audit.log（DeskPet-Furina 默认：~/Library/Application Support/DeskPet-Furina/audit.log）—— JSONL append-only，5MB 自动滚动；仅本地，不上传。',
   // User profile section
   'settings.profile.status_label': '状态',
   'settings.profile.status_set': '已设置',
@@ -170,7 +171,8 @@ export const zh = {
   'settings.profile.about_placeholder': '（工作 / 项目 / 兴趣 / 技术栈 / 习惯 …）',
   'settings.profile.persona_label': '桌宠对话风格',
   'settings.profile.persona_custom_label': '自定义风格补充',
-  'settings.profile.persona_custom_placeholder': '（如：喜欢中英混用术语、回答尽量短、不要 emoji…）',
+  'settings.profile.persona_custom_placeholder':
+    '（如：喜欢中英混用术语、回答尽量短、不要 emoji…）',
   'settings.profile.save': '保存档案',
   'settings.profile.reset_wizard': '重置 wizard（让 AI 重问一遍）',
   'settings.profile.loading': '加载中...',
@@ -243,12 +245,17 @@ export const zh = {
   'err.rate_limited': '⏱️ 请求过快，等等再问',
   'err.overloaded': '😵 Claude 现在很忙，稍等再问',
   'err.network': '🌐 连不上 Anthropic，检查下网络',
-  'err.key_not_persisted': '⚠️ 系统没装加密后端，这次能聊但下次启动 key 会丢（Linux 装个 libsecret / gnome-keyring 就好）',
+  'err.key_not_persisted':
+    '⚠️ 系统没装加密后端，这次能聊但下次启动 key 会丢（Linux 装个 libsecret / gnome-keyring 就好）',
   'err.key_format_invalid': '⚠️ 这个 key 格式不对，检查下复制有没有带空格 / 多余字符',
   'err.empty_response_intro': '⚠️ AI 这次没产生输出 (finishReason={0})。可能原因:',
-  'err.empty_response_reason_1': '• 切到 Opus/Sonnet + 复杂 prompt 时全花在思考没 text output → 重试或换 Haiku',
+  'err.empty_response_reason_1':
+    '• 切到 Opus/Sonnet + 复杂 prompt 时全花在思考没 text output → 重试或换 Haiku',
   'err.empty_response_reason_2': '• 工具 schema 被 provider 拒绝 → 关掉视觉/Tavily 重试',
-  'err.empty_response_reason_3': '• Key 跟 provider 不匹配 → 去设置 (⌘+,) 检查 model 跟 key 是同一家',
+  'err.empty_response_reason_3':
+    '• Key 跟 provider 不匹配 → 去设置 (⌘+,) 检查 model 跟 key 是同一家',
+  'err.tool_loop_limit':
+    '⚠️ 连续调用工具已达到 {0} 步上限，我先停住防止循环。刚才的工具卡是已执行记录；可以让我继续或把范围缩小一点。',
   'err.api': '⚠️ {0}',
   'err.unknown': '⚠️ 出错了：{0}'
 } as const

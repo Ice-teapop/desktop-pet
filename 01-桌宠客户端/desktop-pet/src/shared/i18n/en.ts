@@ -130,7 +130,7 @@ export const en: I18nDict = {
   'settings.agentic.status_disabled': 'consented but toggle off',
   'settings.agentic.status_no_consent': 'no consent',
   'settings.agentic.consent_hint':
-    "⚠️ When enabled, AI will screenshot and send to Anthropic when you ask things like \"look at my screen\". Not stored locally, can be turned off any time. Consent required.",
+    '⚠️ When enabled, AI will screenshot and send to Anthropic when you ask things like "look at my screen". Not stored locally, can be turned off any time. Consent required.',
   'settings.agentic.consent_accept': 'Accept + enable',
   'settings.agentic.enable': 'Enable',
   'settings.agentic.disable': 'Disable',
@@ -140,7 +140,8 @@ export const en: I18nDict = {
   'settings.agentic.tools_li_2': '— browser + clipboard',
   'settings.agentic.tools_li_3': '— file read',
   'settings.agentic.tools_li_4': '— file write (delete always prompts)',
-  'settings.agentic.tools_li_5': '— shell commands (safe allowlist silent / others prompt / dangerous always denied)',
+  'settings.agentic.tools_li_5':
+    '— shell commands (safe allowlist silent / others prompt / dangerous always denied)',
   'settings.agentic.tools_li_6': '— system preferences',
   'settings.agentic.tools_li_7': '— network',
   // Trust dirs section
@@ -157,7 +158,7 @@ export const en: I18nDict = {
   'settings.audit.reveal': 'Reveal in Finder',
   'settings.audit.clear': 'Clear',
   'settings.audit.hint':
-    '~/Library/Application Support/DeskPet/audit.log — JSONL append-only, auto-rotates at 5MB; local-only, not uploaded.',
+    'audit.log under the app userData folder (DeskPet-Furina default: ~/Library/Application Support/DeskPet-Furina/audit.log) — JSONL append-only, auto-rotates at 5MB; local-only, not uploaded.',
   // User profile section
   'settings.profile.status_label': 'Status',
   'settings.profile.status_set': 'set',
@@ -238,16 +239,15 @@ export const en: I18nDict = {
   'drop.overlay_hint': 'Drop files for the pet as chat context',
 
   // —— Errors ——
-  'err.no_api_key': "No API key yet — add one in Settings",
+  'err.no_api_key': 'No API key yet — add one in Settings',
   'err.invalid_api_key': '⚠️ This API key was rejected — paste a fresh one',
   'err.rate_limited_with_sec': '⏱️ Too fast, retry in {0}s',
   'err.rate_limited': '⏱️ Rate-limited, slow down a bit',
   'err.overloaded': '😵 Claude is busy right now, retry shortly',
   'err.network': "🌐 Can't reach Anthropic, check your network",
   'err.key_not_persisted':
-    "⚠️ No encryption backend on this OS, can chat this session but key will be lost on next launch (Linux: install libsecret / gnome-keyring)",
-  'err.key_format_invalid':
-    "⚠️ Key format looks wrong, check for extra whitespace or stray chars",
+    '⚠️ No encryption backend on this OS, can chat this session but key will be lost on next launch (Linux: install libsecret / gnome-keyring)',
+  'err.key_format_invalid': '⚠️ Key format looks wrong, check for extra whitespace or stray chars',
   'err.empty_response_intro': '⚠️ AI returned no output (finishReason={0}). Possible reasons:',
   'err.empty_response_reason_1':
     '• Opus/Sonnet + complex prompt spent budget on thinking with no text output → retry or switch to Haiku',
@@ -255,6 +255,8 @@ export const en: I18nDict = {
     '• Tool schema rejected by provider → disable vision/Tavily and retry',
   'err.empty_response_reason_3':
     '• Key/provider mismatch → Settings (⌘+,) — make sure model and key are from the same provider',
+  'err.tool_loop_limit':
+    '⚠️ Tool chaining reached the {0}-step safety limit, so I stopped to avoid a loop. The tool cards above are the executed actions; ask me to continue or narrow the scope.',
   'err.api': '⚠️ {0}',
   'err.unknown': '⚠️ Error: {0}'
 }

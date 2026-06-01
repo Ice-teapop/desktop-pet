@@ -1,21 +1,11 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
 import type { PetState } from '../shared/pet-state'
-import type {
-  ActivityState,
-  ChatError,
-  ChatUsage,
-  KeyState,
-  ToolEvent
-} from '../shared/chat-types'
+import type { ActivityState, ChatError, ChatUsage, KeyState, ToolEvent } from '../shared/chat-types'
 import type { VisionState } from '../shared/vision-types'
 import type { ApprovalDecision, ApprovalRequest } from '../shared/approval-types'
 import type { TavilyState } from '../shared/tavily-types'
 import type { ModelId, ChatHistoryClearedEvent } from '../shared/chat-types'
-import type {
-  Provider,
-  ProviderKeyStates,
-  SelectedModel
-} from '../shared/provider-types'
+import type { Provider, ProviderKeyStates, SelectedModel } from '../shared/provider-types'
 import type { IpcResult, PrefsState, TrustedDirsState } from '../shared/settings-types'
 import type { UserProfile } from '../shared/user-profile-types'
 import type { PetMode } from '../shared/pet-mode'
@@ -40,7 +30,7 @@ export interface DeskPetAPI {
   onChatError(listener: (err: ChatError) => void): () => void
   onChatToolEvent(listener: (event: ToolEvent) => void): () => void
   setChatOpen(open: boolean): void
-  // M9-2 click reactions + M9-3 wake hook + M9-4 eye tracking + M9-5 mini mode
+  // M9-2 click reactions + M9-3 wake hook + M9-4 cursor follow + M9-5 mini mode
   petPoke(): void
   petStartled(): void
   petWake(): void
@@ -57,6 +47,7 @@ export interface DeskPetAPI {
   resetKey(): void
   requestKeyState(): void
   onActivityState(listener: (state: ActivityState) => void): () => void
+  requestActivityState(): void
   // M4-A-4 视觉感知（agentic tool use）
   acceptVisionConsentAndEnable(): void
   setVisionEnabled(enabled: boolean): void
@@ -99,9 +90,7 @@ export interface DeskPetAPI {
   revealMemoryInFinder(): void
   clearChatHistory(): Promise<IpcResult>
   revealChatHistoryInFinder(): void
-  onChatHistoryCleared(
-    listener: (event: ChatHistoryClearedEvent) => void
-  ): () => void
+  onChatHistoryCleared(listener: (event: ChatHistoryClearedEvent) => void): () => void
   // M5-3 用户档案
   requestUserProfileState(): void
   onUserProfileState(listener: (profile: UserProfile) => void): () => void
@@ -135,9 +124,7 @@ export interface DeskPetAPI {
   ): () => void
 }
 
-export type {
-  ProviderBalance
-} from '../shared/provider-balance-types'
+export type { ProviderBalance } from '../shared/provider-balance-types'
 
 export type {
   DropResult,

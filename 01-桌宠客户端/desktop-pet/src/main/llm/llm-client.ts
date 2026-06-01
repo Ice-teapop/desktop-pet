@@ -160,9 +160,7 @@ export class LlmClient {
         systemWithMemory += memoryInjectionWrapper(safeMemory)
       }
 
-      const tools = options.toolContext
-        ? buildToolSetForContext(options.toolContext)
-        : undefined
+      const tools = options.toolContext ? buildToolSetForContext(options.toolContext) : undefined
 
       try {
         const providerOptions = getProviderOptionsForModel(this.modelId, this.provider)
@@ -188,6 +186,8 @@ export class LlmClient {
         // tool-call → onToolEvent kind='start', tool-result → kind='end', tool-error → 'error'.
         let textChunkCount = 0
         let sawToolCall = false
+        let finishedStepCount = 0
+        let lastFinishReason: string | null = null
         for await (const part of result.fullStream) {
           if (aborted) return
           if (part.type === 'text-delta') {
@@ -212,12 +212,21 @@ export class LlmClient {
               toolCallId: part.toolCallId,
               toolName: part.toolName
             })
+          } else if (part.type === 'finish-step') {
+            finishedStepCount++
+            lastFinishReason = part.finishReason
+          } else if (part.type === 'finish') {
+            lastFinishReason = part.finishReason
           }
-          // 其它 part type (text-start/text-end/start-step/finish-step/finish/error/...)
-          // 当前不 surface (text-end 跟 finishReason 检查重复; finish 单独走 result.totalUsage)
+          // 其它 part type (text-start/text-end/start-step/error/...) 当前不 surface。
         }
 
         if (aborted) return
+        const finishReason = String(lastFinishReason ?? (await result.finishReason))
+        if (sawToolCall && finishedStepCount >= MAX_TOOL_STEPS && finishReason === 'tool-calls') {
+          handler.onError({ kind: 'tool-loop-limit', maxSteps: MAX_TOOL_STEPS })
+          return
+        }
         // **关键修**: streamText 跑完但 0 chunk + finishReason !== 'stop'/'tool-calls' 时
         // SDK 不抛 error → 上层 handler.onDone 正常调 → 用户收到 "No output generated"
         // generic 错. 这里改 emit 显式 ChatError 让 renderer 出更可操作 hint.
@@ -227,9 +236,8 @@ export class LlmClient {
         // S2 fix #2: textChunkCount === 0 + sawToolCall === true 时不该误判 empty-response
         // (AI 只调 tool 没 text output 是合法行为, 不应触发 fallback chain).
         if (textChunkCount === 0 && !sawToolCall) {
-          const finishReason = await result.finishReason
           if (finishReason !== 'stop' && finishReason !== 'tool-calls') {
-            handler.onError({ kind: 'empty-response', finishReason: String(finishReason) })
+            handler.onError({ kind: 'empty-response', finishReason })
             return
           }
         }
@@ -326,7 +334,14 @@ function classifyError(err: unknown): ChatError {
     //   502 / 504 / 524 = Cloudflare gateway timeout / bad gateway
     //     (xAI / DeepSeek / OpenAI 走 CF 时常见, 524=后端 >100s)
     //   408 = request timeout (xAI 实测能命中)
-    if (status === 408 || status === 502 || status === 503 || status === 504 || status === 524 || status === 529) {
+    if (
+      status === 408 ||
+      status === 502 ||
+      status === 503 ||
+      status === 504 ||
+      status === 524 ||
+      status === 529
+    ) {
       return { kind: 'overloaded' }
     }
     // body 关键字: 余额耗尽 / 月度配额满 — 归 rate-limited 触发 fallback
@@ -365,7 +380,14 @@ function classifyError(err: unknown): ChatError {
       return { kind: 'rate-limited', retryAfterSec: retry ? Number(retry) : undefined }
     }
     // 跟顶层 APICallError 分支同口径: 5xx + Cloudflare gateway + request-timeout 都 overloaded
-    if (status === 408 || status === 502 || status === 503 || status === 504 || status === 524 || status === 529) {
+    if (
+      status === 408 ||
+      status === 502 ||
+      status === 503 ||
+      status === 504 ||
+      status === 524 ||
+      status === 529
+    ) {
       return { kind: 'overloaded' }
     }
   }

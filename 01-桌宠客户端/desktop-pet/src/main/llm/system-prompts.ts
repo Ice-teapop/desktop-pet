@@ -14,10 +14,7 @@
 
 import { LOCALE } from '../../shared/i18n'
 import type { UserProfile } from '../../shared/user-profile-types'
-import {
-  PERSONA_PRESET_LABELS,
-  PERSONA_PRESET_PROMPTS
-} from '../../shared/user-profile-types'
+import { PERSONA_PRESET_LABELS, PERSONA_PRESET_PROMPTS } from '../../shared/user-profile-types'
 import { getAllSkillsMetadata } from './skill-loader'
 
 // —— SYSTEM_PROMPT 主体 ————————————————————————————————
@@ -353,8 +350,7 @@ function periodLabel(hh: number): string {
     if (hh < 23) return 'night'
     return 'late night'
   }
-  if (hh >= 0 && hh < 5)
-    return '深夜（理论上该睡了，不要主动催；除非用户说困再温和提一句）'
+  if (hh >= 0 && hh < 5) return '深夜（理论上该睡了，不要主动催；除非用户说困再温和提一句）'
   if (hh < 8) return '早晨'
   if (hh < 12) return '上午'
   if (hh < 13) return '中午（吃饭时段）'

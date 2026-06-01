@@ -1,7 +1,8 @@
 /**
  * 一次性 userData 路径迁移 —— 旧版 .app / dev mode 把 credentials.bin 和
  * preferences.json 存在 ~/Library/Application Support/desktop-pet/（package.json
- * name 字段 fallback）。productName='DeskPet' 后路径变成 .../DeskPet/。
+ * name 字段 fallback）。productName='DeskPet-Furina' 后路径变成
+ * .../DeskPet-Furina/。
  *
  * 用 rename（不是 copy）—— 同 fs 是原子的，且能保证 legacy 那份不会作为「被遗忘的
  * 加密 key」永远残留在磁盘（cr 反复指出的同根问题：分裂的 userData 让重设 key 只清

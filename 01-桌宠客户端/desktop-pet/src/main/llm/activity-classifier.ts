@@ -118,10 +118,7 @@ export async function classifyApp(
  */
 const CLASSIFIER_TIMEOUT_MS = 5000
 
-async function doClassify(
-  app: AppIdentity,
-  anthropicApiKey: string
-): Promise<ActivityState> {
+async function doClassify(app: AppIdentity, anthropicApiKey: string): Promise<ActivityState> {
   try {
     const anthropic = createAnthropic({ apiKey: anthropicApiKey })
     const model = anthropic.languageModel(CLASSIFIER_MODEL)

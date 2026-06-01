@@ -45,8 +45,23 @@ import {
   READ_SYSTEM_PREFERENCE,
   executeTool,
   type ToolContext,
+  type ToolContentBlock,
   type ToolResultContent
 } from './tools'
+
+type ModelToolOutput =
+  | { type: 'text'; value: string }
+  | {
+      type: 'content'
+      value: Array<
+        | { type: 'text'; text: string }
+        | {
+            type: 'image-data'
+            data: string
+            mediaType: Extract<ToolContentBlock, { type: 'image' }>['source']['media_type']
+          }
+      >
+    }
 
 /**
  * 把 executeTool 的返回 ToolResultContent (string | ToolContentBlock[]) 转成 AI SDK 可见的
@@ -63,7 +78,7 @@ import {
  * + `return void 0` **静默丢弃** → tool_result 空 → AI 说"看不到截图". 改回 image-data
  * 走 anthropic adapter image case 正确编码进 tool_result.
  */
-function toModelOutput({ output }: { output: ToolResultContent }) {
+function toModelOutput({ output }: { output: ToolResultContent }): ModelToolOutput {
   if (typeof output === 'string') {
     return { type: 'text' as const, value: output }
   }
@@ -93,7 +108,7 @@ function wrapTool<S extends z.ZodTypeAny>(
   description: string,
   inputSchema: S,
   ctx: ToolContext
-) {
+): ToolSet[string] {
   return tool({
     description,
     inputSchema,
@@ -152,12 +167,7 @@ export function buildToolSetForContext(ctx: ToolContext): ToolSet {
   const tools: ToolSet = {
     view_screen: wrapTool('view_screen', VIEW_SCREEN.description, z.object({}), ctx),
     read_clipboard: wrapTool('read_clipboard', READ_CLIPBOARD.description, z.object({}), ctx),
-    current_app_info: wrapTool(
-      'current_app_info',
-      CURRENT_APP_INFO.description,
-      z.object({}),
-      ctx
-    ),
+    current_app_info: wrapTool('current_app_info', CURRENT_APP_INFO.description, z.object({}), ctx),
     open_url: wrapTool(
       'open_url',
       OPEN_URL.description,
@@ -193,7 +203,7 @@ export function buildToolSetForContext(ctx: ToolContext): ToolSet {
         name_pattern: z
           .string()
           .describe(
-            "Filename glob. Use * for any chars, ? for one char. Case-insensitive. " +
+            'Filename glob. Use * for any chars, ? for one char. Case-insensitive. ' +
               "Examples: 'idea.md', '*.ts', 'notes-*'"
           )
       }),
@@ -204,10 +214,7 @@ export function buildToolSetForContext(ctx: ToolContext): ToolSet {
       WRITE_FILE.description,
       z
         .object({
-          path: z
-            .string()
-            .optional()
-            .describe('Single-file mode: absolute or ~/-relative path'),
+          path: z.string().optional().describe('Single-file mode: absolute or ~/-relative path'),
           content: z.string().optional().describe('Single-file mode: full UTF-8 content'),
           files: z
             .array(
@@ -244,9 +251,7 @@ export function buildToolSetForContext(ctx: ToolContext): ToolSet {
                 .union([z.literal(1), z.literal(2), z.literal(3)])
                 .optional()
                 .describe('Heading level 1/2/3 (default 2)'),
-              paragraphs: z
-                .array(z.string())
-                .describe('Body paragraphs under this section')
+              paragraphs: z.array(z.string()).describe('Body paragraphs under this section')
             })
           )
           .describe(
@@ -285,10 +290,7 @@ export function buildToolSetForContext(ctx: ToolContext): ToolSet {
         path: z.string().describe('Absolute or ~/-relative path ending in .pdf'),
         title: z.string().optional().describe('Document title at top'),
         paragraphs: z.array(z.string()).describe('Body paragraphs in order'),
-        fontSize: z
-          .number()
-          .optional()
-          .describe('Body font size in pt (6-72, default 12)')
+        fontSize: z.number().optional().describe('Body font size in pt (6-72, default 12)')
       }),
       ctx
     ),
@@ -378,7 +380,10 @@ export function buildToolSetForContext(ctx: ToolContext): ToolSet {
                 dest: z
                   .string()
                   .describe('Destination. Trailing / or existing dir → src basename preserved.'),
-                overwrite: z.boolean().optional().describe('Per-item overwrite flag (default false)')
+                overwrite: z
+                  .boolean()
+                  .optional()
+                  .describe('Per-item overwrite flag (default false)')
               })
             )
             .optional()
@@ -396,7 +401,9 @@ export function buildToolSetForContext(ctx: ToolContext): ToolSet {
       'organize_files',
       ORGANIZE_FILES.description,
       z.object({
-        from: z.string().describe('Source directory (absolute or ~/-relative). Searched recursively.'),
+        from: z
+          .string()
+          .describe('Source directory (absolute or ~/-relative). Searched recursively.'),
         to: z.string().describe('Destination directory. Created with mkdir -p if missing.'),
         pattern: z
           .string()
@@ -417,9 +424,7 @@ export function buildToolSetForContext(ctx: ToolContext): ToolSet {
       'run_command',
       RUN_COMMAND.description,
       z.object({
-        command: z
-          .string()
-          .describe('Single-line shell command (no &&/;/|/> chaining preferred)'),
+        command: z.string().describe('Single-line shell command (no &&/;/|/> chaining preferred)'),
         cwd: z
           .string()
           .optional()
@@ -465,9 +470,7 @@ export function buildToolSetForContext(ctx: ToolContext): ToolSet {
       z.object({
         location: z
           .string()
-          .describe(
-            'City / region name in any language: 北京 / Beijing / "San Francisco, CA"'
-          )
+          .describe('City / region name in any language: 北京 / Beijing / "San Francisco, CA"')
       }),
       ctx
     ),
@@ -479,7 +482,7 @@ export function buildToolSetForContext(ctx: ToolContext): ToolSet {
           .string()
           .describe(
             'A concise single-line fact to remember (max 500 chars). ' +
-              "Format suggestion: state the fact, not the conversation context"
+              'Format suggestion: state the fact, not the conversation context'
           )
       }),
       ctx
@@ -524,10 +527,10 @@ export function buildToolSetForContext(ctx: ToolContext): ToolSet {
         persona_preset: z
           .enum(PERSONA_PRESETS)
           .describe(
-            "Pet persona style preset chosen by user. " +
-              "warm-friend = warm casual; professional = direct technical; " +
-              "witty-cold = sarcastic-but-helpful; playful = banter-heavy; " +
-              "custom = no preset, use persona_custom only"
+            'Pet persona style preset chosen by user. ' +
+              'warm-friend = warm casual; professional = direct technical; ' +
+              'witty-cold = sarcastic-but-helpful; playful = banter-heavy; ' +
+              'custom = no preset, use persona_custom only'
           ),
         persona_custom: z
           .string()

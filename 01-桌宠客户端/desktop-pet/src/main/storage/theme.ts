@@ -142,9 +142,7 @@ export function lookupState(name: string): ThemeStateDef | null {
   if (!cachedTheme) return null
   // 直接查 states / transitions / reactions
   const direct =
-    cachedTheme.states[name] ||
-    cachedTheme.transitions[name] ||
-    cachedTheme.reactions[name]
+    cachedTheme.states[name] || cachedTheme.transitions[name] || cachedTheme.reactions[name]
   if (direct) return direct
   // mini-* 前缀路由到 mini namespace
   if (name.startsWith('mini-')) {

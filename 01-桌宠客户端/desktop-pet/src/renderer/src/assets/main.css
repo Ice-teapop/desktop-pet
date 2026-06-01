@@ -175,9 +175,13 @@ body,
   bottom: 32px;  /* sprite 缩到 0.65 后脚底大致在这位置 */
   width: 70px;
   height: 12px;
-  transform: translateX(-50%);
+  transform:
+    translateX(calc(-50% + var(--pet-shadow-x, 0px)))
+    translateY(var(--pet-shadow-y, 0px))
+    scaleX(var(--pet-shadow-scale-x, 1));
   background: radial-gradient(ellipse 50% 50% at 50% 50%, rgba(0, 0, 0, 0.32) 0%, rgba(0, 0, 0, 0.14) 60%, transparent 100%);
-  filter: blur(1.5px);
+  filter: blur(var(--pet-shadow-blur, 1.5px));
+  opacity: var(--pet-shadow-opacity, 0.78);
 }
 .pet-shadow.pet-shadow-mini::after {
   display: none;  /* mini 模式无阴影 (80×80 没空间) */
@@ -199,7 +203,7 @@ body,
    * Furina 是 chibi 非像素艺术, pixelated 强制最近邻采样 → 锯齿 + 视觉卡顿)
    * v0.5.0 #2: scale 缩到 0.65 (240×240 容器内 sprite 156×156 视觉), 锚脚底
    * v0.5.0 多分身 P0: overflow: visible 改 hidden — 老 crab 时代 overflow visible
-   * 是给 SVG 内 eye/body group 飞出 viewBox 留余地, Furina sprite sheet 4500×300
+   * 是给 SVG 内分组飞出 viewBox 留余地, Furina sprite sheet 4500×300
    * 一旦 inline svg 出 visible → 横向漏 15 帧 Furina 全展开 → 用户看到"大量分身". */
   transform: scale(0.65);
   transform-origin: 50% 100%;
@@ -1097,10 +1101,11 @@ body,
 .pet-busy-ring {
   position: absolute;
   inset: 6px;
-  border: 2px solid var(--coral);
+  border: 2px solid var(--ice);
   pointer-events: none;
   z-index: 3;
   clip-path: var(--clip-pixel-card);
+  filter: drop-shadow(0 0 3px rgba(69, 174, 251, 0.7));
   animation: pet-busy-ring 1.4s steps(2) infinite;
 }
 @keyframes pet-busy-ring {
@@ -1113,13 +1118,15 @@ body,
   left: 50%;
   top: 14px;
   transform: translateX(-50%);
-  background: var(--ink);
-  color: #fff;
+  background: var(--royal);
+  color: var(--gold-faint);
   font-size: 11px;
   letter-spacing: 0.3px;
   padding: 5px 10px;
   white-space: nowrap;
   z-index: 4;
+  border: 2px solid var(--gold);
+  filter: drop-shadow(2px 2px 0 var(--royal-deep));
   clip-path: var(--clip-pixel-card);
   animation:
     pet-pop-in 0.2s steps(3) both,
@@ -1139,13 +1146,13 @@ body,
   left: 50%;
   top: 8px;
   transform: translateX(-50%);
-  background: var(--paper);
-  color: var(--ink);
+  background: var(--ice-faint);
+  color: var(--royal-dark);
   font-size: 12px;
   padding: 6px 10px;
   white-space: nowrap;
-  border: 2px solid var(--coral);
-  filter: drop-shadow(2px 2px 0 var(--coral-deep));
+  border: 2px solid var(--ice);
+  filter: drop-shadow(2px 2px 0 var(--royal-deep));
   clip-path: var(--clip-pixel-card);
   z-index: 4;
   animation:

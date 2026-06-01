@@ -31,8 +31,4 @@ export interface ApprovalRequest {
 }
 
 /** 用户决策。'trust-dir-*' 仅在请求带 path 时可选。 */
-export type ApprovalDecision =
-  | 'deny'
-  | 'allow-once'
-  | 'trust-dir-session'
-  | 'trust-dir-permanent'
+export type ApprovalDecision = 'deny' | 'allow-once' | 'trust-dir-session' | 'trust-dir-permanent'

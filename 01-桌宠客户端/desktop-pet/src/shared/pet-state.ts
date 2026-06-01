@@ -63,12 +63,7 @@ export type PetState = FurinaCanonicalState | LegacyAliasState
  *  Stage C: grooving/celebrating/ultrathink 三个 alias 收掉; thinking 也移除 (chat:submit
  *  会自动 setState('thinking'), LLM 在 chat 中调 set_pet_animation('thinking') 永远 block
  *  → 重复 surface 反而让 LLM 误以为失败). 留 5 个真正 LLM 可触发的动画. */
-export type PetAnimation =
-  | 'juggling'
-  | 'sweeping'
-  | 'conducting'
-  | 'carrying'
-  | 'happy'
+export type PetAnimation = 'juggling' | 'sweeping' | 'conducting' | 'carrying' | 'happy'
 
 export const PET_ANIMATIONS: ReadonlyArray<PetAnimation> = [
   'juggling',
@@ -81,12 +76,6 @@ export const PET_ANIMATIONS: ReadonlyArray<PetAnimation> = [
 export function isPetAnimation(s: string): s is PetAnimation {
   return PET_ANIMATIONS.includes(s as PetAnimation)
 }
-
-/**
- * v0.5.0 cross-fade 单边时长 (规格 §5.3 万能顺滑剂 80-120ms).
- * Stage A 暂用 100ms; Stage B 引入 render 层 crossfade 用此常量.
- */
-export const RENDERER_FADE_HALF_MS = 100
 
 /**
  * v0.5.0: 合法 state 集合 (canonical + 老别名). state-machine.ts ALIAS_MAP 把

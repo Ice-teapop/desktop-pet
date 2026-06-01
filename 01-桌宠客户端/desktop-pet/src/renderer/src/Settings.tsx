@@ -63,9 +63,7 @@ function Settings(): React.JSX.Element {
 
   // —— Per-provider inline key 编辑 drafts ——
   // 用 Record<Provider, string> 让 6 个 provider 各自独立 input draft，互不干扰。
-  const [providerKeyDrafts, setProviderKeyDrafts] = useState<
-    Partial<Record<Provider, string>>
-  >({})
+  const [providerKeyDrafts, setProviderKeyDrafts] = useState<Partial<Record<Provider, string>>>({})
   const [tavilyKeyDraft, setTavilyKeyDraft] = useState('')
 
   // —— M5-2 Memory 编辑 ——
@@ -86,9 +84,7 @@ function Settings(): React.JSX.Element {
   }
 
   useEffect(() => {
-    const offProviderKeyStates = window.api.onProviderKeyStates((s) =>
-      setProviderKeyStates(s)
-    )
+    const offProviderKeyStates = window.api.onProviderKeyStates((s) => setProviderKeyStates(s))
     const offSelectedModel = window.api.onSelectedModelState((s) => setSelectedModel(s))
     const offAvailableModels = window.api.onAvailableModels((m) => setModelsByProvider(m))
     const offTavily = window.api.onTavilyState((s) => setTavilyState(s))
@@ -187,7 +183,9 @@ function Settings(): React.JSX.Element {
   const handleRevealAudit = (): void => window.api.revealAuditLogInFinder()
   const handleClearAudit = async (): Promise<void> => {
     const r = await window.api.clearAuditLog()
-    showToast(r.ok ? t('settings.toast.audit_cleared') : t('settings.toast.audit_clear_failed', r.error))
+    showToast(
+      r.ok ? t('settings.toast.audit_cleared') : t('settings.toast.audit_clear_failed', r.error)
+    )
   }
 
   // —— M5-2 Memory actions（inline 编辑） ——
@@ -200,7 +198,10 @@ function Settings(): React.JSX.Element {
     setMemoryLoaded(true)
   }
   useEffect(() => {
-    void refreshMemory()
+    const tid = setTimeout(() => {
+      void refreshMemory()
+    }, 0)
+    return () => clearTimeout(tid)
   }, [])
   const handleMemoryChange = (v: string): void => {
     setMemoryDraft(v)
@@ -229,14 +230,15 @@ function Settings(): React.JSX.Element {
   }
   const handleClearChatHistory = async (): Promise<void> => {
     const r = await window.api.clearChatHistory()
-    showToast(r.ok ? t('settings.toast.chat_history_cleared') : t('settings.toast.chat_history_clear_failed', r.error))
+    showToast(
+      r.ok
+        ? t('settings.toast.chat_history_cleared')
+        : t('settings.toast.chat_history_clear_failed', r.error)
+    )
   }
 
   // —— M5-3 profile actions ——
-  const updateProfileField = <K extends keyof UserProfile>(
-    key: K,
-    value: UserProfile[K]
-  ): void => {
+  const updateProfileField = <K extends keyof UserProfile>(key: K, value: UserProfile[K]): void => {
     if (!profile) return
     setProfile({ ...profile, [key]: value })
     setProfileDirty(true)
@@ -264,7 +266,11 @@ function Settings(): React.JSX.Element {
   // —— Trusted dirs ——
   const handleRevokePersistent = async (dir: string): Promise<void> => {
     const r = await window.api.revokeTrustedDirPersistent(dir)
-    showToast(r.ok ? t('settings.toast.persistent_revoked', dir) : t('settings.toast.persistent_revoke_failed', r.error))
+    showToast(
+      r.ok
+        ? t('settings.toast.persistent_revoked', dir)
+        : t('settings.toast.persistent_revoke_failed', r.error)
+    )
   }
   const handleRevokeAllSession = (): void => {
     window.api.revokeAllSessionTrustedDirs()
@@ -290,16 +296,9 @@ function Settings(): React.JSX.Element {
           const configured = providerKeyStates?.[providerId] ?? false
           const draft = providerKeyDrafts[providerId] || ''
           const isActive = configured && selectedModel?.provider === providerId
-          const state = isActive
-            ? 'active'
-            : configured
-              ? 'configured'
-              : 'unconfigured'
+          const state = isActive ? 'active' : configured ? 'configured' : 'unconfigured'
           return (
-            <div
-              key={providerId}
-              className={`provider-card provider-card--${state}`}
-            >
+            <div key={providerId} className={`provider-card provider-card--${state}`}>
               <div className="row provider-card-header">
                 <label>
                   {isActive && <span className="chip-current">{t('settings.chip_current')}</span>}
@@ -325,42 +324,44 @@ function Settings(): React.JSX.Element {
                  装且未连过任何 provider 时). metadata (label / 推理 / tool / vision
                  tag) 仍走静态查询, 动态 list 里的新 modelId 没 metadata 时直接显
                  raw id 不带 tag. */}
-              {isActive && selectedModel && (() => {
-                const staticEntries = modelsForProvider(providerId)
-                const dynamicIds = modelsByProvider[providerId] ?? []
-                const modelIds =
-                  dynamicIds.length > 0 ? dynamicIds : staticEntries.map((e) => e.id)
-                const metaById = new Map(staticEntries.map((e) => [e.id, e]))
-                // 当前 selectedModel.modelId 不在列表里时显示一条占位避免 select 空 value
-                const idsWithCurrent = modelIds.includes(selectedModel.modelId)
-                  ? modelIds
-                  : [selectedModel.modelId, ...modelIds]
-                return (
-                  <div className="row">
-                    <label>{t('settings.current_model')}</label>
-                    <select
-                      value={selectedModel.modelId}
-                      onChange={(e) => handleModelChange(e.target.value)}
-                      className="profile-input"
-                    >
-                      {idsWithCurrent.map((id) => {
-                        const meta = metaById.get(id)
-                        const tags: string[] = []
-                        if (meta?.isReasoning) tags.push(t('settings.tag_reasoning'))
-                        if (meta && !meta.supportsTools) tags.push(t('settings.tag_no_tool'))
-                        if (meta && !meta.supportsVision) tags.push(t('settings.tag_no_vision'))
-                        const label = meta?.label ?? id
-                        return (
-                          <option key={id} value={id}>
-                            {label}
-                            {tags.length > 0 ? ` (${tags.join(' / ')})` : ''}
-                          </option>
-                        )
-                      })}
-                    </select>
-                  </div>
-                )
-              })()}
+              {isActive &&
+                selectedModel &&
+                (() => {
+                  const staticEntries = modelsForProvider(providerId)
+                  const dynamicIds = modelsByProvider[providerId] ?? []
+                  const modelIds =
+                    dynamicIds.length > 0 ? dynamicIds : staticEntries.map((e) => e.id)
+                  const metaById = new Map(staticEntries.map((e) => [e.id, e]))
+                  // 当前 selectedModel.modelId 不在列表里时显示一条占位避免 select 空 value
+                  const idsWithCurrent = modelIds.includes(selectedModel.modelId)
+                    ? modelIds
+                    : [selectedModel.modelId, ...modelIds]
+                  return (
+                    <div className="row">
+                      <label>{t('settings.current_model')}</label>
+                      <select
+                        value={selectedModel.modelId}
+                        onChange={(e) => handleModelChange(e.target.value)}
+                        className="profile-input"
+                      >
+                        {idsWithCurrent.map((id) => {
+                          const meta = metaById.get(id)
+                          const tags: string[] = []
+                          if (meta?.isReasoning) tags.push(t('settings.tag_reasoning'))
+                          if (meta && !meta.supportsTools) tags.push(t('settings.tag_no_tool'))
+                          if (meta && !meta.supportsVision) tags.push(t('settings.tag_no_vision'))
+                          const label = meta?.label ?? id
+                          return (
+                            <option key={id} value={id}>
+                              {label}
+                              {tags.length > 0 ? ` (${tags.join(' / ')})` : ''}
+                            </option>
+                          )
+                        })}
+                      </select>
+                    </div>
+                  )
+                })()}
 
               <div className="row">
                 <input
@@ -390,7 +391,8 @@ function Settings(): React.JSX.Element {
                 </button>
               </div>
               <p className="hint">
-                {t('settings.registration')}<code>{info.registrationUrl}</code>
+                {t('settings.registration')}
+                <code>{info.registrationUrl}</code>
               </p>
               {/* 改动 5 [#5] 余额 / 用量行 — 只 configured 才显示 */}
               {configured && (
@@ -399,7 +401,8 @@ function Settings(): React.JSX.Element {
                   {(() => {
                     const b = providerBalances[providerId]
                     const loading = balanceLoading[providerId]
-                    if (loading) return <span className="hint">{t('settings.balance_loading')}</span>
+                    if (loading)
+                      return <span className="hint">{t('settings.balance_loading')}</span>
                     if (b?.kind === 'ok') {
                       return (
                         <>
@@ -446,10 +449,7 @@ function Settings(): React.JSX.Element {
                     }
                     // 首次, 还没拉
                     return info.hasPublicBalanceApi ? (
-                      <button
-                        className="btn-link"
-                        onClick={() => handleFetchBalance(providerId)}
-                      >
+                      <button className="btn-link" onClick={() => handleFetchBalance(providerId)}>
                         {t('settings.balance_check')}
                       </button>
                     ) : (
@@ -470,9 +470,7 @@ function Settings(): React.JSX.Element {
                 </div>
               )}
               {isActive && (
-                <p className="hint provider-fallback-hint">
-                  {t('settings.fallback_hint')}
-                </p>
+                <p className="hint provider-fallback-hint">{t('settings.fallback_hint')}</p>
               )}
             </div>
           )
@@ -490,7 +488,9 @@ function Settings(): React.JSX.Element {
             <span
               className={`badge ${tavilyState?.kind === 'configured' ? 'badge-ok' : 'badge-muted'}`}
             >
-              {tavilyState?.kind === 'configured' ? t('settings.tavily.configured') : t('settings.tavily.unconfigured')}
+              {tavilyState?.kind === 'configured'
+                ? t('settings.tavily.configured')
+                : t('settings.tavily.unconfigured')}
             </span>
           </div>
           <p className="hint">{t('settings.tavily.hint')}</p>
@@ -522,7 +522,8 @@ function Settings(): React.JSX.Element {
             </button>
           </div>
           <p className="hint">
-            {t('settings.tavily.registration')}<code>tavily.com</code>
+            {t('settings.tavily.registration')}
+            <code>tavily.com</code>
           </p>
         </div>
       </section>
@@ -604,7 +605,9 @@ function Settings(): React.JSX.Element {
         )}
         {visionState?.kind === 'enabled' && (
           <div className="row">
-            <button onClick={() => handleToggleVision(false)}>{t('settings.agentic.disable')}</button>
+            <button onClick={() => handleToggleVision(false)}>
+              {t('settings.agentic.disable')}
+            </button>
             <button onClick={handleRevokeVision} className="danger">
               {t('settings.agentic.revoke')}
             </button>
@@ -614,7 +617,8 @@ function Settings(): React.JSX.Element {
           <summary>{t('settings.agentic.tools_summary')}</summary>
           <ul className="tool-list">
             <li>
-              <b>view_screen</b> / read_clipboard / current_app_info {t('settings.agentic.tools_li_1')}
+              <b>view_screen</b> / read_clipboard / current_app_info{' '}
+              {t('settings.agentic.tools_li_1')}
             </li>
             <li>
               <b>open_url</b> / copy_to_clipboard {t('settings.agentic.tools_li_2')}
@@ -629,7 +633,8 @@ function Settings(): React.JSX.Element {
               <b>run_command</b> {t('settings.agentic.tools_li_5')}
             </li>
             <li>
-              <b>open_system_settings</b> / read_system_preference {t('settings.agentic.tools_li_6')}
+              <b>open_system_settings</b> / read_system_preference{' '}
+              {t('settings.agentic.tools_li_6')}
             </li>
             <li>
               <b>fetch_url</b> / web_search {t('settings.agentic.tools_li_7')}
@@ -661,7 +666,9 @@ function Settings(): React.JSX.Element {
         <div className="row">
           <label>{t('settings.trust.session_label')}</label>
           <span className="badge badge-muted">
-            {trustedDirs ? t('settings.trust.session_count', String(trustedDirs.session.length)) : '...'}
+            {trustedDirs
+              ? t('settings.trust.session_count', String(trustedDirs.session.length))
+              : '...'}
           </span>
           <button
             onClick={handleRevokeAllSession}
@@ -697,10 +704,10 @@ function Settings(): React.JSX.Element {
           <>
             <div className="row">
               <label>{t('settings.profile.status_label')}</label>
-              <span
-                className={`badge ${profile.setupCompleted ? 'badge-ok' : 'badge-warn'}`}
-              >
-                {profile.setupCompleted ? t('settings.profile.status_set') : t('settings.profile.status_unset')}
+              <span className={`badge ${profile.setupCompleted ? 'badge-ok' : 'badge-warn'}`}>
+                {profile.setupCompleted
+                  ? t('settings.profile.status_set')
+                  : t('settings.profile.status_unset')}
               </span>
             </div>
             <div className="row">
@@ -750,11 +757,7 @@ function Settings(): React.JSX.Element {
               />
             </div>
             <div className="row">
-              <button
-                onClick={handleSaveProfile}
-                disabled={!profileDirty}
-                className="primary"
-              >
+              <button onClick={handleSaveProfile} disabled={!profileDirty} className="primary">
                 {t('settings.profile.save')}
               </button>
               <button onClick={handleResetWizard} className="danger">
@@ -784,11 +787,7 @@ function Settings(): React.JSX.Element {
           <button onClick={handleClearMemory} className="danger">
             {t('settings.memory.clear_all')}
           </button>
-          <button
-            onClick={handleSaveMemory}
-            disabled={!memoryDirty}
-            className="primary"
-          >
+          <button onClick={handleSaveMemory} disabled={!memoryDirty} className="primary">
             {t('settings.memory.save')}
           </button>
         </div>
@@ -811,9 +810,7 @@ function Settings(): React.JSX.Element {
           <img src={aboutHeroSvg} alt="DeskPet hero" />
         </div>
         <p>{t('settings.about.body')}</p>
-        <p className="hint">
-          {t('settings.about.shortcuts', '⌘+,', '⌘+⇧+P', '⌘+Q')}
-        </p>
+        <p className="hint">{t('settings.about.shortcuts', '⌘+,', '⌘+⇧+P', '⌘+Q')}</p>
       </section>
 
       {toast && <div className="toast">{toast}</div>}

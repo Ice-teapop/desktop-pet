@@ -7,7 +7,7 @@
  *
  * 加载优先级：
  *   1. process.env.TAVILY_API_KEY  （dev 用）
- *   2. 加密文件 ~/Library/Application Support/DeskPet/tavily-key.bin
+ *   2. 加密文件 app.getPath('userData')/tavily-key.bin
  *   3. null  → web_search tool 不暴露给 AI
  */
 import { app, safeStorage } from 'electron'

@@ -4,7 +4,8 @@
  * 字段：ts / tool / args_summary / result / approval / detail
  *
  * 性质：
- *  - 仅本地 ~/Library/Application Support/DeskPet/audit.log（chmod 600）
+ *  - 仅本地 app.getPath('userData')/audit.log（当前 Furina build 默认在
+ *    ~/Library/Application Support/DeskPet-Furina/audit.log，chmod 600）
  *  - 不上传任何地方
  *  - 自动滚动：超过 5MB 时 rename .1 备份并新建
  *  - 用户可在文件系统直接删；M5 设置面板会加 "清除日志" 按钮

@@ -193,7 +193,11 @@ export class PetStateMachine {
   /** 任何用户活动唤醒. sleep chain 任意阶段都能 wake */
   wakeFromSleep(): void {
     // base==='sleeping' 或 current 在 collapse-sleep/sleeping 时唤
-    if (this.base === 'sleeping' || this.current === 'sleeping' || this.current === 'collapse-sleep') {
+    if (
+      this.base === 'sleeping' ||
+      this.current === 'sleeping' ||
+      this.current === 'collapse-sleep'
+    ) {
       this.setState('wake' as PetState)
     }
   }
@@ -215,7 +219,8 @@ export class PetStateMachine {
    * animation 后调它, 现在 B 类已经自带 returnTo='idle' 不需要外部 schedule.
    * 保留是为编译兼容, 内部 no-op. Stage C 清理 call sites.
    */
-  scheduleReturnToIdle(_holdMs: number): void {
+  scheduleReturnToIdle(holdMs: number): void {
+    void holdMs
     // intentionally no-op; B 类 setState 自带 returnTo timer
   }
 
