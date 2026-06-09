@@ -68,6 +68,95 @@ function safeChildEnv(): Record<string, string> {
   return out
 }
 
+function isSameOrInsidePath(candidate: string, root: string): boolean {
+  const rel = path.relative(path.resolve(root), path.resolve(candidate))
+  return rel === '' || (!!rel && !rel.startsWith('..') && !path.isAbsolute(rel))
+}
+
+function desktopPath(): string | null {
+  try {
+    return path.resolve(app.getPath('desktop'))
+  } catch {
+    const home = process.env.HOME
+    return home ? path.resolve(home, 'Desktop') : null
+  }
+}
+
+async function syncDirectoryBestEffort(dir: string): Promise<void> {
+  let fh: fs.FileHandle | null = null
+  try {
+    fh = await fs.open(dir, 'r')
+    await fh.sync()
+  } catch {
+    // Some platforms/filesystems do not allow fsync on directories.
+  } finally {
+    if (fh) {
+      await fh.close().catch(() => {})
+    }
+  }
+}
+
+async function nudgeDesktopViewBestEffort(absPath: string): Promise<void> {
+  if (process.platform !== 'darwin') return
+  const desktop = desktopPath()
+  if (!desktop || !isSameOrInsidePath(absPath, desktop)) return
+  const dir = path.dirname(absPath)
+  try {
+    const stat = await fs.stat(dir)
+    await fs.utimes(dir, stat.atime, new Date())
+  } catch {
+    // Visibility nudge is best-effort; file creation already succeeded.
+  }
+}
+
+async function materializePathChange(absPath: string): Promise<void> {
+  const parent = path.dirname(absPath)
+  await syncDirectoryBestEffort(parent)
+  await nudgeDesktopViewBestEffort(absPath)
+}
+
+async function materializeExistingPath(absPath: string): Promise<void> {
+  let fh: fs.FileHandle | null = null
+  try {
+    fh = await fs.open(absPath, 'r')
+    await fh.sync()
+  } catch {
+    // The parent sync below is the important visibility signal.
+  } finally {
+    if (fh) {
+      await fh.close().catch(() => {})
+    }
+  }
+  await materializePathChange(absPath)
+}
+
+async function writeFileAndMaterialize(
+  absPath: string,
+  data: string | Buffer,
+  options: { encoding?: BufferEncoding; mode?: number } = {}
+): Promise<void> {
+  const fh = await fs.open(absPath, 'w', options.mode)
+  let failed = false
+  try {
+    if (typeof data === 'string') {
+      await fh.writeFile(data, { encoding: options.encoding ?? 'utf8' })
+    } else {
+      await fh.writeFile(data)
+    }
+    await fh.sync().catch(() => {})
+  } catch (err) {
+    failed = true
+    throw err
+  } finally {
+    if (failed) {
+      await fh.close().catch(() => {})
+    } else {
+      await fh.close()
+    }
+  }
+  await materializePathChange(absPath)
+}
+
 /** LLM-agnostic Tool 定义 —— 用 JSON Schema input_schema 兼容 Anthropic / OpenAI / MCP
  *  Property 类型支持嵌套（array items / object properties），让 write_docx /
  *  write_xlsx 这类结构化 tool 能描述 sections / sheets 的内部 shape. */
@@ -1291,16 +1380,18 @@ async function requestPathApprovalWithPreview(
 async function requestPathApproval(
   rawPath: string,
   tool: string,
-  summaryVerb: string
+  summaryVerb: string,
+  pathIsDir = false
 ): Promise<{ ok: true; absPath: string } | { ok: false; error: string }> {
-  return requestPathApprovalInner(rawPath, tool, summaryVerb, undefined)
+  return requestPathApprovalInner(rawPath, tool, summaryVerb, undefined, pathIsDir)
 }
 
 async function requestPathApprovalInner(
   rawPath: string,
   tool: string,
   summaryVerb: string,
-  contentPreview: string | undefined
+  contentPreview: string | undefined,
+  pathIsDir = false
 ): Promise<{ ok: true; absPath: string } | { ok: false; error: string }> {
   const safety = await isPathSafe(rawPath)
   if (!safety.ok) {
@@ -1326,6 +1417,7 @@ async function requestPathApprovalInner(
     tool,
     summary: `AI 想${summaryVerb}：${safety.absPath}`,
     path: safety.absPath,
+    pathIsDir,
     ...(contentPreview ? { contentPreview } : {})
   })
   if (decision === 'deny') {
@@ -1611,7 +1703,7 @@ async function execWriteFile(input: unknown): Promise<ToolResult> {
     )
     if (!gate.ok) return gate
     try {
-      await fs.writeFile(gate.absPath, it.content, { encoding: 'utf8', mode: 0o644 })
+      await writeFileAndMaterialize(gate.absPath, it.content, { encoding: 'utf8', mode: 0o644 })
       return { ok: true, content: `Wrote ${it.content.length} chars to ${gate.absPath}` }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
@@ -1663,7 +1755,7 @@ async function execWriteFile(input: unknown): Promise<ToolResult> {
   const failed: { path: string; err: string }[] = []
   for (const r of resolved) {
     try {
-      await fs.writeFile(r.absPath, r.content, { encoding: 'utf8', mode: 0o644 })
+      await writeFileAndMaterialize(r.absPath, r.content, { encoding: 'utf8', mode: 0o644 })
       written.push({ path: r.absPath, bytes: r.content.length })
       await logToolAction({
         tool: 'write_file',
@@ -1827,7 +1919,7 @@ async function execWriteDocx(input: unknown): Promise<ToolResult> {
   try {
     const doc = new Document({ sections: [{ children }] })
     const buffer = await Packer.toBuffer(doc)
-    await fs.writeFile(gate.absPath, buffer, { mode: 0o644 })
+    await writeFileAndMaterialize(gate.absPath, buffer, { mode: 0o644 })
     return {
       ok: true,
       content: `Wrote ${buffer.length} bytes (.docx, ${sections.length} sections, ${totalChars} chars) to ${gate.absPath}`
@@ -1942,7 +2034,7 @@ async function execWriteXlsx(input: unknown): Promise<ToolResult> {
       }
     }
     const buffer = await wb.xlsx.writeBuffer()
-    await fs.writeFile(gate.absPath, Buffer.from(buffer), { mode: 0o644 })
+    await writeFileAndMaterialize(gate.absPath, Buffer.from(buffer), { mode: 0o644 })
     return {
       ok: true,
       content: `Wrote ${buffer.byteLength} bytes (.xlsx, ${sheets.length} sheets, ${totalRows} rows) to ${gate.absPath}`
@@ -2058,7 +2150,7 @@ async function execWritePdf(input: unknown): Promise<ToolResult> {
     }
     doc.end()
     const buffer = await done
-    await fs.writeFile(gate.absPath, buffer, { mode: 0o644 })
+    await writeFileAndMaterialize(gate.absPath, buffer, { mode: 0o644 })
     return {
       ok: true,
       content: `Wrote ${buffer.length} bytes (.pdf, ${paragraphs.length} paragraphs, ${totalChars} chars${cjkFontRegistered ? `, CJK font: ${cjkFontRegistered.split('/').pop()}` : ', ASCII only'}) to ${gate.absPath}`
@@ -2077,10 +2169,11 @@ async function execCreateDirectory(input: unknown): Promise<ToolResult> {
   if (typeof rawPath !== 'string') {
     return { ok: false, error: 'path must be a string' }
   }
-  const gate = await requestPathApproval(rawPath, 'create_directory', '创建目录')
+  const gate = await requestPathApproval(rawPath, 'create_directory', '创建目录', true)
   if (!gate.ok) return gate
   try {
     await fs.mkdir(gate.absPath, { recursive: true })
+    await materializeExistingPath(gate.absPath)
     return { ok: true, content: `Created directory: ${gate.absPath}` }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
@@ -2114,7 +2207,8 @@ async function execFindFiles(input: unknown): Promise<ToolResult> {
     const decision = await requestApproval({
       tool: 'find_files',
       summary: `AI 想在目录里搜索文件：${rootSafety.absPath}`,
-      path: rootSafety.absPath
+      path: rootSafety.absPath,
+      pathIsDir: true
     })
     if (decision === 'deny') {
       return { ok: false, error: '用户拒绝在该目录搜索' }
@@ -2421,6 +2515,8 @@ async function doMove(
   }
   try {
     await fs.rename(srcAbs, finalDest)
+    await materializePathChange(srcAbs)
+    await materializeExistingPath(finalDest)
     return { ok: true, msg: `Moved: ${srcAbs} → ${finalDest}` }
   } catch (err) {
     const e = err as NodeJS.ErrnoException
@@ -2429,6 +2525,8 @@ async function doMove(
     try {
       await fs.cp(srcAbs, finalDest, { recursive: true, force: overwrite })
       await fs.rm(srcAbs, { recursive: true, force: true })
+      await materializePathChange(srcAbs)
+      await materializeExistingPath(finalDest)
       return { ok: true, msg: `Moved (cross-fs): ${srcAbs} → ${finalDest}` }
     } catch (err2) {
       const msg = err2 instanceof Error ? err2.message : String(err2)
@@ -2533,7 +2631,8 @@ async function execMoveFile(input: unknown): Promise<ToolResult> {
         tool: 'move_file',
         argsSummary: `batch_id=${batchId} src=${r.srcAbs} dest=${r.finalDest}`,
         result: 'ok',
-        detail: `approved: ${decision}${r.overwrite ? ' overwrite' : ''}`
+        // C4-fix: trusted 静默路径没弹 modal, 别记假的 'approved: allow-once'
+        detail: `${allTrusted ? 'auto-trusted' : `approved: ${decision}`}${r.overwrite ? ' overwrite' : ''}`
       })
     } else {
       failed.push({ pair, err: res.err })
@@ -2581,6 +2680,7 @@ async function doCopy(
   }
   try {
     await fs.cp(srcAbs, finalDest, { recursive: true, force: overwrite })
+    await materializeExistingPath(finalDest)
     return { ok: true, msg: `Copied: ${srcAbs} → ${finalDest}` }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
@@ -2675,7 +2775,8 @@ async function execCopyFile(input: unknown): Promise<ToolResult> {
         tool: 'copy_file',
         argsSummary: `batch_id=${batchId} src=${r.srcAbs} dest=${r.finalDest}`,
         result: 'ok',
-        detail: `approved: ${decision}${r.overwrite ? ' overwrite' : ''}`
+        // C4-fix: trusted 静默路径没弹 modal, 别记假的 'approved: allow-once'
+        detail: `${allTrusted ? 'auto-trusted' : `approved: ${decision}`}${r.overwrite ? ' overwrite' : ''}`
       })
     } else {
       failed.push({ pair, err: res.err })
@@ -2757,7 +2858,9 @@ async function execOrganizeFiles(input: unknown): Promise<ToolResult> {
   let entriesScanned = 0
   let aborted = false
   async function walk(dir: string, depthLeft: number): Promise<void> {
-    if (aborted || depthLeft < 0 || matches.length >= ORGANIZE_MAX_MATCHES) return
+    // C6-fix: 多收 1 个 (> MAX 而非 >= MAX) 以区分"恰好 MAX"与"超过 MAX",
+    // 否则恰好 MAX 个匹配会被下面误判成"太多"拒绝.
+    if (aborted || depthLeft < 0 || matches.length > ORGANIZE_MAX_MATCHES) return
     if (Date.now() - startTime > FIND_TIMEOUT_MS) {
       aborted = true
       return
@@ -2769,7 +2872,7 @@ async function execOrganizeFiles(input: unknown): Promise<ToolResult> {
       return
     }
     for (const e of entries) {
-      if (aborted || matches.length >= ORGANIZE_MAX_MATCHES) return
+      if (aborted || matches.length > ORGANIZE_MAX_MATCHES) return
       entriesScanned++
       if (e.name.startsWith('.') && e.name !== '.') continue
       if (e.isDirectory() && FIND_FILES_SKIP_DIRS.has(e.name)) continue
@@ -2789,11 +2892,11 @@ async function execOrganizeFiles(input: unknown): Promise<ToolResult> {
       content: `No files matching "${pattern}" under ${fromSafety.absPath}. Nothing to organize.`
     }
   }
-  if (matches.length >= ORGANIZE_MAX_MATCHES) {
+  if (matches.length > ORGANIZE_MAX_MATCHES) {
     return {
       ok: false,
       error:
-        `Too many matches (≥${ORGANIZE_MAX_MATCHES}). Narrow pattern or split into batches ` +
+        `Too many matches (>${ORGANIZE_MAX_MATCHES}). Narrow pattern or split into batches ` +
         `via direct move_file/copy_file.`
     }
   }
@@ -2811,14 +2914,17 @@ async function execOrganizeFiles(input: unknown): Promise<ToolResult> {
       ? { copies: pairs.map((p) => ({ src: p.src, dest: p.dest, overwrite })) }
       : { moves: pairs.map((p) => ({ src: p.src, dest: p.dest, overwrite })) }
 
+  // C3-fix: 审计按 dispatch 真实结果记 —— 老逻辑在 move/copy 执行前就记 'ok',
+  // 若随后整批被拒/失败, organize 审计仍显示成功.
+  const result =
+    action === 'copy' ? await execCopyFile(dispatchInput) : await execMoveFile(dispatchInput)
   await logToolAction({
     tool: 'organize_files',
     argsSummary: `from=${fromSafety.absPath} to=${toBase} pattern=${pattern} action=${action} count=${pairs.length}`,
-    result: 'ok',
+    result: result.ok ? 'ok' : 'error',
     detail: `dispatched to ${action === 'copy' ? 'copy_file' : 'move_file'}; matches=${matches.length} scanned=${entriesScanned}`
   })
-
-  return action === 'copy' ? await execCopyFile(dispatchInput) : await execMoveFile(dispatchInput)
+  return result
 }
 
 async function execListDirectory(input: unknown): Promise<ToolResult> {
@@ -2829,7 +2935,7 @@ async function execListDirectory(input: unknown): Promise<ToolResult> {
   if (typeof rawPath !== 'string') {
     return { ok: false, error: 'path must be a string' }
   }
-  const gate = await requestPathApproval(rawPath, 'list_directory', '列出目录')
+  const gate = await requestPathApproval(rawPath, 'list_directory', '列出目录', true)
   if (!gate.ok) return gate
   try {
     const stat = await fs.stat(gate.absPath)
@@ -2886,12 +2992,21 @@ async function execRunCommand(input: unknown): Promise<ToolResult> {
   if (check.level === 'safe') {
     const tokens = tokenizeSafeCommand(cmd)
     if (tokens.length === 0) return { ok: false, error: 'empty command tokens' }
-    // 任何"看起来是路径"的 token（含 / 或 ~ 或 . 开头）都必须过 path-safety
+    // 任何"看起来是路径"的 token（含 / 或 ~ 或 . 开头）都必须过 path-safety.
+    // B1-fix2: flag 不能无脑跳过 —— `--flag=/path` 形式 (如 `git diff --output=/Users/han/.ssh/x`)
+    // 把写入路径塞进 flag 的 value 里; 老逻辑见 `-` 开头直接 continue → 绕过 path-safety
+    // 黑名单写任意文件 (无 modal). 现在拆出 `=` 后的 value 一起校验 (空格分隔的 value 本就
+    // 是独立 token 已被覆盖).
     for (let i = 1; i < tokens.length; i++) {
       const t = tokens[i]
-      if (t.startsWith('-')) continue // flag
-      if (t.includes('/') || t.startsWith('~') || t.startsWith('.')) {
-        const safety = await isPathSafe(t)
+      let candidate = t
+      if (t.startsWith('-')) {
+        const eq = t.indexOf('=')
+        if (eq === -1) continue // 纯 flag 无内嵌路径
+        candidate = t.slice(eq + 1) // --flag=value → 校验 value
+      }
+      if (candidate.includes('/') || candidate.startsWith('~') || candidate.startsWith('.')) {
+        const safety = await isPathSafe(candidate)
         if (!safety.ok) {
           await logToolAction({
             tool: 'run_command',
@@ -2901,7 +3016,7 @@ async function execRunCommand(input: unknown): Promise<ToolResult> {
           })
           return {
             ok: false,
-            error: `命令参数路径不安全 (${t}): ${safety.reason}`
+            error: `命令参数路径不安全 (${candidate}): ${safety.reason}`
           }
         }
       }
@@ -3535,12 +3650,8 @@ async function execGetWeather(input: unknown): Promise<ToolResult> {
   }
   const location = obj.location.trim()
   console.log(`[get_weather] location="${location}" — start`)
-  await logToolAction({
-    tool: 'get_weather',
-    argsSummary: `location=${location}`,
-    result: 'ok',
-    detail: 'open-meteo (no key)'
-  })
+  // C3-fix: 审计移到操作之后按真实结果记 —— 老逻辑在网络调用前就无条件记 'ok',
+  // geocoding/forecast 失败时审计仍显示成功 (审计失真).
   try {
     // 1. Geocoding —— 把 city name 转 lat/lng
     const geoUrl =
@@ -3615,11 +3726,23 @@ async function execGetWeather(input: unknown): Promise<ToolResult> {
         `  ${hh}:00  ${wmoCodeToCn(fc.hourly.weather_code[i])} ${fc.hourly.temperature_2m[i]}°C`
       )
     }
+    await logToolAction({
+      tool: 'get_weather',
+      argsSummary: `location=${location}`,
+      result: 'ok',
+      detail: `open-meteo: ${place.name}`
+    })
     return { ok: true, content: lines.join('\n') }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     const isTimeout = err instanceof Error && err.name === 'TimeoutError'
     console.error(`[get_weather] error: ${msg}`, err)
+    await logToolAction({
+      tool: 'get_weather',
+      argsSummary: `location=${location}`,
+      result: 'error',
+      detail: `failed: ${msg.slice(0, 80)}`
+    })
     return {
       ok: false,
       error: isTimeout

@@ -83,6 +83,11 @@ export function getToolDisplay(rawName: string): ToolDisplay {
   if (name === 'read_system_preference')
     return { label: t('tool_label.read_system_preference'), icon: '⚙️' }
   if (name === 'set_pet_animation') return { label: t('tool_label.set_pet_animation'), icon: '🎭' }
+  if (name === 'open_system_settings')
+    return { label: t('tool_label.open_system_settings'), icon: '⚙️' }
+  if (name === 'remember') return { label: t('tool_label.remember'), icon: '🧠' }
+  if (name === 'load_skill') return { label: t('tool_label.load_skill'), icon: '✨' }
+  if (name === 'save_user_profile') return { label: t('tool_label.save_user_profile'), icon: '🧠' }
 
   return { label: rawName, icon: DEFAULT_ICON }
 }

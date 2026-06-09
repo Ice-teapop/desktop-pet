@@ -60,6 +60,7 @@ import miniEnterGif from '@themes/deskpet-furina/svg/mini-enter.svg'
 import miniPeekGif from '@themes/deskpet-furina/svg/mini-peek.svg'
 import miniHappyGif from '@themes/deskpet-furina/svg/mini-happy.svg'
 import miniAlertGif from '@themes/deskpet-furina/svg/mini-alert.svg'
+import miniSleepGif from '@themes/deskpet-furina/svg/mini-sleep.svg'
 import notificationGif from '@themes/deskpet-furina/svg/notification.svg'
 // v0.5.0 final: WizardSvgComponent 已删 — 同 IdleFollowSvg 原因 (svgr SMIL strip);
 // wizard 模式 sprite 走单 img 路径 (gifUrl → typing.svg 作 placeholder, 待 Furina
@@ -149,6 +150,18 @@ const STATE_GIF: Readonly<Partial<Record<PetState, string>>> = {
   wake: wakeGif,
   waking: wakeGif
 }
+
+const REST_CHAIN_STATES = new Set<PetState>([
+  'idle-yawn',
+  'yawning',
+  'dozing',
+  'sleeping',
+  'sleep',
+  'collapse-sleep',
+  'collapsing',
+  'wake',
+  'waking'
+])
 
 const GREETING_TEXT =
   '初次见面——本座芙宁娜，枫丹的水神 🌊 要与本座对谈，请先献上一把 API key（任意 provider 皆可：Anthropic / OpenAI / Google / xAI / DeepSeek / 字节豆包），将 key 粘贴至下方发予本座，本座会自动识别并于本地加密保存。'
@@ -245,6 +258,11 @@ function App(): React.JSX.Element {
   // S6.3-S6.5 (主进程读文件 + agentic 处理) 后续拆出, 现在仅 renderer overlay
   const [dragOver, setDragOver] = useState(false)
   const dragDepthRef = useRef(0) // dragenter/leave 配对计数 (子元素冒泡防抖)
+  // DnD 去重锁: window 原生 drop 监听 + .stage React onDrop 是双轨 (兜 macOS 透明窗口
+  // 偶发丢 React 事件), 但同一次 drop 两条都会 fire → 重复 dropFiles + 双倍 submitChat.
+  // 两个 handler 在同一 DOM event dispatch 内同步触发, 用同步锁让先到的处理、后到的跳过;
+  // setTimeout(0) 在本 tick 结束后复位, 不影响后续真实 drop.
+  const dropLockRef = useRef(false)
   // M9-5a: 顶层 petMode（full 完整 240×240 vs mini 80×80 藏边）
   const [petMode, setPetMode] = useState<PetMode>(DEFAULT_PET_MODE)
   // v0.4.3+: 进 mini 时短暂播 enter.gif 当过渡, ~1.6s 后 settle 到 mini-idle
@@ -322,6 +340,46 @@ function App(): React.JSX.Element {
   const cursorRef = useRef<{ dx: number; dy: number }>({ dx: 0, dy: 0 })
   // v0.5.0 final: idleFollowSvgRef / wizardSvgRef 已删 (IdleFollowSvg /
   // WizardSvgComponent 整个移除, refs 无目标)
+
+  // DnD 共享处理 —— window 原生 drop 与 .stage React onDrop 双轨都调它. dropLockRef 同步
+  // 去重: 同一 drop 两轨在同一 event dispatch 内同步触发, 先到的拿锁处理, 后到的直接 return,
+  // 防重复气泡 + 双倍 submitChat. 锁在 setTimeout(0) 即本 tick 后复位, 不挡后续真实 drop.
+  // deps 全是 stable (setMessages/msgIdRef/window.api), useCallback 空 deps 安全.
+  const handleDroppedPaths = useCallback((paths: string[]): void => {
+    if (paths.length === 0) return
+    if (dropLockRef.current) return
+    dropLockRef.current = true
+    setTimeout(() => {
+      dropLockRef.current = false
+    }, 0)
+    void (async (): Promise<void> => {
+      const result = await window.api.dropFiles(paths)
+      if (result.accepted.length === 0 && result.rejected.length > 0) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: msgIdRef.current++,
+            role: 'system' as const,
+            text:
+              `⚠️ 拖入的 ${result.rejected.length} 个文件全部被拒:\n` +
+              result.rejected.map((r) => `• ${r.path} — ${r.reason}`).join('\n'),
+            status: 'done' as const
+          }
+        ])
+        return
+      }
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: msgIdRef.current++,
+          role: 'user' as const,
+          text: result.summary,
+          status: 'done' as const
+        }
+      ])
+      window.api.submitChat(result.summary)
+    })()
+  }, [])
 
   const isConvMounted = chatPhase === 'open' || chatPhase === 'closing'
   // 等 AI 回复：ready 状态下最后一条是 user 才显示 typing
@@ -472,34 +530,7 @@ function App(): React.JSX.Element {
         .map((f) => window.api.getPathForFile(f))
         .filter((p): p is string => typeof p === 'string' && p.length > 0)
       console.log('[dnd] drop paths (native)', paths)
-      if (paths.length === 0) return
-      void (async (): Promise<void> => {
-        const result = await window.api.dropFiles(paths)
-        if (result.accepted.length === 0 && result.rejected.length > 0) {
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: msgIdRef.current++,
-              role: 'system' as const,
-              text:
-                `⚠️ 拖入的 ${result.rejected.length} 个文件全部被拒:\n` +
-                result.rejected.map((r) => `• ${r.path} — ${r.reason}`).join('\n'),
-              status: 'done' as const
-            }
-          ])
-          return
-        }
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: msgIdRef.current++,
-            role: 'user' as const,
-            text: result.summary,
-            status: 'done' as const
-          }
-        ])
-        window.api.submitChat(result.summary)
-      })()
+      handleDroppedPaths(paths)
     }
     window.addEventListener('dragenter', onEnter)
     window.addEventListener('dragover', onOver)
@@ -511,7 +542,7 @@ function App(): React.JSX.Element {
       window.removeEventListener('dragleave', onLeave)
       window.removeEventListener('drop', onDrop)
     }
-  }, [])
+  }, [handleDroppedPaths])
 
   // v0.4.3+ Tray drop-files fallback: 透明 NSPanel 不接 HTML5 drop, 改走 macOS
   // 原生 Tray drop event. main 在 tray.on('drop-files') 拿到路径直接送过来 — 跳
@@ -693,7 +724,15 @@ function App(): React.JSX.Element {
   // write_file 等其它 tool 仍可能 concurrent), 也不会丢请求。
   useEffect(() => {
     const off = window.api.onApprovalRequest((req) => setApprovalQueue((q) => [...q, req]))
-    return off
+    // main 端超时 auto-deny / 卡死兜底后通知撤 modal —— 从队列移除该 id, 防残留 modal
+    // 让用户事后点"允许"静默无效 (main 那边 pending 早已清空).
+    const offResolved = window.api.onApprovalResolved((id) =>
+      setApprovalQueue((q) => q.filter((r) => r.id !== id))
+    )
+    return () => {
+      off()
+      offResolved()
+    }
   }, [])
 
   // —— head 变化时通知 main: 此 id modal 真正在显示 → 启 60s auto-deny 计时 ——
@@ -769,14 +808,16 @@ function App(): React.JSX.Element {
 
   const handleApprovalDecision = (decision: ApprovalDecision): void => {
     if (!pendingApproval) return
-    // trust-dir-* 决策需要目录路径 —— 从 req.path 推出（path 是文件或目录绝对路径）
+    // trust-dir-* 决策需要目录路径 —— 从 req.path 推出。
     // 批量场景 (paths.length > 1) 在 modal UI 层就已隐藏 trust-dir-* 按钮,
     // 这里仍兜底: 若 main 端拿到 trust-dir-* 但 dirToTrust 缺失会 noop。
-    const dirToTrust = pendingApproval.path
-      ? pendingApproval.path.endsWith('/')
-        ? pendingApproval.path
+    // 安全修: path 是目录时 (pathIsDir, 如 find_files/list_directory) 直接信任 path 本身;
+    // 只有文件路径才剥末段取父目录. 老逻辑无脑 strip → 信任 ~/Documents 实际信任了 ~.
+    const dirToTrust = !pendingApproval.path
+      ? undefined
+      : pendingApproval.pathIsDir || pendingApproval.path.endsWith('/')
+        ? pendingApproval.path.replace(/\/+$/, '') || '/'
         : pendingApproval.path.replace(/\/[^/]*$/, '') || '/'
-      : undefined
     window.api.sendApprovalResponse(pendingApproval.id, decision, dirToTrust)
     setApprovalQueue((q) => q.slice(1))
   }
@@ -1165,7 +1206,8 @@ function App(): React.JSX.Element {
 
   let gifUrl: string
   const stateGif = STATE_GIF[state]
-  if (stateGif) {
+  const shouldShowActivityOverRest = activity !== 'idle' && REST_CHAIN_STATES.has(state)
+  if (stateGif && !shouldShowActivityOverRest) {
     gifUrl = stateGif
   } else if (showWizardOverlay && wizardCastPlaying) {
     // v0.4.5+ Batch 3 后续: wizard 入场 cast 动画 — 复用 conducting.gif 当 "施法
@@ -1194,6 +1236,7 @@ function App(): React.JSX.Element {
       miniPeekGif,
       miniHappyGif,
       miniAlertGif,
+      miniSleepGif,
       // v0.4.5+ Batch 2: 通知 GIF (full mode 头顶弹) 也预热, 防首次"检查更新"
       // 发现新版本时 1-frame 闪
       notificationGif
@@ -1263,36 +1306,8 @@ function App(): React.JSX.Element {
           .map((f) => window.api.getPathForFile(f))
           .filter((p): p is string => typeof p === 'string' && p.length > 0)
         console.log('[dnd] drop paths', paths)
-        if (paths.length === 0) return
-        void (async (): Promise<void> => {
-          const result = await window.api.dropFiles(paths)
-          if (result.accepted.length === 0 && result.rejected.length > 0) {
-            // 全部 reject — 不发 chat, 加 system 消息让用户看到原因
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: msgIdRef.current++,
-                role: 'system' as const,
-                text:
-                  `⚠️ 拖入的 ${result.rejected.length} 个文件全部被拒:\n` +
-                  result.rejected.map((r) => `• ${r.path} — ${r.reason}`).join('\n'),
-                status: 'done' as const
-              }
-            ])
-            return
-          }
-          // 有接受的: 推 summary 当 user msg, 也走 chat:submit 让 AI 收到完整上下文.
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: msgIdRef.current++,
-              role: 'user' as const,
-              text: result.summary,
-              status: 'done' as const
-            }
-          ])
-          window.api.submitChat(result.summary)
-        })()
+        // 共享处理 + dropLockRef 去重 (window 原生 drop 监听同一次会再 fire 一遍)
+        handleDroppedPaths(paths)
       }}
     >
       {isConvMounted && (
@@ -1788,9 +1803,11 @@ function App(): React.JSX.Element {
                     ? miniAlertGif // Batch 2: 通知期 mini 复用 alert.gif (无 96×96 GIF 空间)
                     : state === 'happy'
                       ? miniHappyGif
-                      : miniPeeking
-                        ? miniPeekGif
-                        : miniIdleGif
+                      : state === 'sleeping' || state === 'collapse-sleep'
+                        ? miniSleepGif // mini 模式睡觉用专属 sprite (之前漏接, 睡着也显示醒着的 idle)
+                        : miniPeeking
+                          ? miniPeekGif
+                          : miniIdleGif
             }
             alt=""
             draggable={false}

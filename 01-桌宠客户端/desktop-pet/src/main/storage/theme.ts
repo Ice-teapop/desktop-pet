@@ -18,8 +18,30 @@ const THEME_FILE = 'theme.json'
 
 let cachedTheme: ThemeManifest | null = null
 
-function themePath(): string {
-  return join(app.getAppPath(), THEME_DIR, THEME_FILE)
+function themePaths(): string[] {
+  return [
+    join(app.getAppPath(), THEME_DIR, THEME_FILE),
+    join(process.cwd(), THEME_DIR, THEME_FILE),
+    join(process.resourcesPath, THEME_DIR, THEME_FILE)
+  ].filter((p, idx, all) => all.indexOf(p) === idx)
+}
+
+async function readThemeFile(): Promise<{ path: string; raw: string } | null> {
+  const tried: string[] = []
+  for (const path of themePaths()) {
+    tried.push(path)
+    try {
+      return { path, raw: await fs.readFile(path, 'utf8') }
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code
+      if (code !== 'ENOENT') {
+        console.warn(`[theme] read failed at ${path}:`, err)
+        return null
+      }
+    }
+  }
+  console.warn(`[theme] not found. tried: ${tried.join(' | ')}`)
+  return null
 }
 
 /** 单条 state def validate; 返回 narrowed def 或 null (静默丢) */
@@ -66,9 +88,11 @@ function validateRecord(raw: unknown): Record<string, ThemeStateDef> {
 }
 
 export async function loadTheme(): Promise<ThemeManifest | null> {
+  const file = await readThemeFile()
+  if (!file) return null
+
   try {
-    const raw = await fs.readFile(themePath(), 'utf8')
-    const parsed = JSON.parse(raw) as unknown
+    const parsed = JSON.parse(file.raw) as unknown
     if (!parsed || typeof parsed !== 'object') {
       console.warn('[theme] parsed JSON not an object')
       return null
@@ -109,7 +133,7 @@ export async function loadTheme(): Promise<ThemeManifest | null> {
     }
     cachedTheme = theme
     console.log(
-      `[theme] loaded "${theme.name}" v${theme.version} — ` +
+      `[theme] loaded "${theme.name}" v${theme.version} from ${file.path} — ` +
         `${Object.keys(theme.states).length} states, ` +
         `${Object.keys(theme.transitions).length} transitions, ` +
         `${Object.keys(theme.reactions).length} reactions, ` +
@@ -118,12 +142,7 @@ export async function loadTheme(): Promise<ThemeManifest | null> {
     )
     return theme
   } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code
-    if (code === 'ENOENT') {
-      console.warn(`[theme] not found at ${themePath()}`)
-    } else {
-      console.warn('[theme] load failed:', err)
-    }
+    console.warn(`[theme] load failed at ${file.path}:`, err)
     return null
   }
 }

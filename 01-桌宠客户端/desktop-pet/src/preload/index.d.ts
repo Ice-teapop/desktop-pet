@@ -56,6 +56,7 @@ export interface DeskPetAPI {
   onVisionState(listener: (state: VisionState) => void): () => void
   // M4-C Approval flow
   onApprovalRequest(listener: (req: ApprovalRequest) => void): () => void
+  onApprovalResolved(listener: (id: string) => void): () => void
   sendApprovalResponse(id: string, decision: ApprovalDecision, dirToTrust?: string): void
   notifyApprovalDisplayed(id: string): void
   // M4-D-1 Tavily search API key

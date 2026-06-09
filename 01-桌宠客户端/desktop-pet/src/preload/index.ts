@@ -213,6 +213,12 @@ const api = {
     ipcRenderer.on('approval:request', handler)
     return () => ipcRenderer.off('approval:request', handler)
   },
+  /** 订阅 main 端"此 approval 已被 main 自行了结"(超时/卡死兜底) → renderer 撤掉残留 modal */
+  onApprovalResolved(listener: (id: string) => void): () => void {
+    const handler = (_event: IpcRendererEvent, id: string): void => listener(id)
+    ipcRenderer.on('approval:resolved', handler)
+    return () => ipcRenderer.off('approval:resolved', handler)
+  },
   /**
    * 用户在 modal 点了某个按钮，发送决策回 main。
    * dirToTrust 仅 trust-dir-* 时需要 —— main 据此把目录加进相应 trust set。

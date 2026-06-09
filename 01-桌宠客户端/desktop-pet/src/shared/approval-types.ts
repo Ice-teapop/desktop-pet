@@ -20,6 +20,10 @@ export interface ApprovalRequest {
   summary: string
   /** 完整路径 —— 用于"信任此目录"按钮的目录推导（单 path 场景） */
   path?: string
+  /** path 本身是否是目录。true 时"信任此目录"直接信任 path；false（文件）才剥末段取父目录。
+   *  find_files / list_directory / create_directory 等目录工具必须置 true，否则 renderer
+   *  误把目录当文件 strip 末段 → 信任范围意外扩到父目录（如信任 ~/Documents 实际信任 ~）。 */
+  pathIsDir?: boolean
   /** 批量路径列表 —— delete_file 等支持批量的 tool 使用；与 path 互斥。
    *  paths.length > 1 时 modal 必须**禁用** trust-dir-* 按钮（跨多个父目录的
    *  persistent trust 用户无法 informed-consent，scope 爆炸） */

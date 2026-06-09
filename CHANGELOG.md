@@ -6,6 +6,36 @@
 
 ---
 
+## [0.5.0] — 2026-06-10 · 审查加固 + 睡眠/交互直觉
+
+一轮系统审查（主审 + 8 个并行 review agent）后的加固版：修掉安全绕过、状态机死锁、睡眠逻辑反直觉、跨 provider 文案误导等问题。
+
+### 安全
+- **命令白名单两个绕过修复**：① SAFE 命令经 `--flag=path`（如 `git diff --output=/Users/x/.ssh/y`）把写入路径塞进 flag value 绕过 path-safety 黑名单 → 现在拆 `=` 后的 value 一并校验；② `rm` 硬拒正则被 flag 顺序/长选项绕过（`rm -fr /` / `rm --recursive --force /` / `rm -rf /Users/x` 均逃逸）→ 改 tokenize 语义判定，任意 flag 形态指向根/家目录/系统目录一律永久拒。
+- **trust-dir 越界信任修复**：目录类工具（find_files / list_directory / create_directory）的"信任此目录"以前被当文件剥末段 → 信任 `~/Documents` 实际信任了 `~`。ApprovalRequest 加 `pathIsDir` 区分。
+- **approval 超时撤 modal**：60s auto-deny 后通知 renderer 移除残留 modal，防用户事后点"允许"静默无效。
+
+### 修复
+- **状态机死锁**：error 表情进入后永久卡死（优先级 gate 拒绝回收）、中断流后永久卡 thinking 转圈 → setState 加 `force` 旁路，权威生命周期转换（error 回收 / 新对话 / abort 重置）强制落地。
+- **睡眠逻辑反直觉**：① 敲代码 / 聊天框开着时桌宠会偷偷睡着（sleep timer 只看 state 不看 activity）→ 加 `canSleep` 门控，只在真正发呆时睡；② 睡眠触发 60s → 180s；③ mini 模式睡觉显示醒着的 mini-idle → 接入 `mini-sleep.svg`；④ 戳/4连击在工作态静默失灵 → 加 `force`（睡眠链中让位 wake 不打断唤醒）。
+- **流式错误处理**：stream 内 `error` part 被吞 → 流式 401/429/529 被误判 empty-response、坏 key 清理永不触发 → 捕获并归类；`classifyError` 把 NoOutputGenerated 判定移到 statusCode/body 之后。
+- **fallback 副作用双写**：tool 执行后撞错误再 fallback 换家重跑会把 write_file/remember 双写 → tool 跑过即禁 fallback / 禁回滚。
+- **provider key 生命周期**：非 anthropic 坏 key 清理不对称（状态灯仍绿 + 重启复活）补齐；reset key 现在也会 abort 跑在 fallback provider 上的流。
+- **拖拽文件双发**：window 原生 drop 监听与 React onDrop 对同一次拖放都处理 → 共享处理 + 同步去重锁。
+- **IPC 输入校验**：`window:move-delta`（NaN → setPosition 崩）、`window:ignore-mouse`、`tavily:submit-key`（undefined 存成字面量 key）补校验。
+- **窗口**：`resetPetPosition` 不感知 mini 模式 → 改用 `computeModeBounds`。
+- **审计准确性**：`get_weather` / `organize_files` 在操作前就记 `result:'ok'`（失败仍显示成功）→ 按真实结果记；move/copy 自动信任时记假的 `approved: allow-once` → 改记 `auto-trusted`。
+- **organize_files** 恰好 50 个匹配被误判"太多"（off-by-one）。
+- **Settings 表单**：`profileDirty` 闭包陈旧导致"编辑中不覆盖"失效 → 改 ref；保存 key 的 toast 过早乐观（可能假报成功）→ 改"已提交，校验中"。
+
+### 变更（表达更符合直觉）
+- 错误文案去掉写死的「Anthropic / Claude」（配 OpenAI/Gemini 的用户不再被指向错账号）。
+- fallback 系统气泡显示 provider 友好名（"OpenAI" / "字节豆包"）而非原始 ID（`openai` / `bytedance`）。
+- 等待气泡「Claw 正在回复」→「芙宁娜正在回复」/「Furina is replying」。
+- 补 4 个工具的展示映射（open_system_settings / remember / load_skill / save_user_profile），不再显示原始函数名。
+
+---
+
 ## [0.4.4] — 2026-05-20
 
 ### 新增

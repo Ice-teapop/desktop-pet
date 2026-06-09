@@ -9,7 +9,7 @@
  * 优先级 (高→低): Error > Notification > CBridge(锁) > Reaction > Working > IdleEgg > Idle
  * 默认 idle 只播 idle.svg; idle 彩蛋 (Stage B armIdleEggs) 20-40s 随机插 B 类.
  * 睡眠链强制走桥: idle → setState('collapse-sleep') (C) → 播完自动 setState('sleeping')
- * → 任意活动 → setState('wake') (C) → 播完自动 setState('idle').
+ * → 任意活动 → wakeFromSleep() → wake (C) → 播完自动 setState('idle').
  *
  * Stage A 范围: theme loader 读 + setState 主流程 + A/B/C 处理 + C lock + 老别名兼容.
  * Stage B (后续): armIdleEggs + render 层 crossfade 融合.
@@ -61,14 +61,38 @@ function priorityOf(canonical: string, spec: ThemeStateDef | null): StatePriorit
   return StatePriority.Working
 }
 
-/**
- * Hardcoded fallback spec —— theme.json 加载失败时的最小集 (只有 idle).
- * Stage A 不深做兜底, 兜不到就 ignore state 切换 (renderer 仍能显示 idle).
- */
-const FALLBACK_IDLE: ThemeStateDef = {
-  file: 'svg/idle.svg',
-  type: 'A',
-  loop: 'pingpong'
+/** theme.json 加载失败时的 sleep 最小兜底集. */
+const FALLBACK_STATES: Record<string, ThemeStateDef> = {
+  idle: {
+    file: 'svg/idle.svg',
+    type: 'A',
+    loop: 'pingpong'
+  },
+  sleeping: {
+    file: 'svg/sleeping.svg',
+    type: 'A',
+    loop: 'pingpong'
+  },
+  'collapse-sleep': {
+    file: 'svg/collapse-sleep.svg',
+    type: 'C',
+    loop: 'once-freeze',
+    from: 'idle',
+    to: 'sleeping',
+    durMs: 3080
+  },
+  wake: {
+    file: 'svg/wake.svg',
+    type: 'C',
+    loop: 'once-freeze',
+    from: 'sleeping',
+    to: 'idle',
+    durMs: 3080
+  }
+}
+
+function lookupStateWithFallback(canonical: string): ThemeStateDef | null {
+  return lookupState(canonical) ?? FALLBACK_STATES[canonical] ?? null
 }
 
 export class PetStateMachine {
@@ -83,11 +107,21 @@ export class PetStateMachine {
   /** Stage B 用: idle 彩蛋调度 timer */
   private idleEggTimer: NodeJS.Timeout | null = null
 
-  /** idle 多久后自动进 sleep 链 (规格 IdleTimeout:60s) */
-  private static readonly IDLE_SLEEP_MS = 60_000
+  /** idle 多久后自动进 sleep 链 (v0.5.x: 60s→180s, 离开一会儿才睡更符合直觉) */
+  private static readonly IDLE_SLEEP_MS = 180_000
 
-  constructor(private notify: (state: PetState) => void) {
-    // 冷启动 arm 一次 sleep timer (60s idle 后 setState('collapse-sleep'))
+  /**
+   * @param notify  state 变化回调 (推 renderer)
+   * @param canSleep 是否允许进入睡眠链. 默认恒 true; main 传入 `() => activity idle && chat 关闭`,
+   *   让桌宠**只在真正发呆时才睡** —— 你在敲代码 (activity 非 idle) 或对话框开着时不会睡着.
+   *   旧逻辑只看 state==='idle' (activity 走 renderer 渲染不改 state), 导致编码中状态机偷偷进
+   *   sleep, cursor poll 停摆, 不直觉.
+   */
+  constructor(
+    private notify: (state: PetState) => void,
+    private canSleep: () => boolean = () => true
+  ) {
+    // 冷启动 arm 一次 sleep timer (180s idle 后 setState('collapse-sleep'))
     this.armSleepTimer()
   }
 
@@ -105,12 +139,18 @@ export class PetStateMachine {
    * setState() 拒绝时返 false (gate 没过); 接受时返 true.
    *
    * 老别名 → canonical 翻译 (ALIAS_MAP); theme.json lookup spec; 按 A/B/C 处理.
+   *
+   * `force=true`: 跳过 lock + 优先级 gate, 强制 apply. 用于**权威性生命周期转换** ——
+   * chat 流主导的状态 (新一轮 thinking / abort 后回 idle / error 6s 回收), 它们反映 app
+   * 真实状态, 必须落地. 优先级 gate 的本意是挡**自发的低优先级事件** (idle 彩蛋 / activity),
+   * 不该挡这些. 不加 force 时这些转换会被高优先级 A 态 (error=50 / working=20) 永久拒,
+   * 导致 pet 卡死在 error / thinking 表情直到重启 (v0.5.0 死锁 bug 根因).
    */
-  setState(name: PetState): boolean {
+  setState(name: PetState, force = false): boolean {
     // ALIAS_MAP 类型限定 keys 为 LegacyAliasState; setState 接受任意 PetState 名,
     // 这里 widen 到 string-keyed 做查找; 未命中走 canonical 路径.
     const canonical = (ALIAS_MAP as Readonly<Record<string, string>>)[name] ?? (name as string)
-    const spec = lookupState(canonical) ?? (canonical === 'idle' ? FALLBACK_IDLE : null)
+    const spec = lookupStateWithFallback(canonical)
     if (!spec) {
       console.warn(`[state-machine] unknown state "${name}" (canonical "${canonical}")`)
       return false
@@ -119,14 +159,16 @@ export class PetStateMachine {
 
     const newPrio = priorityOf(canonical, spec)
 
-    // C 锁: 期间只允许 Error 抢占
-    if (this.locked && newPrio < StatePriority.Error) {
-      return false
-    }
-    // 优先级 gate (仅外部 setState): 低优先级不能抢高优先级
-    // 注意: B 类 returnTo / C 类 to 走 _doSetState 内部路径, 不经此 gate.
-    if (newPrio < this.currentPriority) {
-      return false
+    if (!force) {
+      // C 锁: 期间只允许 Error 抢占
+      if (this.locked && newPrio < StatePriority.Error) {
+        return false
+      }
+      // 优先级 gate (仅外部 setState): 低优先级不能抢高优先级
+      // 注意: B 类 returnTo / C 类 to 走 _doSetState 内部路径, 不经此 gate.
+      if (newPrio < this.currentPriority) {
+        return false
+      }
     }
 
     this._doSetState(canonical, spec, newPrio)
@@ -145,6 +187,7 @@ export class PetStateMachine {
 
     this.current = canonical
     this.currentPriority = newPrio
+    this.locked = spec.type === 'C'
     this.notify(canonical as PetState)
 
     // 按 type 分支
@@ -166,7 +209,6 @@ export class PetStateMachine {
       }, dur)
     } else if (spec.type === 'C') {
       // 锁状态, 播 durMs 后自动 setState(to). Furina C sprite (collapse-sleep/wake) 3.08s.
-      this.locked = true
       const dur = spec.durMs ?? 3080
       const to = spec.to ?? 'idle'
       this.timer = setTimeout(() => {
@@ -180,7 +222,7 @@ export class PetStateMachine {
   /** 包一层 lookup + 调 _doSetState, 给 B/C timer fire 用 */
   private _internalSetState(name: string): void {
     const canonical = ALIAS_MAP[name] ?? name
-    const spec = lookupState(canonical) ?? (canonical === 'idle' ? FALLBACK_IDLE : null)
+    const spec = lookupStateWithFallback(canonical)
     if (!spec) {
       console.warn(`[state-machine] internal setState unknown "${name}"`)
       return
@@ -192,14 +234,14 @@ export class PetStateMachine {
 
   /** 任何用户活动唤醒. sleep chain 任意阶段都能 wake */
   wakeFromSleep(): void {
-    // base==='sleeping' 或 current 在 collapse-sleep/sleeping 时唤
-    if (
-      this.base === 'sleeping' ||
-      this.current === 'sleeping' ||
-      this.current === 'collapse-sleep'
-    ) {
-      this.setState('wake' as PetState)
-    }
+    if (this.current === 'wake') return
+    const shouldWake =
+      this.base === 'sleeping' || this.current === 'sleeping' || this.current === 'collapse-sleep'
+    if (!shouldWake) return
+
+    // collapse-sleep 播放中带 C 锁; 用户点击/拖拽唤醒是睡眠链内部推进, 不能走公开 gate.
+    this.locked = false
+    this._internalSetState('wake')
   }
 
   /** demoCycle 兼容 (托盘菜单): thinking → happy → idle */
@@ -232,13 +274,18 @@ export class PetStateMachine {
   }
 
   private armSleepTimer(): void {
-    // 60s 后自动走 collapse-sleep C 桥 (桥会自己 setState('sleeping'))
+    // IDLE_SLEEP_MS 后自动走 collapse-sleep C 桥 (桥会自己 setState('sleeping'))
     this.clearTimer()
     this.timer = setTimeout(() => {
       this.timer = null
-      // 只在仍 idle 时才进 sleep (用户期间有过活动会 setState 重置)
-      if (this.current === 'idle') {
+      // 仍 idle 才考虑睡; 期间有过活动会 setState 重置, 这里就不在 idle 了
+      if (this.current !== 'idle') return
+      if (this.canSleep()) {
         this.setState('collapse-sleep' as PetState)
+      } else {
+        // 还 idle 但条件不允许 (正在编码 / 对话框开着) → 不睡, 再等一轮重新判,
+        // 否则 timer 用光后永不再 arm, 等用户真闲下来也睡不着了.
+        this.armSleepTimer()
       }
     }, PetStateMachine.IDLE_SLEEP_MS)
   }

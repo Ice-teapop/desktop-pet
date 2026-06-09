@@ -31,8 +31,8 @@
   },
 
   "transitions": {
-    "collapse-sleep":  { "file": "svg/collapse-sleep.svg",  "type": "C", "loop": "once-freeze", "from": "idle",     "to": "sleeping", "durMs": 100 },
-    "wake":            { "file": "svg/wake.svg",            "type": "C", "loop": "once-freeze", "from": "sleeping", "to": "idle",     "durMs": 100 },
+    "collapse-sleep":  { "file": "svg/collapse-sleep.svg",  "type": "C", "loop": "once-freeze", "from": "idle",     "to": "sleeping", "durMs": 3080 },
+    "wake":            { "file": "svg/wake.svg",            "type": "C", "loop": "once-freeze", "from": "sleeping", "to": "idle",     "durMs": 3080 },
     "mini-enter":      { "file": "svg/mini-enter.svg",      "type": "C", "loop": "once-freeze", "from": "offscreen","to": "mini-idle","durMs": 100 }
   },
 

@@ -46,7 +46,7 @@ export const zh = {
   'chat.import_files_title': '导入文件给桌宠（系统选择器）',
   'chat.empty_placeholder_dots': '对桌宠说点啥...',
   'chat.placeholder_initializing': '正在初始化…',
-  'chat.placeholder_replying': 'Claw 正在回复…',
+  'chat.placeholder_replying': '芙宁娜正在回复…',
   'chat.placeholder_paste_key': '粘任意 provider 的 API key (sk-ant-/sk-/AIza/xai-/UUID)',
   'chat.kbd_send_close': '{0} 发送 · {1} 关闭',
 
@@ -77,6 +77,10 @@ export const zh = {
   'tool_label.get_weather': '查天气',
   'tool_label.read_system_preference': '系统设置',
   'tool_label.set_pet_animation': '桌宠动作',
+  'tool_label.open_system_settings': '打开系统设置',
+  'tool_label.remember': '记下来',
+  'tool_label.load_skill': '加载技能',
+  'tool_label.save_user_profile': '记录你的偏好',
 
   // —— Tool card 状态 ——
   'tool.status.running': '运行中',
@@ -93,7 +97,7 @@ export const zh = {
   'settings.section.memory': '跨会话记忆',
   'settings.section.about': '关于',
   // Toast
-  'settings.toast.key_saved': '{0} key 已加密保存',
+  'settings.toast.key_saved': '{0} key 已提交，校验中…',
   'settings.toast.key_cleared': '{0} key 已清除',
   'settings.toast.switched_provider': '已切到 {0}（跨 provider 自动开新对话）',
   'settings.toast.tavily_saved': 'Tavily key 已加密保存',
@@ -240,11 +244,11 @@ export const zh = {
 
   // —— Errors (renderer surface) ——
   'err.no_api_key': '还没配 API key — 设置里加一个',
-  'err.invalid_api_key': '⚠️ 这个 API key 被 Anthropic 拒了，重新贴一个吧',
+  'err.invalid_api_key': '⚠️ 这个 API key 被拒了，重新贴一个吧',
   'err.rate_limited_with_sec': '⏱️ 太快了，{0}s 后再试',
   'err.rate_limited': '⏱️ 请求过快，等等再问',
-  'err.overloaded': '😵 Claude 现在很忙，稍等再问',
-  'err.network': '🌐 连不上 Anthropic，检查下网络',
+  'err.overloaded': '😵 模型服务现在很忙，稍等再问',
+  'err.network': '🌐 连不上服务器，检查下网络',
   'err.key_not_persisted':
     '⚠️ 系统没装加密后端，这次能聊但下次启动 key 会丢（Linux 装个 libsecret / gnome-keyring 就好）',
   'err.key_format_invalid': '⚠️ 这个 key 格式不对，检查下复制有没有带空格 / 多余字符',

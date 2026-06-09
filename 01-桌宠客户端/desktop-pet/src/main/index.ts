@@ -514,6 +514,8 @@ const trayAvailableModels = new Map<Provider, string[]>()
 // 原因: fallback chain 可能每 turn 用不同 provider, cache 单 client 没意义.
 // 活动识别（M3-3）：detector 推的状态独立于 PetState，渲染层组合两者决定 SVG
 let currentActivity: ActivityState = 'idle'
+// 对话框是否打开 —— 给 stateMachine 的 canSleep 用 (开着聊天框时不让桌宠睡着)
+let chatIsOpen = false
 let followFrontApp = true
 // fast-path bundleID regex 白名单是否启用（用户托盘可关 → 走严格 LLM 识别）
 let useFastPath = true
@@ -542,6 +544,12 @@ let chatTurnToken = 0
  * 取消上一次 stream，避免白烧 Anthropic token（chatTurnToken 只屏蔽 callback，不停 SDK fetch）。
  */
 let currentStreamHandle: StreamHandle | null = null
+/**
+ * 当前 in-flight stream 实际跑在哪个 provider 上 —— fallback chain 会切到非选中 provider,
+ * provider-key:reset 必须据此判断是否要 abort (光看 currentSelectedModel.provider 会漏掉
+ * 正烧 fallback provider token 的流). stream 结束 (onDone / 终态 onError) 时置回 null.
+ */
+let currentStreamProvider: Provider | null = null
 
 /**
  * 串行化 credentials 文件 I/O —— resetKey() 的 clearApiKey 与 key:submit 的 saveApiKey
@@ -696,6 +704,9 @@ const activeAppMonitor = new ActiveAppMonitor((app) => {
     // 只接受最后一次 frontmost event 对应的分类结果，避免 activity/app 不匹配。
     if (seq !== activeAppChangeSeq) return
     currentActivity = nextActivity
+    if (nextActivity !== 'idle') {
+      stateMachine.wakeFromSleep()
+    }
     // App identity 也可能已变但 activity 类别相同；仍推一次让 renderer/HMR 和托盘
     // 与当前事实源对齐。
     notifyActivity()
@@ -840,8 +851,9 @@ function applySelectedModel(rawSel: SelectedModel): void {
       if (chatHistory[chatHistory.length - 1]?.role === 'user') {
         chatHistory.pop()
       }
-      // v0.5.0: B 类 thinking 自带 returnTo='idle', setState 失败 (锁/优先级) 自然 ignore
-      stateMachine.setState('idle')
+      // v0.5.0 死锁修: 权威重置必须 force —— thinking 是 A 类 (无 returnTo), 不 force 会被
+      // Working 优先级 gate 拒, pet 永久卡 thinking 转圈直到下轮对话成功才恢复.
+      stateMachine.setState('idle', true)
     }
     currentStreamHandle?.abort()
     currentStreamHandle = null
@@ -957,11 +969,15 @@ async function resolveStartupKey(): Promise<void> {
 let petWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let visibilityWatchdog: NodeJS.Timeout | null = null
-const stateMachine = new PetStateMachine((state) => {
-  if (isWinAlive()) petWindow!.webContents.send('pet:state', state)
-  // M9-4: state 变即评估是否启停 cursor poll（idle 进入开，离开关）
-  updateCursorPoll()
-})
+const stateMachine = new PetStateMachine(
+  (state) => {
+    if (isWinAlive()) petWindow!.webContents.send('pet:state', state)
+    // M9-4: state 变即评估是否启停 cursor poll（idle 进入开，离开关）
+    updateCursorPoll()
+  },
+  // 只在真正发呆时才睡: activity idle (没在敲代码/聊天) 且对话框关闭. 见 state-machine 注释.
+  () => currentActivity === 'idle' && !chatIsOpen
+)
 
 function reapplyMacVisibility(win: BrowserWindow | null): void {
   if (!win || win.isDestroyed()) return
@@ -991,6 +1007,8 @@ function stopVisibilityWatchdog(): void {
 // 在 drag 期间暂停切 ignoreMouse 而设。
 
 function setChatOpen(open: boolean): void {
+  // canSleep 用: 开着对话框时桌宠不睡 (在早期 return 前先记, 保证状态准确)
+  chatIsOpen = open
   if (!petWindow || petWindow.isDestroyed()) return
   // M9-5a Officer C #1 fix: mini 模式时打开 chat 必须先回 full，否则 setBounds(width=540)
   // 用 mini panel 当前的右边缘位置（x ≈ workArea.right - 24）→ 540 宽往右扯 → 把
@@ -1144,12 +1162,9 @@ function ensurePetVisible(): void {
 
 function resetPetPosition(): void {
   if (!petWindow) return
-  const { workArea } = screen.getPrimaryDisplay()
-  const [w] = petWindow.getSize()
-  petWindow.setPosition(
-    workArea.x + workArea.width - w - MARGIN_FROM_EDGE,
-    workArea.y + workArea.height - WIN_HEIGHT - MARGIN_FROM_EDGE
-  )
+  // 走 computeModeBounds(petMode) —— 老逻辑写死 WIN_HEIGHT(280) 算 y, mini 模式窗高只有
+  // MINI_WIN_HEIGHT(100), 重置后 y 落到 bottom-304, peek watcher 只回拉 x 不修 y → 卡底部.
+  petWindow.setBounds(computeModeBounds(petMode, petWindow.getBounds()))
 }
 
 /**
@@ -1177,8 +1192,8 @@ async function resetKey(): Promise<void> {
     // PR-2: 加 reason payload, key-reset 沿用现有 KEY_RESET_PROMPT 不另弹气泡
     petWindow!.webContents.send('chat:history-cleared', { reason: 'key-reset' })
   }
-  // v0.5.0: setState 失败 (锁/优先级) 自然 ignore, 不需 fallback
-  stateMachine.setState('idle')
+  // v0.5.0 死锁修: 权威重置 force —— 见 state-machine.setState 注释 (thinking A 类无 returnTo)
+  stateMachine.setState('idle', true)
   // cr B1: classifier cache 跨 key 身份不该残留 —— 上一个 key 用 LLM 分类出来的结果可能
   // 是错的（Anthropic 偶发抽风），如果不清，重设 key 后那个错误分类会永久命中缓存
   clearClassifyCache()
@@ -1401,14 +1416,22 @@ async function runUpdateCheck(source: 'auto' | 'manual'): Promise<void> {
 
 function registerIpc(): void {
   // —— M9-2 click reactions —— react to user double/quad click on pet body
+  // force=true: 戳/4连击是用户主动交互, 应当**总有反应** —— 不 force 时 idle-look(IdleEgg=10)
+  // 在任何工作态都被优先级 gate 拒, react-poke(35) 也被 error/notification 拒, 用户狂点没反应
+  // 像失灵. 睡眠链 (collapse-sleep/sleeping/wake) 中跳过: pointerdown 已触发 petWake, 交给
+  // wake 动画走完, 别用 react 把唤醒打断.
+  const inSleepChain = (): boolean => {
+    const s = stateMachine.getState()
+    return s === 'collapse-sleep' || s === 'sleeping' || s === 'wake'
+  }
   ipcMain.on('pet:poke', () => {
-    // react-poke 是 B 类, 自带 returnTo='idle'
-    stateMachine.setState('react-poke')
+    if (inSleepChain()) return
+    stateMachine.setState('react-poke', true) // B 类, 自带 returnTo='idle'
   })
 
   ipcMain.on('pet:startled', () => {
-    // idle-look 是 B 类 idleEgg, 自带 returnTo
-    stateMachine.setState('idle-look')
+    if (inSleepChain()) return
+    stateMachine.setState('idle-look', true) // B 类 idleEgg, 自带 returnTo
   })
 
   // M9-3 fix: 单击 / pointerdown 时立即 wake from sleep chain（cursorWatcher 已删
@@ -1417,9 +1440,18 @@ function registerIpc(): void {
     stateMachine.wakeFromSleep()
   })
 
-  ipcMain.on('window:move-delta', (event, dx: number, dy: number) => {
+  ipcMain.on('window:move-delta', (event, dx: unknown, dy: unknown) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return
+    // S2: 校验 dx/dy 为有限数 —— 非 number / NaN 会让 setPosition(NaN) 在 main 抛未捕获异常
+    if (
+      typeof dx !== 'number' ||
+      typeof dy !== 'number' ||
+      !Number.isFinite(dx) ||
+      !Number.isFinite(dy)
+    ) {
+      return
+    }
     // M9-5b B-4: mini 模式禁 drag —— mini drag 最终走 setPetMode('full') restore，
     // 过程中 win.setPosition 跟 peek watcher 的 lerp setBounds 会在 x 轴打架。
     // renderer 端 handlePointerUp 已确保 mini pointerup === setPetMode('full')。
@@ -1494,9 +1526,10 @@ function registerIpc(): void {
     }
   })
 
-  ipcMain.on('window:ignore-mouse', (event, ignore: boolean) => {
+  ipcMain.on('window:ignore-mouse', (event, ignore: unknown) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return
+    if (typeof ignore !== 'boolean') return // S2: 输入校验
     win.setIgnoreMouseEvents(ignore, { forward: true })
     reapplyMacVisibility(win)
     // M8: 鼠标移入 pet 实体（ignore=false）= 想互动 → wake
@@ -1592,8 +1625,10 @@ function registerIpc(): void {
   })
 
   // —— M4-D-1 Tavily key IPC handlers ——
-  ipcMain.on('tavily:submit-key', async (_event, rawKey: string) => {
-    const key = String(rawKey).slice(0, 512).trim()
+  ipcMain.on('tavily:submit-key', async (_event, rawKey: unknown) => {
+    // rawKey 为 undefined 时 String(undefined)='undefined' 会被当成合法 key 存盘 —— 加 ?? '' 兜底
+    if (typeof rawKey !== 'string') return
+    const key = rawKey.slice(0, 512).trim()
     if (!key) return
     try {
       await saveTavilyKey(key)
@@ -1705,6 +1740,7 @@ function registerIpc(): void {
     if (rawProvider === currentSelectedModel.provider) {
       currentStreamHandle?.abort()
       currentStreamHandle = null
+      currentStreamProvider = null
       chatTurnToken++
       if (isWinAlive()) {
         petWindow!.webContents.send('chat:done', { inputTokens: 0, outputTokens: 0 })
@@ -1713,8 +1749,20 @@ function registerIpc(): void {
       if (isWinAlive()) {
         petWindow!.webContents.send('chat:history-cleared', { reason: 'key-reset' })
       }
-      // v0.5.0: B 类 thinking 自带 returnTo='idle', setState 失败 (锁/优先级) 自然 ignore
-      stateMachine.setState('idle')
+      // v0.5.0 死锁修: 权威重置必须 force —— thinking 是 A 类 (无 returnTo), 不 force 会被
+      // Working 优先级 gate 拒, pet 永久卡 thinking 转圈直到下轮对话成功才恢复.
+      stateMachine.setState('idle', true)
+    } else if (currentStreamHandle && rawProvider === currentStreamProvider) {
+      // in-flight stream 正跑在被 reset 的 fallback provider 上 (非选中 provider): 也要 abort,
+      // 否则 reset 后它继续烧该 provider token —— 正是本分支注释声称要防的事 (老逻辑漏掉).
+      currentStreamHandle.abort()
+      currentStreamHandle = null
+      currentStreamProvider = null
+      chatTurnToken++
+      if (isWinAlive()) {
+        petWindow!.webContents.send('chat:done', { inputTokens: 0, outputTokens: 0 })
+      }
+      stateMachine.setState('idle', true)
     }
     await queueCredentialOp(async () => {
       try {
@@ -2117,12 +2165,18 @@ function registerIpc(): void {
 
     chatHistory.push({ role: 'user', content: cleaned })
     trimChatHistory()
-    stateMachine.setState('thinking')
+    // force: 新一轮对话是权威状态, 即使当前卡在 error(50)/happy 等高优先级 A 态也要切到
+    // thinking, 否则 gate 拒 → 用户已发问但 pet 还显示上一条 error 表情.
+    stateMachine.setState('thinking', true)
 
     const myToken = ++chatTurnToken
     let aiText = ''
     let attemptIdx = 0
     let gotChunk = false
+    // D1-fix: 本轮是否已执行过 tool —— 一旦 tool 跑过 (可能已写文件/存记忆), 后续即使 0 text
+    // chunk 也**不能 fallback**, 否则换家重跑整轮会把副作用 (write_file/remember) 双写;
+    // 也不能回滚 user turn (任务上下文已落地). 老逻辑只看 gotChunk, 漏了 tool 副作用.
+    let didRunTool = false
     // 记录上一家失败的 err.kind, 给 fallback 提示准确文案 (旧版硬编码"过载"误导)
     let lastErrKind: string | null = null
 
@@ -2162,10 +2216,17 @@ function registerIpc(): void {
         const reason = lastErrKind
           ? (reasonMap[lastErrKind] ?? lastErrKind)
           : t('chat.fallback_reason.unavailable')
-        const note = t('chat.fallback_note', prev, reason, provider)
+        // 用 PROVIDERS[].label 而非原始 ID —— 用户该看到 "OpenAI"/"字节豆包" 不是 "openai"/"bytedance"
+        const note = t(
+          'chat.fallback_note',
+          PROVIDERS[prev].label,
+          reason,
+          PROVIDERS[provider].label
+        )
         win.webContents.send('chat:chunk', note)
       }
 
+      currentStreamProvider = provider
       currentStreamHandle = fbClient.stream(
         chatHistory,
         {
@@ -2178,11 +2239,14 @@ function registerIpc(): void {
           // v0.4.0 [A] AI 调 tool 事件 → renderer 加 / 改 msg-tool 卡
           onToolEvent(event) {
             if (myToken !== chatTurnToken) return
+            // tool 实际执行完 = 副作用可能已发生 → 禁 fallback / 禁回滚 (见 didRunTool 注释)
+            if (event.kind === 'end') didRunTool = true
             win.webContents.send('chat:tool-event', event)
           },
           onDone(usage) {
             if (myToken !== chatTurnToken) return
             currentStreamHandle = null
+            currentStreamProvider = null
             if (aiText.length > 0) {
               chatHistory.push({ role: 'assistant', content: aiText })
             } else {
@@ -2209,6 +2273,7 @@ function registerIpc(): void {
                 err.kind === 'rate-limited' ||
                 err.kind === 'empty-response') &&
               !gotChunk &&
+              !didRunTool && // D1: tool 跑过就不换家重跑, 防副作用双写
               attemptIdx + 1 < fallbackChain.length
             if (canFallback) {
               attemptIdx++
@@ -2221,29 +2286,42 @@ function registerIpc(): void {
             console.log(`[chat] no fallback, surfacing err (canFallback=${canFallback})`)
             // 真错: surface 到 renderer。若已经收到 chunk，或 tool loop 已经实际执行过，
             // 不回滚 user turn；否则下一轮会丢失刚才的任务上下文。
+            // D1-fix: 加 !didRunTool —— 注释本就说"tool 执行过不回滚"但旧条件漏了这项,
+            // tool 已写文件却回滚 user turn 会让上下文与已落地的副作用脱节.
             currentStreamHandle = null
+            currentStreamProvider = null
             if (
               !gotChunk &&
+              !didRunTool &&
               err.kind !== 'tool-loop-limit' &&
               chatHistory[chatHistory.length - 1]?.role === 'user'
             ) {
               chatHistory.pop()
             }
             win.webContents.send('chat:error', err)
-            // v0.5.0: error 是 A 类 (theme.json error: pingpong indefinite),
-            // 没自带 returnTo. Stage A 暂手动 setState('idle'), 让 error 显示 6s 后
-            // 由下次 user 输入触发 setState('thinking') 推走. 后续若加 B 类 error
-            // 自带 returnTo 这行删掉.
+            // v0.5.0: error 是 A 类 (theme.json error: pingpong indefinite), 没自带 returnTo.
+            // error 优先级最高 (50), setState('error') 总能落地. 6s 后 force 回 idle ——
+            // 不 force 的话 idle(0) < error(50) 被 gate 拒, pet 永久卡 error 表情直到重启
+            // (v0.5.0 死锁 bug). 下轮对话的 setState('thinking', true) 也会 force 推走.
             stateMachine.setState('error')
             setTimeout(() => {
-              if (stateMachine.getState() === 'error') stateMachine.setState('idle')
+              if (stateMachine.getState() === 'error') stateMachine.setState('idle', true)
             }, 6000)
             // 401 invalid-api-key → 自动清掉坏 key, 引导用户重设. provider-aware.
             if (err.kind === 'invalid-api-key') {
               if (provider === 'anthropic') {
                 void resetKey()
               } else {
+                // 对称清理 (对齐 anthropic resetKey): 清内存 + 清盘 + 重算 keyState + 广播.
+                // 老逻辑只 set(null), 不清盘/不广播 → Settings 状态灯仍绿、keyState 可能停
+                // 'ready'，且坏 key 重启后被磁盘重新加载复活.
                 currentProviderKeys.set(provider, null)
+                void clearProviderKey(provider).catch((e) =>
+                  console.error(`[chat] clearProviderKey(${provider}) failed:`, e)
+                )
+                keyState = recomputeKeyState()
+                notifyKeyState()
+                broadcastProviderKeyStates()
               }
             }
           }
@@ -2277,8 +2355,9 @@ function registerIpc(): void {
       if (isWinAlive()) {
         petWindow!.webContents.send('chat:done', { inputTokens: 0, outputTokens: 0 })
       }
-      // v0.5.0: B 类 thinking 自带 returnTo='idle', setState 失败 (锁/优先级) 自然 ignore
-      stateMachine.setState('idle')
+      // v0.5.0 死锁修: 权威重置必须 force —— thinking 是 A 类 (无 returnTo), 不 force 会被
+      // Working 优先级 gate 拒, pet 永久卡 thinking 转圈直到下轮对话成功才恢复.
+      stateMachine.setState('idle', true)
     }
     setChatOpen(Boolean(open))
   })

@@ -1,17 +1,17 @@
-# DeskPet-Furina — Furina 形象桌宠 AI 助手
+# DeskPet-Furina — 会动、会聊、会干活的芙宁娜桌宠 AI 助手
 
-> 🌊 **DeskPet 系列 fork**：以主线 DeskPet ([Ice-teapop/desktop-pet](https://github.com/Ice-teapop/desktop-pet)) v0.4.17 为蓝本，**Furina 形象专属版本**。功能、agentic tool 集合、状态机完全继承主线；只是桌宠角色形象将替换为 Furina（待 sprite 设计）。
+> 🌊 **《原神》水神芙宁娜形象的桌面 AI 助手**。屏幕角落飘着一个会动的芙宁娜：**点一下就能聊**，AI 自己决定要不要看屏幕、读文件、跑命令、查网。每一项"动手"能力都有逐操作审批弹窗（高危）或编译期硬拒（灾难性），配完整本地审计日志。
 >
-> Furina sprites 已就绪，`THEME_DIR` 已切到 `themes/deskpet-furina/`（25 个状态 svg，含 idle 彩蛋 + react-poke/react-drag + mini-* 全套）。`themes/deskpet-cc/` 保留为备选/历史主题。
+> 25 个原创 Furina SVG sprite（含 idle 彩蛋 / 戳一下反应 / 拖拽 / 收起挂件全套），由 **A/B/C 三类状态机**驱动；6 家 LLM provider（Anthropic / OpenAI / Google / xAI / DeepSeek / 字节豆包）自动 fallback。
 >
-> Electron + React 19 + TypeScript 5.9 + Vercel AI SDK · 6 LLM providers (Anthropic / OpenAI / Google / xAI / DeepSeek / ByteDance).
+> Electron 39 + React 19 + TypeScript 5.9 + Vercel AI SDK。
+>
+> **v0.5.0** — 一轮系统审查（主审 + 8 个并行 review agent）后的加固版：命令白名单安全绕过、状态机死锁、睡眠逻辑、跨 provider 文案全部修复。详见 [CHANGELOG](./CHANGELOG.md)。
 
 <p align="center">
   <img src="./docs/assets/demo.gif" alt="DeskPet interactions demo" width="640" />
 </p>
 <!-- Drop your demo GIF at ./docs/assets/demo.gif and it renders here. -->
-
-It lives in the corner of your desktop. **Click to chat**, and the AI autonomously decides whether to look at your screen, read files, run commands, or hit the web to answer you. Every "doing" capability is gated by a per-action approval modal (for high-risk actions) or hard-denied at compile time (for catastrophic ones), with a complete local audit log.
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![macOS](https://img.shields.io/badge/macOS-Sequoia%2B-black.svg)](#-installation-macos)
@@ -22,6 +22,28 @@ It lives in the corner of your desktop. **Click to chat**, and the AI autonomous
 > 制作工作流沿用 [@rullerzhou-afk](https://github.com/rullerzhou-afk) 的 [pet-forge](https://github.com/rullerzhou-afk/pet-forge) (MIT)。
 > **Clawd 形象本身未获原作者授权使用** — 本项目仅参考学习了 Clawd 的骨架（动画 rigging / 状态机层次），sprite 100% 独立重画。
 > 见 [§ Acknowledgments](#-acknowledgments)。
+
+---
+
+## 🎬 动画与交互特效
+
+桌宠不是一张静态图——它由 **A/B/C 三类状态机**（`src/main/state-machine.ts`，theme.json 驱动）控制，所有动画是自包含 SMIL 的 SVG，按状态无缝切换。
+
+| 特效 | 你会看到什么 | 怎么触发 |
+|---|---|---|
+| **🌊 待机呼吸** | idle.svg 6s pingpong 循环，角色轻轻起伏 | 默认态 |
+| **👀 idle 彩蛋** | 偶尔东张西望 / 打哈欠（idle-look / idle-yawn / idle-living） | 长时间待机随机插播，播完自动回 idle |
+| **🖱 光标跟随** | 身体随鼠标方向微微倾斜 + 外置阴影同步偏移（30Hz，dirty-check 省 CPU） | 待机时鼠标在桌面移动 |
+| **😴 睡眠链** | idle 3 分钟 → 播一次"趴下"过渡（collapse-sleep）→ 定格进入 sleeping 循环 | **只在真正发呆时**：你在敲代码 / 开着聊天框时不会睡（v0.5.0 修） |
+| **🌅 唤醒** | 点一下 / 鼠标移上来 / 切前台 app → 播一次"醒来"过渡 → 回 idle | 任意交互；睡眠链不被戳打断，让唤醒动画完整播完 |
+| **👉 戳一下反应** | 双击 → 小跳惊（react-poke）；4 连击 → 东张西望彩蛋 | 连点桌宠本体；v0.5.0 起工作态也有反应 |
+| **🤏 拖拽跟手** | 按住即跟手移动 + 屏幕边界 clamp（不会被推出屏外） | 拖动桌宠 |
+| **📌 贴边收起 mini** | 拖到屏幕右缘松手 → 收成只露半身的小挂件；hover 时探头看你（peek）；睡着时显示 mini-sleep | 拖近屏幕边；点一下回展开 |
+| **🛠 干活时的反馈** | 调用工具时身体周围珊瑚色 busy-ring 闪烁 + 头顶字条 toast；切换前台 app 时表情气泡 | AI 执行 tool / 你切换 app |
+| **🔁 切家提示** | 当前 provider 过载/限流时自动切下一家，头顶系统气泡告知（"OpenAI 过载, 已切到 Anthropic"） | provider fallback 自动发生 |
+| **💬 流式打字** | 回复像在"打字"一样逐字蹦出，6 家 provider 统一体验 | 任何对话 |
+
+> 状态优先级：`Error > Notification > 过渡桥锁 > Reaction > Working > IdleEgg > Idle`。权威生命周期转换（新对话 / 错误回收 / 重置）用 `force` 旁路，保证桌宠永不卡死在某个表情（v0.5.0 修了 error / thinking 两处死锁）。
 
 ---
 

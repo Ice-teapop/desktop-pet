@@ -188,6 +188,10 @@ export class LlmClient {
         let sawToolCall = false
         let finishedStepCount = 0
         let lastFinishReason: string | null = null
+        // S2 fix #1: fullStream 的 'error' part 必须捕获. 老逻辑只 surface 6 种 part,
+        // 把 'error' 落进末尾注释 "当前不 surface" → 流中 401/429/529 不中断循环, 最终被
+        // :238 一律误判 empty-response: 坏 key 永远不触发清理逻辑, fallback 文案也错.
+        let streamErrorPart: unknown = undefined
         for await (const part of result.fullStream) {
           if (aborted) return
           if (part.type === 'text-delta') {
@@ -217,11 +221,20 @@ export class LlmClient {
             lastFinishReason = part.finishReason
           } else if (part.type === 'finish') {
             lastFinishReason = part.finishReason
+          } else if (part.type === 'error') {
+            // 记下错误对象, 跳出后走 classifyError (不立即 return, 让循环自然收尾)
+            streamErrorPart = (part as { error?: unknown }).error
           }
-          // 其它 part type (text-start/text-end/start-step/error/...) 当前不 surface。
+          // 其它 part type (text-start/text-end/start-step/...) 当前不 surface。
         }
 
         if (aborted) return
+        // 流中出现 error part: 用真错误对象归类 (含 statusCode/responseBody), 优先于
+        // 下面的 empty-response 兜底 —— 这样流式 401 能正确触发坏 key 清理.
+        if (streamErrorPart !== undefined) {
+          handler.onError(classifyError(streamErrorPart))
+          return
+        }
         const finishReason = String(lastFinishReason ?? (await result.finishReason))
         if (sawToolCall && finishedStepCount >= MAX_TOOL_STEPS && finishReason === 'tool-calls') {
           handler.onError({ kind: 'tool-loop-limit', maxSteps: MAX_TOOL_STEPS })
@@ -358,19 +371,6 @@ function classifyError(err: unknown): ChatError {
     return { kind: 'api', message: err.message }
   }
 
-  // **AI SDK NoOutputGeneratedError**: SDK 把 server 错误 (529 / 网络中断 / 等) wrap
-  // 成 generic "No output generated" 错误, **cause 字段是 undefined 不可追**.
-  // 真 APICallError 只在 SDK 内部 console 打印, 我们 catch 到时已 lost. 实测 dev log:
-  //   L0: name=AI_NoOutputGeneratedError keys=[name,cause] statusCode=undefined
-  //       msg="No output generated. Check the stream for errors."
-  // 同时 stdout 单独有 APICallError [AI_APICallError]: Overloaded 但**不在 err 对象上**.
-  // 策略: 归类 'empty-response' (我们已有 kind), fallback chain 同样接受这种.
-  for (const c of chain) {
-    if (c?.name === 'AI_NoOutputGeneratedError') {
-      return { kind: 'empty-response', finishReason: 'no-output-generated' }
-    }
-  }
-
   // 链中任一层有 statusCode → 归类
   for (const c of chain) {
     const status = c?.statusCode
@@ -408,6 +408,16 @@ function classifyError(err: unknown): ChatError {
       body.includes('quota_exceeded')
     ) {
       return { kind: 'rate-limited' }
+    }
+  }
+
+  // **AI SDK NoOutputGeneratedError**: SDK 把 server 错误 wrap 成 generic "No output
+  // generated", 真 APICallError 有时在 cause 链里 (上面 statusCode/body walk 已尝试抓),
+  // 有时丢失. 上面都没命中才退到 empty-response —— 移到 statusCode/body 之后 (原来在前面,
+  // 会让 cause 链里真有的 401/529 被这条抢先误判 empty-response).
+  for (const c of chain) {
+    if (c?.name === 'AI_NoOutputGeneratedError') {
+      return { kind: 'empty-response', finishReason: 'no-output-generated' }
     }
   }
 

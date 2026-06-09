@@ -42,7 +42,7 @@ export const en: I18nDict = {
   'chat.import_files_title': 'Feed files to the pet (system picker)',
   'chat.empty_placeholder_dots': 'Say something to the pet...',
   'chat.placeholder_initializing': 'Initializing…',
-  'chat.placeholder_replying': 'Claw is replying…',
+  'chat.placeholder_replying': 'Furina is replying…',
   'chat.placeholder_paste_key': 'Paste any provider API key (sk-ant- / sk- / AIza / xai- / UUID)',
   'chat.kbd_send_close': '{0} to send · {1} to close',
 
@@ -73,6 +73,10 @@ export const en: I18nDict = {
   'tool_label.get_weather': 'Get weather',
   'tool_label.read_system_preference': 'System pref',
   'tool_label.set_pet_animation': 'Pet animation',
+  'tool_label.open_system_settings': 'Open System Settings',
+  'tool_label.remember': 'Remember',
+  'tool_label.load_skill': 'Load skill',
+  'tool_label.save_user_profile': 'Save your prefs',
 
   // —— Tool card status ——
   'tool.status.running': 'running',
@@ -89,7 +93,7 @@ export const en: I18nDict = {
   'settings.section.memory': 'Cross-session memory',
   'settings.section.about': 'About',
   // Toast
-  'settings.toast.key_saved': '{0} key saved (encrypted)',
+  'settings.toast.key_saved': '{0} key submitted, validating…',
   'settings.toast.key_cleared': '{0} key cleared',
   'settings.toast.switched_provider': 'Switched to {0} (cross-provider opens a new conversation)',
   'settings.toast.tavily_saved': 'Tavily key saved (encrypted)',
@@ -243,8 +247,8 @@ export const en: I18nDict = {
   'err.invalid_api_key': '⚠️ This API key was rejected — paste a fresh one',
   'err.rate_limited_with_sec': '⏱️ Too fast, retry in {0}s',
   'err.rate_limited': '⏱️ Rate-limited, slow down a bit',
-  'err.overloaded': '😵 Claude is busy right now, retry shortly',
-  'err.network': "🌐 Can't reach Anthropic, check your network",
+  'err.overloaded': '😵 The model service is busy right now, retry shortly',
+  'err.network': "🌐 Can't reach the server, check your network",
   'err.key_not_persisted':
     '⚠️ No encryption backend on this OS, can chat this session but key will be lost on next launch (Linux: install libsecret / gnome-keyring)',
   'err.key_format_invalid': '⚠️ Key format looks wrong, check for extra whitespace or stray chars',

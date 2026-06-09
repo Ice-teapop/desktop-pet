@@ -65,9 +65,6 @@ const SAFE_REGEX: RegExp[] = [
  * 不允许用户解锁是为了防 social engineering（AI 用花言巧语劝用户允许）。
  */
 const HARD_DENY_REGEX: RegExp[] = [
-  /\brm\s+-r?f?\s+\/(\s|$)/, // rm -rf /
-  /\brm\s+-r?f?\s+~(\/|\s|$)/, // rm -rf ~
-  /\brm\s+-r?f?\s+\$HOME/,
   /\bsudo\b/,
   /\bdoas\b/,
   /\bsu\s/,
@@ -88,6 +85,33 @@ const HARD_DENY_REGEX: RegExp[] = [
   /\beval\s/, // 任意代码执行
   /\bexec\s/
 ]
+
+/**
+ * 灾难性 rm 检测 (替代老的 3 条 rm 正则) —— 老正则 `/\brm\s+-r?f?\s+.../` 强制 r 在 f 前、
+ * 不认长选项, 实测 `rm -fr /` / `rm -r -f /` / `rm --recursive --force /` / `rm -rf /Users/han`
+ * 全部绕过跌到 needs-approval, 用户被劝一下点允许就执行. 改成 tokenize 后按语义判:
+ * 只要是 rm 且任一目标指向**整盘根 / 家目录根 / 系统关键目录**, 无论 flag 形态一律 HARD_DENY.
+ * 删子目录 (如 ~/Documents/foo) 不在此列, 仍走 needs-approval 让用户决定.
+ */
+function isCatastrophicTarget(token: string): boolean {
+  // 去尾随斜杠 (但保留根 '/' 本身)
+  const p = token.length > 1 ? token.replace(/\/+$/, '') : token
+  if (p === '/' || p === '~' || p === '$HOME' || p === '${HOME}' || p === '.') return true
+  // 家目录根 (只一层 → 删整个用户家目录): /Users/<name> 或 /home/<name>
+  if (/^\/(Users|home)\/[^/]+$/.test(p)) return true
+  // 系统关键根
+  if (/^\/(System|Library|usr|bin|sbin|etc|var|opt|private|Applications)$/.test(p)) return true
+  return false
+}
+
+function isCatastrophicRm(cmd: string): boolean {
+  const tokens = cmd.trim().split(/\s+/)
+  // 允许带路径前缀 (/bin/rm) 或纯 rm; 第一个匹配的 rm token 之后的非 flag 都算目标
+  const idx = tokens.findIndex((t) => t === 'rm' || t.endsWith('/rm'))
+  if (idx === -1) return false
+  const targets = tokens.slice(idx + 1).filter((t) => !t.startsWith('-'))
+  return targets.some(isCatastrophicTarget)
+}
 
 export interface CommandCheck {
   /** 'safe' = 白名单免 modal；'deny' = 硬拒；'needs-approval' = 弹 modal */
@@ -114,7 +138,14 @@ export function checkCommand(rawCmd: string): CommandCheck {
   // 防多行（subshell / heredoc）
   if (cmd.includes('\n')) return { level: 'deny', reason: 'multiline commands rejected' }
 
-  // 硬拒
+  // 硬拒: 灾难性 rm (tokenize 判, flag 顺序无关) + 其它危险 pattern
+  if (isCatastrophicRm(cmd)) {
+    return {
+      level: 'deny',
+      reason: '永久拒绝: rm 指向根/家目录/系统目录',
+      matched: 'catastrophic-rm'
+    }
+  }
   for (const re of HARD_DENY_REGEX) {
     if (re.test(cmd)) {
       return { level: 'deny', reason: '永久拒绝的危险命令', matched: re.source }

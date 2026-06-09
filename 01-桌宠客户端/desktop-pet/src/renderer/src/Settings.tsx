@@ -7,7 +7,7 @@
  *
  * 隐私：**不读取 / 不缓存任何 key 实际值** —— 仅订阅 `ProviderKeyStates` boolean map。
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   PROVIDERS,
   PROVIDER_ORDER,
@@ -75,6 +75,12 @@ function Settings(): React.JSX.Element {
   // —— M5-3 User profile form state ——
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [profileDirty, setProfileDirty] = useState(false)
+  // D3-fix: 订阅 effect ([] deps) 里读 profileDirty 会永远闭包到初始 false → "编辑中不覆盖"
+  // guard 失效, main 推送会覆盖正在编辑的表单. 用 ref 镜像 state 让 handler 读到实时值.
+  const profileDirtyRef = useRef(false)
+  useEffect(() => {
+    profileDirtyRef.current = profileDirty
+  }, [profileDirty])
 
   // —— Toast 状态（操作反馈） ——
   const [toast, setToast] = useState<string | null>(null)
@@ -93,7 +99,8 @@ function Settings(): React.JSX.Element {
     const offTrusted = window.api.onTrustedDirsState((s) => setTrustedDirs(s))
     const offProfile = window.api.onUserProfileState((p) => {
       // 服务端 push 进来时，如果 user 没在改（dirty），直接覆盖；改了别打断
-      setProfile((cur) => (profileDirty && cur ? cur : p))
+      // 读 ref 而非 state —— 见 profileDirtyRef 注释 (闭包陈旧 bug)
+      setProfile((cur) => (profileDirtyRef.current && cur ? cur : p))
     })
     window.api.requestProviderKeyStates()
     window.api.requestSelectedModelState()
@@ -114,7 +121,6 @@ function Settings(): React.JSX.Element {
       offProfile()
     }
     // 故意不放 profileDirty 进 deps —— ref-like 用法 + 订阅 effect 不应重启
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // —— Provider key actions（generic，6 provider 共用） ——

@@ -117,6 +117,18 @@ export function setApprovalPetWindow(win: BrowserWindow | null): void {
   petWindowRef = win
 }
 
+/**
+ * 通知 renderer 某 approval 已被 main 端自行了结 (超时 auto-deny / 队列卡死兜底),
+ * 让它把残留的 modal 从队列移除. 用户主动响应的 case 不需要 —— renderer 自己 slice 了.
+ * 不发的话 (老 bug): 超时 deny 后 modal 还挂着, 用户第 61s 点"允许" → pendingEntries
+ * 已空 → 静默无效, 用户以为允许了实际早被拒.
+ */
+function notifyResolved(id: string): void {
+  if (petWindowRef && !petWindowRef.isDestroyed()) {
+    petWindowRef.webContents.send('approval:resolved', id)
+  }
+}
+
 /** 单条 approval 用户响应窗口 (modal 真显示后开始计时) */
 const APPROVAL_TIMEOUT_MS = 60_000
 
@@ -160,6 +172,7 @@ export async function requestApproval(req: Omit<ApprovalRequest, 'id'>): Promise
         pendingEntries.delete(id)
         console.warn(`[approval] queue stuck >${APPROVAL_QUEUE_STUCK_MS}ms, auto-deny: ${id}`)
         entry.resolve('deny')
+        notifyResolved(id)
       }
     }, APPROVAL_QUEUE_STUCK_MS)
     pendingEntries.set(id, { resolve, timer: null, fallbackTimer })
@@ -183,6 +196,7 @@ export function registerApprovalIpc(): void {
         clearTimeout(e.fallbackTimer)
         pendingEntries.delete(id)
         e.resolve('deny')
+        notifyResolved(id) // 撤掉 renderer 残留 modal, 防用户事后点"允许"静默无效
       }
     }, APPROVAL_TIMEOUT_MS)
   })
