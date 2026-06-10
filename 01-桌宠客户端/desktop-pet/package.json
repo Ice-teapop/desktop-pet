@@ -1,7 +1,7 @@
 {
   "name": "desktop-pet-furina",
   "productName": "DeskPet-Furina",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "DeskPet-Furina — 桌宠 Furina 形象版（Electron + React + TS，基于 DeskPet 主线 fork）",
   "main": "./out/main/index.js",
   "author": "han",

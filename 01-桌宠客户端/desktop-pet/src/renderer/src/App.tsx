@@ -50,10 +50,8 @@ import idleLookGif from '@themes/deskpet-furina/svg/idle-look.svg'
 import idleYawnGif from '@themes/deskpet-furina/svg/idle-yawn.svg'
 import collapseSleepGif from '@themes/deskpet-furina/svg/collapse-sleep.svg'
 import wakeGif from '@themes/deskpet-furina/svg/wake.svg'
-// v0.5.0 final2: IdleFollowSvg 回归 — chromium <img src=svg> 路径下 SMIL 有 quirk
-// (大文件 idle.svg 2.5MB 不播或卡), inline svg 路径 SMIL 更可靠. 多分身根因已修
-// (SVG width 300 + overflow:hidden + 无 will-change), 这次 inline 不复发 ghost.
-import IdleFollowSvg from '@themes/deskpet-furina/svg/idle.svg?react'
+// v0.5.1: 移除 IdleFollowSvg (idle.svg?react) —— svgr 没处理 themes/ 下的 ?react import,
+// 返回原始 SVG 文本而非组件 → 待机无形象. idle 改走 <img src={idleGif}> 跟其它状态一致.
 // mini mode (Furina 单独 mini-* 系列)
 import miniIdleGif from '@themes/deskpet-furina/svg/mini-idle.svg'
 import miniEnterGif from '@themes/deskpet-furina/svg/mini-enter.svg'
@@ -1814,22 +1812,17 @@ function App(): React.JSX.Element {
             style={{ opacity: 1 }}
           />
         )}
-        {/* v0.5.0 final2: idle 单独走 inline svg ?react 路径 (chromium <img src=svg>
-            对大 SMIL 文件如 idle.svg 2.5MB 不稳, inline svg 一定播). 非 idle 状态
-            继续走单 img + gifUrl. 条件 mount, 永不并存 → 无多分身. */}
-        {showIdleCursorFollow && <IdleFollowSvg />}
+        {/* v0.5.1 形象修复: idle 也走单 img + gifUrl, 跟所有其它状态一致.
+            原 `IdleFollowSvg`(idle.svg?react) 依赖 vite-plugin-svgr 处理 ?react, 但实测
+            dev/build 下 `idle.svg?react` 返回的是**原始 SVG 文本**而非 React 组件 (svgr 没命中
+            themes/ 路径的 ?react import) → IdleFollowSvg 渲染空 → 待机时"没有形象". react-poke.svg
+            等同款 2.3MB sprite-sheet SMIL 走 <img src> 正常显示, 故 idle 统一走 img.
+            光标跟随倾斜在 .pet 容器上做 (showIdleCursorFollow 仍 gate 倾斜计算), 不依赖此元素. */}
         <img
           src={gifUrl}
           alt=""
           draggable={false}
-          style={{
-            opacity:
-              petMode === 'mini'
-                ? 0
-                : showIdleCursorFollow
-                  ? 0 // idle 时让位给 IdleFollow inline svg
-                  : 1
-          }}
+          style={{ opacity: petMode === 'mini' ? 0 : 1 }}
         />
       </div>
     </div>
